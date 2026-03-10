@@ -277,6 +277,8 @@ async function requestManualUpdate() {
     setStatus('Обновление: запрос отправлен');
   } else if (response?.error === 'not_packaged') {
     setStatus('Обновление доступно только в .dmg/.exe сборке');
+  } else if (response?.error === 'mac_signature_required') {
+    setStatus('Для macOS: обновление вручную через GitHub Releases');
   } else if (response?.error) {
     setStatus(`Обновление: ${response.error}`);
   }

@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs/promises');
 const fsSync = require('fs');
 const crypto = require('crypto');
+const { spawnSync } = require('child_process');
 
 const APP_ID = 'com.local.wadeck.v2';
 const APP_TITLE = 'WA Deck';
@@ -15,6 +16,7 @@ const AIMLAPI_CHAT_COMPLETIONS_URL = 'https://api.aimlapi.com/v1/chat/completion
 const AIMLAPI_MODELS_URL = 'https://api.aimlapi.com/models';
 const DEFAULT_AI_MODEL = 'google/gemma-3-4b-it';
 const AIML_MODELS_CACHE_TTL_MS = 10 * 60 * 1000;
+const RELEASES_LATEST_URL = 'https://github.com/tamilamokrousova0/WA-Deck/releases/latest';
 
 const DEFAULT_SETTINGS = {
   uiTheme: 'dark',
@@ -59,6 +61,7 @@ let aiModelsCache = {
 };
 let lastUpdateProgressPercent = -1;
 let autoUpdaterConfigured = false;
+let macDeveloperIdSignatureCache = null;
 
 function setDockBadge(count) {
   const safeCount = Math.max(0, Number(count) || 0);
@@ -1202,9 +1205,36 @@ function normalizeUpdaterErrorMessage(error) {
   return 'Не удалось проверить обновления';
 }
 
+function hasMacDeveloperIdSignature() {
+  if (process.platform !== 'darwin') return true;
+  if (macDeveloperIdSignatureCache !== null) return macDeveloperIdSignatureCache;
+
+  try {
+    const result = spawnSync('/usr/bin/codesign', ['-dv', '--verbose=2', process.execPath], {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    const output = `${String(result.stdout || '')}\n${String(result.stderr || '')}`;
+    const hasDeveloperId = /Authority=Developer ID Application:/i.test(output);
+    macDeveloperIdSignatureCache = hasDeveloperId;
+    return hasDeveloperId;
+  } catch {
+    macDeveloperIdSignatureCache = false;
+    return false;
+  }
+}
+
 async function checkForUpdatesNow(source = 'manual') {
   if (!app.isPackaged) {
     return { ok: false, error: 'not_packaged', source };
+  }
+  if (process.platform === 'darwin' && !hasMacDeveloperIdSignature()) {
+    const message = 'Для macOS эта сборка без Developer ID. Обновите вручную через Releases.';
+    sendAutoUpdateStatus({ status: 'error', source, message });
+    if (String(source || '').startsWith('manual')) {
+      shell.openExternal(RELEASES_LATEST_URL).catch(() => {});
+    }
+    return { ok: false, error: 'mac_signature_required', source, message };
   }
   try {
     lastUpdateProgressPercent = -1;
