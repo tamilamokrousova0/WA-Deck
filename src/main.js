@@ -1,4 +1,5 @@
 const { app, BrowserWindow, dialog, ipcMain, shell, clipboard, session } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs/promises');
 const fsSync = require('fs');
@@ -14,6 +15,7 @@ const AIMLAPI_CHAT_COMPLETIONS_URL = 'https://api.aimlapi.com/v1/chat/completion
 const AIMLAPI_MODELS_URL = 'https://api.aimlapi.com/models';
 const DEFAULT_AI_MODEL = 'google/gemma-3-4b-it';
 const AIML_MODELS_CACHE_TTL_MS = 10 * 60 * 1000;
+const AUTO_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 const DEFAULT_SETTINGS = {
   uiTheme: 'dark',
@@ -56,6 +58,8 @@ let aiModelsCache = {
   at: 0,
   models: [],
 };
+let autoUpdateTimer = null;
+let lastUpdateProgressPercent = -1;
 
 function setDockBadge(count) {
   const safeCount = Math.max(0, Number(count) || 0);
@@ -1175,6 +1179,122 @@ function setupWebviewGuards() {
   });
 }
 
+function sendAutoUpdateStatus(payload = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('auto-update-status', payload);
+}
+
+async function checkForUpdatesNow(source = 'manual') {
+  if (!app.isPackaged) {
+    return { ok: false, error: 'not_packaged', source };
+  }
+  try {
+    await autoUpdater.checkForUpdates();
+    return { ok: true, source };
+  } catch (error) {
+    const message = String(error?.message || error || 'update_check_failed');
+    sendAutoUpdateStatus({ status: 'error', source, message });
+    return { ok: false, source, error: message };
+  }
+}
+
+function setupAutoUpdater() {
+  if (!app.isPackaged) {
+    sendAutoUpdateStatus({
+      status: 'disabled',
+      source: 'startup',
+      message: 'Автообновление отключено в режиме разработки',
+    });
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('checking-for-update', () => {
+    sendAutoUpdateStatus({ status: 'checking', source: 'auto', message: 'Проверка обновлений...' });
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    sendAutoUpdateStatus({
+      status: 'available',
+      source: 'auto',
+      version: String(info?.version || ''),
+      message: `Найдена новая версия ${String(info?.version || '')}`,
+    });
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    sendAutoUpdateStatus({
+      status: 'not-available',
+      source: 'auto',
+      version: String(info?.version || app.getVersion()),
+      message: `Установлена актуальная версия ${String(info?.version || app.getVersion())}`,
+    });
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    const percent = Math.floor(Number(progress?.percent || 0));
+    if (percent === lastUpdateProgressPercent) return;
+    lastUpdateProgressPercent = percent;
+    sendAutoUpdateStatus({
+      status: 'downloading',
+      source: 'auto',
+      percent,
+      transferred: Number(progress?.transferred || 0),
+      total: Number(progress?.total || 0),
+      message: `Загрузка обновления: ${percent}%`,
+    });
+  });
+
+  autoUpdater.on('update-downloaded', async (info) => {
+    lastUpdateProgressPercent = -1;
+    sendAutoUpdateStatus({
+      status: 'downloaded',
+      source: 'auto',
+      version: String(info?.version || ''),
+      message: `Обновление ${String(info?.version || '')} загружено`,
+    });
+
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      buttons: ['Перезапустить сейчас', 'Позже'],
+      defaultId: 0,
+      cancelId: 1,
+      title: APP_TITLE,
+      message: 'Обновление загружено',
+      detail: `Версия ${String(info?.version || '')} готова к установке. Перезапустить приложение сейчас?`,
+    });
+    if (result.response === 0) {
+      setImmediate(() => autoUpdater.quitAndInstall());
+    }
+  });
+
+  autoUpdater.on('error', (error) => {
+    lastUpdateProgressPercent = -1;
+    sendAutoUpdateStatus({
+      status: 'error',
+      source: 'auto',
+      message: String(error?.message || error || 'update_error'),
+    });
+  });
+
+  setTimeout(() => {
+    checkForUpdatesNow('startup').catch(() => {});
+  }, 12000);
+
+  if (autoUpdateTimer) {
+    clearInterval(autoUpdateTimer);
+  }
+  autoUpdateTimer = setInterval(() => {
+    checkForUpdatesNow('interval').catch(() => {});
+  }, AUTO_UPDATE_INTERVAL_MS);
+}
+
 function nextTemplateTitle() {
   let max = 0;
   for (const template of state.store.templates) {
@@ -1443,9 +1563,28 @@ function registerIpc() {
   ipcMain.handle('set-dock-badge', async (_event, payload) => {
     return setDockBadge(payload?.count);
   });
+
+  ipcMain.handle('check-for-updates', async (_event, payload) => {
+    return checkForUpdatesNow(String(payload?.source || 'manual'));
+  });
+
+  ipcMain.handle('install-downloaded-update', async () => {
+    if (!app.isPackaged) {
+      return { ok: false, error: 'not_packaged' };
+    }
+    try {
+      setImmediate(() => autoUpdater.quitAndInstall());
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: String(error?.message || error || 'install_failed') };
+    }
+  });
 }
 
 async function bootstrap() {
+  if (process.platform === 'win32') {
+    app.setAppUserModelId(APP_ID);
+  }
   ensurePaths();
   await loadStore();
   ensureDefaultAccount();
@@ -1454,6 +1593,7 @@ async function bootstrap() {
   setupWebviewGuards();
   registerIpc();
   createWindow();
+  setupAutoUpdater();
 }
 
 if (addSingleInstanceGuard()) {
@@ -1464,6 +1604,13 @@ if (addSingleInstanceGuard()) {
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
+  });
+
+  app.on('before-quit', () => {
+    if (autoUpdateTimer) {
+      clearInterval(autoUpdateTimer);
+      autoUpdateTimer = null;
+    }
   });
 
   app.on('activate', () => {

@@ -18,6 +18,7 @@ const state = {
   unreadByAccount: new Map(),
   unreadPollTimer: null,
   dockBadgeTimer: null,
+  autoUpdateUnsubscribe: null,
   translateTargetLang: 'RU',
   translateSourceLang: 'AUTO',
   aiModel: 'google/gemma-3-4b-it',
@@ -190,6 +191,40 @@ function setStatus(text) {
   if (els.panelStatus) {
     els.panelStatus.textContent = text;
     els.panelStatus.title = text;
+  }
+}
+
+function handleAutoUpdateStatus(payload = {}) {
+  const status = String(payload?.status || '').trim();
+  const message = String(payload?.message || '').trim();
+  const version = String(payload?.version || '').trim();
+  const percent = Number(payload?.percent || 0);
+
+  if (status === 'disabled') {
+    return;
+  }
+  if (status === 'checking') {
+    setStatus('Обновление: проверка новой версии...');
+    return;
+  }
+  if (status === 'available') {
+    setStatus(`Обновление: найдена версия ${version || 'новая'}`);
+    return;
+  }
+  if (status === 'downloading') {
+    setStatus(`Обновление: загрузка ${Math.max(0, Math.min(100, percent))}%`);
+    return;
+  }
+  if (status === 'downloaded') {
+    setStatus(`Обновление ${version || ''} загружено. Можно перезапустить приложение.`);
+    return;
+  }
+  if (status === 'not-available') {
+    if (message) setStatus(`Обновление: ${message}`);
+    return;
+  }
+  if (status === 'error') {
+    setStatus(`Обновление: ошибка (${message || 'unknown'})`);
   }
 }
 
@@ -2820,6 +2855,12 @@ function bindActions() {
 }
 
 async function init() {
+  if (typeof window.waDeck.onAutoUpdateStatus === 'function' && !state.autoUpdateUnsubscribe) {
+    state.autoUpdateUnsubscribe = window.waDeck.onAutoUpdateStatus((payload) => {
+      handleAutoUpdateStatus(payload);
+    });
+  }
+
   const boot = await window.waDeck.bootstrap();
   state.accounts = Array.isArray(boot.accounts) ? boot.accounts : [];
   state.settings = {

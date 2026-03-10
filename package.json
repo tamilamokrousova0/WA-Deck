@@ -7,13 +7,17 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "electron .",
     "dev": "electron .",
-    "dist:mac": "electron-builder --mac dmg --arm64"
+    "dist:mac": "electron-builder --mac dmg --arm64",
+    "dist:win": "electron-builder --win nsis --x64",
+    "dist:all": "electron-builder --mac dmg --arm64 --win nsis --x64"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
-  "dependencies": {},
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
   "devDependencies": {
     "electron": "^40.8.0",
     "electron-builder": "^26.8.1"
@@ -40,6 +44,36 @@
           ]
         }
       ]
-    }
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "tamilamokrousova0",
+        "repo": "WA-Deck",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tamilamokrousova0/WA-Deck.git"
+  },
+  "homepage": "https://github.com/tamilamokrousova0/WA-Deck",
+  "bugs": {
+    "url": "https://github.com/tamilamokrousova0/WA-Deck/issues"
   }
 }

@@ -26,4 +26,12 @@ contextBridge.exposeInMainWorld('waDeck', {
   getClipboardText: () => ipcRenderer.invoke('get-clipboard-text'),
   setClipboardText: (text) => ipcRenderer.invoke('set-clipboard-text', text),
   setDockBadge: (payload) => ipcRenderer.invoke('set-dock-badge', payload),
+  checkForUpdates: (payload) => ipcRenderer.invoke('check-for-updates', payload),
+  installDownloadedUpdate: () => ipcRenderer.invoke('install-downloaded-update'),
+  onAutoUpdateStatus: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, payload) => callback(payload || {});
+    ipcRenderer.on('auto-update-status', listener);
+    return () => ipcRenderer.removeListener('auto-update-status', listener);
+  },
 });
