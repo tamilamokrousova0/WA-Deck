@@ -1187,6 +1187,9 @@ function normalizeUpdaterErrorMessage(error) {
   const raw = String(error?.message || error || '').trim();
   const lower = raw.toLowerCase();
   if (!raw) return 'Проверка обновлений временно недоступна';
+  if (lower.includes('zip file not provided') || lower.includes('zip not provided')) {
+    return 'В релизе отсутствует ZIP для автообновления macOS';
+  }
   if (lower.includes('releases.atom') || lower.includes('404') || lower.includes('not found')) {
     return 'Обновления не найдены в GitHub Releases';
   }

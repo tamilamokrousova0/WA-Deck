@@ -20,6 +20,8 @@ jobs:
             artifact_path: |
               dist/*.dmg
               dist/*.dmg.blockmap
+              dist/*.zip
+              dist/*.zip.blockmap
               dist/latest-mac.yml
           - os: windows-2022
             build_script: dist:win
@@ -74,6 +76,8 @@ jobs:
           files: |
             dist-artifacts/**/*.dmg
             dist-artifacts/**/*.dmg.blockmap
+            dist-artifacts/**/*.zip
+            dist-artifacts/**/*.zip.blockmap
             dist-artifacts/**/*.exe
             dist-artifacts/**/*.exe.blockmap
             dist-artifacts/**/latest.yml
