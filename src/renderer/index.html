@@ -9,8 +9,9 @@
   <body>
     <div id="app-root" class="app panel-hidden">
       <aside class="sidebar">
-        <div class="brand">
+        <div id="brand-frog" class="brand" title="WA Deck">
           <img src="../../assets/icon/wadeck-icon-512.png" alt="WA Deck" />
+          <div id="brand-money-burst" class="brand-money-burst" aria-hidden="true"></div>
         </div>
         <div id="accounts-list" class="accounts-list"></div>
         <button id="add-account" class="btn btn-ghost add-account-btn" title="Добавить WhatsApp">+</button>
@@ -205,6 +206,10 @@
           <button id="create-schedule" class="btn btn-primary full">Запланировать</button>
           <div id="scheduled-list" class="scheduled-list"></div>
         </details>
+
+        <div class="panel-bottom-actions">
+          <button id="manual-update" class="btn btn-primary">Обновление</button>
+        </div>
       </aside>
     </div>
 

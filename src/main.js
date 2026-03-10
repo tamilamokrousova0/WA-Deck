@@ -15,7 +15,6 @@ const AIMLAPI_CHAT_COMPLETIONS_URL = 'https://api.aimlapi.com/v1/chat/completion
 const AIMLAPI_MODELS_URL = 'https://api.aimlapi.com/models';
 const DEFAULT_AI_MODEL = 'google/gemma-3-4b-it';
 const AIML_MODELS_CACHE_TTL_MS = 10 * 60 * 1000;
-const AUTO_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 const DEFAULT_SETTINGS = {
   uiTheme: 'dark',
@@ -58,8 +57,8 @@ let aiModelsCache = {
   at: 0,
   models: [],
 };
-let autoUpdateTimer = null;
 let lastUpdateProgressPercent = -1;
+let autoUpdaterConfigured = false;
 
 function setDockBadge(count) {
   const safeCount = Math.max(0, Number(count) || 0);
@@ -1184,26 +1183,48 @@ function sendAutoUpdateStatus(payload = {}) {
   mainWindow.webContents.send('auto-update-status', payload);
 }
 
+function normalizeUpdaterErrorMessage(error) {
+  const raw = String(error?.message || error || '').trim();
+  const lower = raw.toLowerCase();
+  if (!raw) return 'Проверка обновлений временно недоступна';
+  if (lower.includes('releases.atom') || lower.includes('404') || lower.includes('not found')) {
+    return 'Обновления не найдены в GitHub Releases';
+  }
+  if (lower.includes('net::') || lower.includes('network') || lower.includes('econn') || lower.includes('timeout')) {
+    return 'Ошибка сети при проверке обновлений';
+  }
+  if (lower.includes('token') || lower.includes('authentication') || lower.includes('unauthorized')) {
+    return 'Ошибка доступа к GitHub Releases';
+  }
+  return 'Не удалось проверить обновления';
+}
+
 async function checkForUpdatesNow(source = 'manual') {
   if (!app.isPackaged) {
     return { ok: false, error: 'not_packaged', source };
   }
   try {
+    lastUpdateProgressPercent = -1;
     await autoUpdater.checkForUpdates();
     return { ok: true, source };
   } catch (error) {
-    const message = String(error?.message || error || 'update_check_failed');
+    const message = normalizeUpdaterErrorMessage(error);
     sendAutoUpdateStatus({ status: 'error', source, message });
     return { ok: false, source, error: message };
   }
 }
 
 function setupAutoUpdater() {
+  if (autoUpdaterConfigured) {
+    return;
+  }
+  autoUpdaterConfigured = true;
+
   if (!app.isPackaged) {
     sendAutoUpdateStatus({
       status: 'disabled',
-      source: 'startup',
-      message: 'Автообновление отключено в режиме разработки',
+      source: 'manual',
+      message: 'Обновление доступно только в собранной версии',
     });
     return;
   }
@@ -1212,13 +1233,13 @@ function setupAutoUpdater() {
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on('checking-for-update', () => {
-    sendAutoUpdateStatus({ status: 'checking', source: 'auto', message: 'Проверка обновлений...' });
+    sendAutoUpdateStatus({ status: 'checking', source: 'manual', message: 'Проверка обновлений...' });
   });
 
   autoUpdater.on('update-available', (info) => {
     sendAutoUpdateStatus({
       status: 'available',
-      source: 'auto',
+      source: 'manual',
       version: String(info?.version || ''),
       message: `Найдена новая версия ${String(info?.version || '')}`,
     });
@@ -1227,9 +1248,9 @@ function setupAutoUpdater() {
   autoUpdater.on('update-not-available', (info) => {
     sendAutoUpdateStatus({
       status: 'not-available',
-      source: 'auto',
+      source: 'manual',
       version: String(info?.version || app.getVersion()),
-      message: `Установлена актуальная версия ${String(info?.version || app.getVersion())}`,
+      message: `Актуальная версия ${String(info?.version || app.getVersion())}`,
     });
   });
 
@@ -1239,7 +1260,7 @@ function setupAutoUpdater() {
     lastUpdateProgressPercent = percent;
     sendAutoUpdateStatus({
       status: 'downloading',
-      source: 'auto',
+      source: 'manual',
       percent,
       transferred: Number(progress?.transferred || 0),
       total: Number(progress?.total || 0),
@@ -1251,7 +1272,7 @@ function setupAutoUpdater() {
     lastUpdateProgressPercent = -1;
     sendAutoUpdateStatus({
       status: 'downloaded',
-      source: 'auto',
+      source: 'manual',
       version: String(info?.version || ''),
       message: `Обновление ${String(info?.version || '')} загружено`,
     });
@@ -1278,21 +1299,10 @@ function setupAutoUpdater() {
     lastUpdateProgressPercent = -1;
     sendAutoUpdateStatus({
       status: 'error',
-      source: 'auto',
-      message: String(error?.message || error || 'update_error'),
+      source: 'manual',
+      message: normalizeUpdaterErrorMessage(error),
     });
   });
-
-  setTimeout(() => {
-    checkForUpdatesNow('startup').catch(() => {});
-  }, 12000);
-
-  if (autoUpdateTimer) {
-    clearInterval(autoUpdateTimer);
-  }
-  autoUpdateTimer = setInterval(() => {
-    checkForUpdatesNow('interval').catch(() => {});
-  }, AUTO_UPDATE_INTERVAL_MS);
 }
 
 function nextTemplateTitle() {
@@ -1607,10 +1617,7 @@ if (addSingleInstanceGuard()) {
   });
 
   app.on('before-quit', () => {
-    if (autoUpdateTimer) {
-      clearInterval(autoUpdateTimer);
-      autoUpdateTimer = null;
-    }
+    // noop
   });
 
   app.on('activate', () => {

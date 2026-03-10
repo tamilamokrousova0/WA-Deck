@@ -38,6 +38,8 @@ const state = {
 
 const els = {
   appRoot: document.getElementById('app-root'),
+  brandFrog: document.getElementById('brand-frog'),
+  brandMoneyBurst: document.getElementById('brand-money-burst'),
   accountsList: document.getElementById('accounts-list'),
   addAccount: document.getElementById('add-account'),
   webviews: document.getElementById('webviews'),
@@ -52,6 +54,7 @@ const els = {
   togglePanel: document.getElementById('toggle-panel'),
   panel: document.getElementById('panel'),
   closePanel: document.getElementById('close-panel'),
+  manualUpdate: document.getElementById('manual-update'),
   themeToggle: document.getElementById('theme-toggle'),
   panelStatus: document.getElementById('panel-status'),
 
@@ -196,19 +199,20 @@ function setStatus(text) {
 
 function handleAutoUpdateStatus(payload = {}) {
   const status = String(payload?.status || '').trim();
-  const message = String(payload?.message || '').trim();
+  const message = String(payload?.message || '').trim() || 'временно недоступно';
   const version = String(payload?.version || '').trim();
   const percent = Number(payload?.percent || 0);
 
   if (status === 'disabled') {
+    setStatus('Обновление доступно только в собранной версии');
     return;
   }
   if (status === 'checking') {
-    setStatus('Обновление: проверка новой версии...');
+    setStatus('Обновление: проверка...');
     return;
   }
   if (status === 'available') {
-    setStatus(`Обновление: найдена версия ${version || 'новая'}`);
+    setStatus(`Обновление: доступна версия ${version || 'новая'}`);
     return;
   }
   if (status === 'downloading') {
@@ -216,16 +220,69 @@ function handleAutoUpdateStatus(payload = {}) {
     return;
   }
   if (status === 'downloaded') {
-    setStatus(`Обновление ${version || ''} загружено. Можно перезапустить приложение.`);
+    setStatus(`Обновление ${version || ''} загружено`);
     return;
   }
   if (status === 'not-available') {
-    if (message) setStatus(`Обновление: ${message}`);
+    setStatus(`Обновление: ${message}`);
     return;
   }
   if (status === 'error') {
-    setStatus(`Обновление: ошибка (${message || 'unknown'})`);
+    setStatus(`Обновление: ${message}`);
   }
+}
+
+function playFrogMoneyBurst() {
+  if (!els.brandFrog || !els.brandMoneyBurst) return;
+  els.brandFrog.classList.remove('is-burst');
+  // force reflow to re-run animation on repeated clicks
+  void els.brandFrog.offsetWidth;
+  els.brandFrog.classList.add('is-burst');
+  els.brandMoneyBurst.innerHTML = '';
+
+  const particleCount = 9;
+  for (let i = 0; i < particleCount; i += 1) {
+    const particle = document.createElement('span');
+    particle.className = 'money-particle';
+    particle.textContent = '€';
+    const dx = 18 + Math.random() * 46;
+    const dy = -28 - Math.random() * 34;
+    const rot = -26 + Math.random() * 52;
+    const delay = Math.random() * 0.12;
+    particle.style.setProperty('--dx', `${dx}px`);
+    particle.style.setProperty('--dy', `${dy}px`);
+    particle.style.setProperty('--rot', `${rot}deg`);
+    particle.style.setProperty('--delay', `${delay.toFixed(2)}s`);
+    particle.style.left = `${56 + Math.random() * 12}%`;
+    particle.style.top = `${52 + Math.random() * 14}%`;
+    particle.addEventListener('animationend', () => {
+      particle.remove();
+    });
+    els.brandMoneyBurst.appendChild(particle);
+  }
+
+  setTimeout(() => {
+    els.brandFrog?.classList.remove('is-burst');
+  }, 720);
+}
+
+async function requestManualUpdate() {
+  if (!window.waDeck?.checkForUpdates) {
+    setStatus('Обновление недоступно');
+    return;
+  }
+  els.manualUpdate?.classList.add('is-loading');
+  const response = await window.waDeck.checkForUpdates({ source: 'manual_button' });
+  if (response?.ok) {
+    setStatus('Обновление: запрос отправлен');
+  } else if (response?.error === 'not_packaged') {
+    setStatus('Обновление доступно только в .dmg/.exe сборке');
+  } else if (response?.error) {
+    setStatus(`Обновление: ${response.error}`);
+  }
+  setTimeout(() => {
+    els.manualUpdate?.classList.remove('is-loading');
+  }, 520);
 }
 
 function scheduleDockBadgeSync() {
@@ -2757,6 +2814,8 @@ function bindActions() {
   });
   els.themeToggle.addEventListener('click', () => toggleTheme().catch(console.error));
   els.closePanel.addEventListener('click', closeSettingsPanel);
+  els.manualUpdate?.addEventListener('click', () => requestManualUpdate().catch(console.error));
+  els.brandFrog?.addEventListener('click', playFrogMoneyBurst);
 
   els.saveSettings.addEventListener('click', () => saveSettings().catch(console.error));
   els.testTranslateApiDeepl.addEventListener('click', () => testTranslateApi('deepl').catch(console.error));
