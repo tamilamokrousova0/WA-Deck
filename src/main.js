@@ -1342,6 +1342,16 @@ function createWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (String(input?.type || '').toLowerCase() !== 'keydown') return;
+    if (String(input?.key || '') !== 'Escape') return;
+    event.preventDefault();
+    try {
+      mainWindow?.webContents?.send('host-escape-pressed');
+    } catch {
+      // ignore channel send errors
+    }
+  });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   if (process.platform === 'darwin' && fsSync.existsSync(APP_ICON_PNG_PATH)) {

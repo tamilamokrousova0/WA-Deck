@@ -27,6 +27,8 @@ const state = {
   aiReplySourceLang: true,
   aiRolePrompt: '',
   accountMenuAccountId: '',
+  accountMenuDraftIconPath: '',
+  draggedAccountId: '',
   crmEditable: false,
   crmTarget: {
     accountId: '',
@@ -124,8 +126,6 @@ const els = {
   accountMenuName: document.getElementById('account-menu-name'),
   accountMenuSave: document.getElementById('account-menu-save'),
   accountMenuIcon: document.getElementById('account-menu-icon'),
-  accountMenuUp: document.getElementById('account-menu-up'),
-  accountMenuDown: document.getElementById('account-menu-down'),
   accountMenuCancel: document.getElementById('account-menu-cancel'),
 
   translateModal: document.getElementById('translate-modal'),
@@ -713,6 +713,35 @@ function replaceAccounts(nextAccounts) {
   state.accounts.sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
 }
 
+async function reorderAccountsByDrag(sourceAccountId, targetAccountId) {
+  const sourceId = String(sourceAccountId || '').trim();
+  const targetId = String(targetAccountId || '').trim();
+  if (!sourceId || !targetId || sourceId === targetId) return;
+
+  const fromIndex = state.accounts.findIndex((row) => row.id === sourceId);
+  const toIndex = state.accounts.findIndex((row) => row.id === targetId);
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+
+  const direction = fromIndex < toIndex ? 'down' : 'up';
+  const steps = Math.abs(fromIndex - toIndex);
+  let lastResponse = null;
+  for (let i = 0; i < steps; i += 1) {
+    // backend умеет только сдвиг на 1 позицию, поэтому двигаем пошагово
+    // один и тот же accountId в нужном направлении.
+    lastResponse = await window.waDeck.moveAccount({ accountId: sourceId, direction });
+    if (!lastResponse?.ok) {
+      setStatus(`Не удалось изменить порядок: ${lastResponse?.error || 'error'}`);
+      return;
+    }
+  }
+
+  if (Array.isArray(lastResponse?.accounts)) {
+    replaceAccounts(lastResponse.accounts);
+    renderAccounts();
+    setStatus('Порядок WhatsApp обновлён');
+  }
+}
+
 function renderAccounts() {
   els.accountsList.innerHTML = '';
 
@@ -720,7 +749,45 @@ function renderAccounts() {
     const card = document.createElement('div');
     card.className = `account-item ${state.activeAccountId === account.id ? 'active' : ''} ${account.frozen ? 'frozen' : ''}`;
     card.title = account.name;
+    card.draggable = state.accounts.length > 1;
     card.addEventListener('click', () => setActiveAccount(account.id));
+    card.addEventListener('dragstart', (event) => {
+      state.draggedAccountId = account.id;
+      try {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', account.id);
+      } catch {
+        // ignore dataTransfer limitations
+      }
+      card.classList.add('dragging');
+    });
+    card.addEventListener('dragover', (event) => {
+      if (!state.draggedAccountId || state.draggedAccountId === account.id) return;
+      event.preventDefault();
+      try {
+        event.dataTransfer.dropEffect = 'move';
+      } catch {
+        // ignore
+      }
+      card.classList.add('drag-over');
+    });
+    card.addEventListener('dragleave', () => {
+      card.classList.remove('drag-over');
+    });
+    card.addEventListener('drop', (event) => {
+      event.preventDefault();
+      const draggedId = String(state.draggedAccountId || '').trim();
+      card.classList.remove('drag-over');
+      if (!draggedId || draggedId === account.id) return;
+      reorderAccountsByDrag(draggedId, account.id).catch(console.error);
+    });
+    card.addEventListener('dragend', () => {
+      state.draggedAccountId = '';
+      card.classList.remove('dragging');
+      for (const node of els.accountsList.querySelectorAll('.account-item.drag-over')) {
+        node.classList.remove('drag-over');
+      }
+    });
 
     const chip = document.createElement('div');
     chip.className = 'account-chip';
@@ -734,7 +801,7 @@ function renderAccounts() {
     } else {
       chip.textContent = account.name.slice(0, 2).toUpperCase();
     }
-    chip.title = `${account.name}: двойной клик для управления`;
+    chip.title = `${account.name}: двойной клик для управления, перетаскивание для сортировки`;
     chip.addEventListener('dblclick', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -953,8 +1020,31 @@ function refreshWebviewVisibility() {
   }
 }
 
+function openHubMode() {
+  state.startupHubVisible = false;
+  setActiveAccount('');
+}
+
+function handleEscapeToHub() {
+  closeWeatherPopover();
+  closeChatPicker();
+  closeSettingsPanel();
+  closeTranslateModal();
+  closeAiModal();
+  closeCrmModal();
+  closeAccountMenu();
+  openHubMode();
+}
+
 function setActiveAccount(accountId) {
-  state.activeAccountId = accountId;
+  const nextId = String(accountId || '').trim();
+  state.activeAccountId = nextId;
+  if (nextId && state.startupHubVisible) {
+    const webview = state.webviews.get(nextId);
+    if (!webview || !webview.isLoading?.()) {
+      state.startupHubVisible = false;
+    }
+  }
   renderAccounts();
   updateActiveAccountDisplay();
   updateFreezeButtonState();
@@ -1229,24 +1319,22 @@ function openAccountMenu(accountId) {
   if (!account) return;
 
   state.accountMenuAccountId = account.id;
+  state.accountMenuDraftIconPath = String(account.iconPath || '').trim();
   els.accountMenuTitle.textContent = `Управление: ${account.name}`;
   els.accountMenuName.value = account.name;
-  const idx = state.accounts.findIndex((row) => row.id === account.id);
-  if (els.accountMenuUp) {
-    els.accountMenuUp.disabled = idx <= 0;
-  }
-  if (els.accountMenuDown) {
-    els.accountMenuDown.disabled = idx < 0 || idx >= state.accounts.length - 1;
+  if (els.accountMenuIcon) {
+    els.accountMenuIcon.textContent = state.accountMenuDraftIconPath ? 'Поменять иконку (выбрана)' : 'Поменять иконку';
   }
   els.accountMenuModal.classList.remove('hidden');
 }
 
 function closeAccountMenu() {
   state.accountMenuAccountId = '';
+  state.accountMenuDraftIconPath = '';
   els.accountMenuModal.classList.add('hidden');
 }
 
-async function saveAccountNameFromMenu() {
+async function saveAccountFromMenu() {
   const accountId = String(state.accountMenuAccountId || '');
   const account = accountById(accountId);
   if (!account) return;
@@ -1257,19 +1345,45 @@ async function saveAccountNameFromMenu() {
     return;
   }
 
-  const response = await window.waDeck.renameAccount({ accountId, name: nextName });
-  if (!response?.ok || !response.account) {
-    setStatus(`Не удалось изменить имя: ${response?.error || 'error'}`);
-    return;
+  const nextIconPath = String(state.accountMenuDraftIconPath || '').trim();
+  const currentIconPath = String(account.iconPath || '').trim();
+
+  let changed = false;
+  let currentAccount = account;
+
+  if (nextName !== String(account.name || '').trim()) {
+    const renameResponse = await window.waDeck.renameAccount({ accountId, name: nextName });
+    if (!renameResponse?.ok || !renameResponse.account) {
+      setStatus(`Не удалось сохранить: ${renameResponse?.error || 'error'}`);
+      return;
+    }
+    patchLocalAccount(renameResponse.account);
+    currentAccount = accountById(accountId) || currentAccount;
+    changed = true;
   }
 
-  patchLocalAccount(response.account);
+  if (nextIconPath !== currentIconPath) {
+    const iconResponse = await window.waDeck.setAccountIcon({ accountId, iconPath: nextIconPath });
+    if (!iconResponse?.ok || !iconResponse.account) {
+      const map = {
+        icon_not_found: 'Файл иконки не найден',
+        icon_invalid_type: 'Поддерживаются только PNG/JPG',
+        account_not_found: 'Аккаунт не найден',
+      };
+      setStatus(`Не удалось сохранить иконку: ${map[iconResponse?.error] || iconResponse?.error || 'ошибка'}`);
+      return;
+    }
+    patchLocalAccount(iconResponse.account);
+    currentAccount = accountById(accountId) || currentAccount;
+    changed = true;
+  }
+
   if (state.scheduleTarget.accountId === accountId) {
-    state.scheduleTarget.accountName = response.account.name;
+    state.scheduleTarget.accountName = String(currentAccount.name || nextName);
     renderScheduleTarget();
   }
   renderAccounts();
-  setStatus(`Имя обновлено: ${response.account.name}`);
+  setStatus(changed ? `Сохранено: ${currentAccount.name || nextName}` : 'Изменений нет');
   closeAccountMenu();
 }
 
@@ -1280,39 +1394,11 @@ async function changeAccountIconFromMenu() {
 
   const picked = await window.waDeck.pickAccountIcon();
   if (!picked || picked.canceled || !picked.path) return;
-
-  const response = await window.waDeck.setAccountIcon({ accountId, iconPath: picked.path });
-  if (!response?.ok || !response.account) {
-    const map = {
-      icon_not_found: 'Файл иконки не найден',
-      icon_invalid_type: 'Поддерживаются только PNG/JPG',
-      account_not_found: 'Аккаунт не найден',
-    };
-    setStatus(`Иконка: ${map[response?.error] || response?.error || 'ошибка'}`);
-    return;
+  state.accountMenuDraftIconPath = String(picked.path || '').trim();
+  if (els.accountMenuIcon) {
+    els.accountMenuIcon.textContent = state.accountMenuDraftIconPath ? 'Поменять иконку (выбрана)' : 'Поменять иконку';
   }
-  patchLocalAccount(response.account);
-  renderAccounts();
-  openAccountMenu(accountId);
-  setStatus(`Иконка обновлена: ${account.name}`);
-}
-
-async function moveAccountFromMenu(direction) {
-  const accountId = String(state.accountMenuAccountId || '');
-  if (!accountId) return;
-
-  const response = await window.waDeck.moveAccount({ accountId, direction });
-  if (!response?.ok) {
-    setStatus(`Не удалось переместить: ${response?.error || 'error'}`);
-    return;
-  }
-  if (Array.isArray(response.accounts)) {
-    replaceAccounts(response.accounts);
-  }
-  renderAccounts();
-  openAccountMenu(accountId);
-  const account = accountById(accountId);
-  setStatus(`Позиция обновлена: ${account?.name || 'WhatsApp'}`);
+  setStatus(`Иконка выбрана: ${account.name}. Нажмите «Сохранить»`);
 }
 
 async function setAccountFrozenState(accountId, nextFrozen, options = {}) {
@@ -3264,6 +3350,12 @@ function bindActions() {
       saveWeatherSettings().catch(console.error);
     }
   });
+  window.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    handleEscapeToHub();
+  });
   document.addEventListener('click', (event) => {
     if (!els.weatherWidget || !els.weatherPopover) return;
     if (els.weatherPopover.classList.contains('hidden')) return;
@@ -3340,10 +3432,8 @@ function bindActions() {
   els.chatPickerModal.addEventListener('click', (event) => {
     if (event.target === els.chatPickerModal) closeChatPicker();
   });
-  els.accountMenuSave.addEventListener('click', () => saveAccountNameFromMenu().catch(console.error));
+  els.accountMenuSave.addEventListener('click', () => saveAccountFromMenu().catch(console.error));
   els.accountMenuIcon?.addEventListener('click', () => changeAccountIconFromMenu().catch(console.error));
-  els.accountMenuUp?.addEventListener('click', () => moveAccountFromMenu('up').catch(console.error));
-  els.accountMenuDown?.addEventListener('click', () => moveAccountFromMenu('down').catch(console.error));
   els.accountMenuCancel.addEventListener('click', closeAccountMenu);
   els.accountMenuModal.addEventListener('click', (event) => {
     if (event.target === els.accountMenuModal) closeAccountMenu();
@@ -3375,6 +3465,11 @@ async function init() {
       handleAutoUpdateStatus(payload);
     });
   }
+  if (typeof window.waDeck.onHostEscape === 'function') {
+    window.waDeck.onHostEscape(() => {
+      handleEscapeToHub();
+    });
+  }
 
   const boot = await window.waDeck.bootstrap();
   state.accounts = Array.isArray(boot.accounts) ? boot.accounts : [];
@@ -3404,21 +3499,9 @@ async function init() {
     clearTimeout(state.startupHubTimeoutId);
     state.startupHubTimeoutId = null;
   }
-  if (state.accounts.length) {
-    state.startupHubTimeoutId = setTimeout(() => {
-      if (!state.startupHubVisible) return;
-      state.startupHubVisible = false;
-      refreshWebviewVisibility();
-    }, 12000);
-  }
 
-  if (state.accounts.length) {
-    setActiveAccount(state.accounts[0].id);
-  } else {
-    renderAccounts();
-    updateFreezeButtonState();
-    refreshWebviewVisibility();
-  }
+  // Стартуем всегда в хабе без активного WhatsApp.
+  setActiveAccount('');
   updatePanelVisibility();
   applySettingsToForm();
   renderAiModels([state.aiModel]);

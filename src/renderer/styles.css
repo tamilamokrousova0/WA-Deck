@@ -141,10 +141,21 @@ body {
   gap: 3px;
   justify-items: center;
   position: relative;
+  cursor: grab;
 }
 
 .account-item:hover {
   border-color: #3f6289;
+}
+
+.account-item.dragging {
+  opacity: 0.56;
+  cursor: grabbing;
+}
+
+.account-item.drag-over {
+  border-color: #5cf7bc;
+  box-shadow: 0 0 0 1px rgba(92, 247, 188, 0.5) inset;
 }
 
 .account-item.active {
@@ -366,7 +377,7 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  transform: translate(calc(-100% - 14px), -50%);
+  transform: translate(calc(-100% - 130px), -50%);
   z-index: 3;
 }
 

@@ -37,4 +37,10 @@ contextBridge.exposeInMainWorld('waDeck', {
     ipcRenderer.on('auto-update-status', listener);
     return () => ipcRenderer.removeListener('auto-update-status', listener);
   },
+  onHostEscape: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = () => callback();
+    ipcRenderer.on('host-escape-pressed', listener);
+    return () => ipcRenderer.removeListener('host-escape-pressed', listener);
+  },
 });
