@@ -5,6 +5,7 @@ const fs = require('fs/promises');
 const fsSync = require('fs');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
+const { pathToFileURL } = require('url');
 
 const APP_ID = 'com.local.wadeck';
 const APP_TITLE = 'WA Deck';
@@ -24,11 +25,17 @@ const DEFAULT_SETTINGS = {
   deeplApiKey: '',
   libreTranslateApiKey: '',
   libreTranslateUrl: LIBRETRANSLATE_DEFAULT_URL,
+  weatherCity: 'Moscow',
+  weatherUnit: 'celsius',
   aiApiKey: '',
   aiModel: DEFAULT_AI_MODEL,
   aiRolePrompt:
     'Ты помощник в переписке WhatsApp. Пиши короткий, естественный и вежливый вариант ответа по контексту сообщения. Без лишних объяснений.',
 };
+
+function normalizeWeatherUnit(value) {
+  return String(value || '').toLowerCase() === 'fahrenheit' ? 'fahrenheit' : 'celsius';
+}
 
 function buildWhatsAppUserAgent() {
   const chromeVersion = process.versions.chrome || FALLBACK_CHROME_VERSION;
@@ -219,16 +226,28 @@ function sanitizeStore(raw) {
   clean.settings.aiApiKey = String(clean.settings.aiApiKey || '').trim();
   clean.settings.aiModel = String(clean.settings.aiModel || DEFAULT_AI_MODEL).trim() || DEFAULT_AI_MODEL;
   clean.settings.aiRolePrompt = String(clean.settings.aiRolePrompt || DEFAULT_SETTINGS.aiRolePrompt).trim();
+  clean.settings.weatherCity = String(clean.settings.weatherCity || DEFAULT_SETTINGS.weatherCity).trim() || DEFAULT_SETTINGS.weatherCity;
+  clean.settings.weatherUnit = normalizeWeatherUnit(clean.settings.weatherUnit);
 
   clean.accounts = clean.accounts
     .map((item, index) => ({
       id: String(item?.id || `wa_${Date.now()}_${index}`),
       name: String(item?.name || `WP_${index + 1}`),
       color: String(item?.color || pickColor(index + 1)),
+      iconPath: String(item?.iconPath || '').trim(),
       frozen: Boolean(item?.frozen),
+      order: Math.max(1, Number(item?.order) || index + 1),
       createdAt: String(item?.createdAt || new Date().toISOString()),
     }))
-    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+    .sort((a, b) => {
+      const orderDiff = Number(a.order || 0) - Number(b.order || 0);
+      if (orderDiff !== 0) return orderDiff;
+      return String(a.createdAt).localeCompare(String(b.createdAt));
+    })
+    .map((item, index) => ({
+      ...item,
+      order: index + 1,
+    }));
 
   clean.templates = clean.templates
     .map((item, index) => {
@@ -598,9 +617,46 @@ function ensureDefaultAccount() {
     id: `wa_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
     name: `WP_${idx}`,
     color: pickColor(idx),
+    iconPath: '',
     frozen: false,
+    order: 1,
     createdAt: new Date().toISOString(),
   });
+}
+
+function normalizeAccountOrder() {
+  state.store.accounts = state.store.accounts
+    .slice()
+    .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
+    .map((account, index) => ({
+      ...account,
+      order: index + 1,
+    }));
+}
+
+function accountToView(account = {}) {
+  const iconPath = String(account.iconPath || '').trim();
+  let iconUrl = '';
+  if (iconPath && fsSync.existsSync(iconPath)) {
+    try {
+      iconUrl = pathToFileURL(iconPath).href;
+    } catch {
+      iconUrl = '';
+    }
+  }
+  return {
+    ...account,
+    iconPath,
+    iconUrl,
+  };
+}
+
+function accountToRuntimePayload(account = {}) {
+  return {
+    ...accountToView(account),
+    partition: partitionForAccount(account.id),
+    url: 'https://web.whatsapp.com/',
+  };
 }
 
 async function renameAccount(accountId, name) {
@@ -614,7 +670,7 @@ async function renameAccount(accountId, name) {
 
   account.name = nextName.slice(0, 60);
   await saveStore();
-  return { ok: true, account };
+  return { ok: true, account: accountToView(account) };
 }
 
 async function setAccountFrozen(accountId, frozen) {
@@ -625,7 +681,56 @@ async function setAccountFrozen(accountId, frozen) {
 
   account.frozen = Boolean(frozen);
   await saveStore();
-  return { ok: true, account };
+  return { ok: true, account: accountToView(account) };
+}
+
+async function setAccountIcon(accountId, iconPath) {
+  const id = String(accountId || '').trim();
+  if (!id) return { ok: false, error: 'account_not_found' };
+  const account = state.store.accounts.find((acc) => acc.id === id);
+  if (!account) return { ok: false, error: 'account_not_found' };
+
+  const nextPath = String(iconPath || '').trim();
+  if (!nextPath) {
+    account.iconPath = '';
+    await saveStore();
+    return { ok: true, account: accountToView(account) };
+  }
+
+  if (!fsSync.existsSync(nextPath)) {
+    return { ok: false, error: 'icon_not_found' };
+  }
+  const ext = String(path.extname(nextPath) || '').toLowerCase();
+  if (!['.png', '.jpg', '.jpeg'].includes(ext)) {
+    return { ok: false, error: 'icon_invalid_type' };
+  }
+
+  account.iconPath = nextPath;
+  await saveStore();
+  return { ok: true, account: accountToView(account) };
+}
+
+async function moveAccount(accountId, direction) {
+  const id = String(accountId || '').trim();
+  const dir = String(direction || '').toLowerCase();
+  if (!id) return { ok: false, error: 'account_not_found' };
+  if (!['up', 'down'].includes(dir)) return { ok: false, error: 'invalid_direction' };
+
+  normalizeAccountOrder();
+  const idx = state.store.accounts.findIndex((acc) => acc.id === id);
+  if (idx < 0) return { ok: false, error: 'account_not_found' };
+
+  const swapWith = dir === 'up' ? idx - 1 : idx + 1;
+  if (swapWith < 0 || swapWith >= state.store.accounts.length) {
+    return { ok: true, accounts: state.store.accounts.map((acc) => accountToRuntimePayload(acc)) };
+  }
+
+  const currentOrder = Number(state.store.accounts[idx].order || idx + 1);
+  state.store.accounts[idx].order = Number(state.store.accounts[swapWith].order || swapWith + 1);
+  state.store.accounts[swapWith].order = currentOrder;
+  normalizeAccountOrder();
+  await saveStore();
+  return { ok: true, accounts: state.store.accounts.map((acc) => accountToRuntimePayload(acc)) };
 }
 
 async function removeAccount(accountId) {
@@ -636,6 +741,7 @@ async function removeAccount(accountId) {
   if (idx < 0) return { ok: false, error: 'account_not_found' };
 
   state.store.accounts.splice(idx, 1);
+  normalizeAccountOrder();
   state.store.scheduled = state.store.scheduled.filter((item) => item.accountId !== id);
   await saveStore();
 
@@ -657,12 +763,9 @@ async function removeAccount(accountId) {
 }
 
 function buildBootstrap() {
+  normalizeAccountOrder();
   return {
-    accounts: state.store.accounts.map((acc) => ({
-      ...acc,
-      partition: partitionForAccount(acc.id),
-      url: 'https://web.whatsapp.com/',
-    })),
+    accounts: state.store.accounts.map((acc) => accountToRuntimePayload(acc)),
     settings: { ...state.store.settings },
     templates: state.store.templates.map((tpl) => ({ ...tpl })),
     appVersion: app.getVersion(),
@@ -1483,21 +1586,23 @@ function registerIpc() {
 
   ipcMain.handle('add-account', async () => {
     const idx = nextWpIndex();
+    const maxOrder = state.store.accounts.reduce((max, acc) => Math.max(max, Number(acc.order || 0)), 0);
     const account = {
       id: `wa_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
       name: `WP_${idx}`,
       color: pickColor(idx),
+      iconPath: '',
       frozen: false,
+      order: maxOrder + 1,
       createdAt: new Date().toISOString(),
     };
 
     state.store.accounts.push(account);
+    normalizeAccountOrder();
     await saveStore();
 
     return {
-      ...account,
-      partition: partitionForAccount(account.id),
-      url: 'https://web.whatsapp.com/',
+      ...accountToRuntimePayload(account),
     };
   });
 
@@ -1513,6 +1618,28 @@ function registerIpc() {
     return setAccountFrozen(payload?.accountId, payload?.frozen);
   });
 
+  ipcMain.handle('move-account', async (_event, payload) => {
+    return moveAccount(payload?.accountId, payload?.direction);
+  });
+
+  ipcMain.handle('pick-account-icon', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Выберите иконку WhatsApp',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Изображения', extensions: ['png', 'jpg', 'jpeg'] },
+      ],
+    });
+    if (result.canceled || !result.filePaths?.length) {
+      return { canceled: true };
+    }
+    return { canceled: false, path: result.filePaths[0] };
+  });
+
+  ipcMain.handle('set-account-icon', async (_event, payload) => {
+    return setAccountIcon(payload?.accountId, payload?.iconPath);
+  });
+
   ipcMain.handle('save-settings', async (_event, payload) => {
     const current = state.store.settings || {};
     const next = {
@@ -1521,6 +1648,8 @@ function registerIpc() {
       deeplApiKey: String(payload?.deeplApiKey ?? current.deeplApiKey ?? '').trim(),
       libreTranslateApiKey: String(payload?.libreTranslateApiKey ?? payload?.googleApiKey ?? current.libreTranslateApiKey ?? '').trim(),
       libreTranslateUrl: normalizeLibreTranslateUrl(payload?.libreTranslateUrl ?? current.libreTranslateUrl),
+      weatherCity: String(payload?.weatherCity ?? current.weatherCity ?? DEFAULT_SETTINGS.weatherCity).trim() || DEFAULT_SETTINGS.weatherCity,
+      weatherUnit: normalizeWeatherUnit(payload?.weatherUnit ?? current.weatherUnit ?? DEFAULT_SETTINGS.weatherUnit),
       aiApiKey: String(payload?.aiApiKey ?? current.aiApiKey ?? '').trim(),
       aiModel: String(payload?.aiModel ?? current.aiModel ?? DEFAULT_AI_MODEL).trim() || DEFAULT_AI_MODEL,
       aiRolePrompt: String(payload?.aiRolePrompt ?? current.aiRolePrompt ?? DEFAULT_SETTINGS.aiRolePrompt).trim(),

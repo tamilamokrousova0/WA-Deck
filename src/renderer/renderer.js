@@ -34,6 +34,10 @@ const state = {
     contactName: '',
     filePath: '',
   },
+  startupHubVisible: true,
+  startupHubTimeoutId: null,
+  weatherGeoCache: new Map(),
+  weatherRefreshTimer: null,
 };
 
 const els = {
@@ -43,12 +47,25 @@ const els = {
   accountsList: document.getElementById('accounts-list'),
   addAccount: document.getElementById('add-account'),
   webviews: document.getElementById('webviews'),
+  hubScreen: document.getElementById('hub-screen'),
+  hubOverlay: document.getElementById('hub-overlay'),
   status: document.getElementById('status'),
   refreshActive: document.getElementById('refresh-active'),
   freezeActive: document.getElementById('freeze-active'),
   openTranslateModal: document.getElementById('open-translate-modal'),
   openAiModal: document.getElementById('open-ai-modal'),
   openCrmModal: document.getElementById('open-crm-modal'),
+  weatherWidget: document.getElementById('weather-widget'),
+  weatherToggle: document.getElementById('weather-toggle'),
+  weatherIcon: document.getElementById('weather-icon'),
+  weatherTemp: document.getElementById('weather-temp'),
+  weatherCity: document.getElementById('weather-city'),
+  weatherPopover: document.getElementById('weather-popover'),
+  weatherCityInput: document.getElementById('weather-city-input'),
+  weatherUnit: document.getElementById('weather-unit'),
+  weatherRefresh: document.getElementById('weather-refresh'),
+  weatherSave: document.getElementById('weather-save'),
+  weatherMeta: document.getElementById('weather-meta'),
   activeAccountDisplay: document.getElementById('active-account-display'),
   activeUnread: document.getElementById('active-unread'),
   activeUnreadCount: document.getElementById('active-unread-count'),
@@ -106,7 +123,9 @@ const els = {
   accountMenuTitle: document.getElementById('account-menu-title'),
   accountMenuName: document.getElementById('account-menu-name'),
   accountMenuSave: document.getElementById('account-menu-save'),
-  accountMenuFreeze: document.getElementById('account-menu-freeze'),
+  accountMenuIcon: document.getElementById('account-menu-icon'),
+  accountMenuUp: document.getElementById('account-menu-up'),
+  accountMenuDown: document.getElementById('account-menu-down'),
   accountMenuCancel: document.getElementById('account-menu-cancel'),
 
   translateModal: document.getElementById('translate-modal'),
@@ -150,6 +169,45 @@ const els = {
 };
 
 let templateController = null;
+const WEATHER_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+
+function normalizeWeatherUnit(value) {
+  return String(value || '').toLowerCase() === 'fahrenheit' ? 'fahrenheit' : 'celsius';
+}
+
+function normalizeWeatherCity(value) {
+  return String(value || '').trim() || 'Moscow';
+}
+
+function weatherUnitSuffix(unit) {
+  return normalizeWeatherUnit(unit) === 'fahrenheit' ? '°F' : '°C';
+}
+
+function weatherCodeToIcon(code, isDay = 1) {
+  const value = Number(code);
+  const daytime = Number(isDay) === 1;
+  if (value === 0) return daytime ? '☀️' : '🌙';
+  if ([1, 2].includes(value)) return daytime ? '🌤️' : '☁️';
+  if (value === 3) return '☁️';
+  if ([45, 48].includes(value)) return '🌫️';
+  if ([51, 53, 55, 56, 57, 80, 81, 82].includes(value)) return '🌧️';
+  if ([61, 63, 65, 66, 67].includes(value)) return '🌦️';
+  if ([71, 73, 75, 77, 85, 86].includes(value)) return '🌨️';
+  if ([95, 96, 99].includes(value)) return '⛈️';
+  return '🌡️';
+}
+
+function weatherCodeToRu(code) {
+  const value = Number(code);
+  if (value === 0) return 'Ясно';
+  if ([1, 2].includes(value)) return 'Переменная облачность';
+  if (value === 3) return 'Облачно';
+  if ([45, 48].includes(value)) return 'Туман';
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(value)) return 'Дождь';
+  if ([71, 73, 75, 77, 85, 86].includes(value)) return 'Снег';
+  if ([95, 96, 99].includes(value)) return 'Гроза';
+  return 'Погода';
+}
 
 function normalizeTheme(value) {
   return String(value || '').toLowerCase() === 'light' ? 'light' : 'dark';
@@ -202,6 +260,181 @@ function setStatus(text) {
     els.panelStatus.textContent = text;
     els.panelStatus.title = text;
   }
+}
+
+function setHubVisibility(visible) {
+  if (!els.webviews || !els.hubScreen) return;
+  els.webviews.classList.toggle('hub-mode', Boolean(visible));
+  els.hubScreen.classList.toggle('hidden', !visible);
+  els.hubScreen.setAttribute('aria-hidden', visible ? 'false' : 'true');
+}
+
+function renderWeatherSummary({ city, icon, temperature, unit, loading }) {
+  if (!els.weatherCity || !els.weatherIcon || !els.weatherTemp || !els.weatherUnit) return;
+  const safeCity = normalizeWeatherCity(city || state.settings?.weatherCity);
+  const safeUnit = normalizeWeatherUnit(unit || state.settings?.weatherUnit);
+  els.weatherCity.textContent = safeCity;
+  els.weatherIcon.textContent = icon || '🌙';
+  els.weatherTemp.textContent = typeof temperature === 'number' ? `${Math.round(temperature)}${weatherUnitSuffix(safeUnit)}` : `--${weatherUnitSuffix(safeUnit)}`;
+  els.weatherUnit.textContent = safeUnit === 'fahrenheit' ? '°F' : '°C';
+  els.weatherToggle?.classList.toggle('is-loading', Boolean(loading));
+}
+
+function setWeatherMeta(text) {
+  if (!els.weatherMeta) return;
+  els.weatherMeta.textContent = String(text || '').trim() || 'Погода не загружена';
+  els.weatherMeta.title = els.weatherMeta.textContent;
+}
+
+function closeWeatherPopover() {
+  if (!els.weatherPopover) return;
+  els.weatherPopover.classList.add('hidden');
+}
+
+function toggleWeatherPopover() {
+  if (!els.weatherPopover || !els.weatherCityInput) return;
+  const hidden = els.weatherPopover.classList.contains('hidden');
+  if (hidden) {
+    els.weatherCityInput.value = normalizeWeatherCity(state.settings?.weatherCity);
+    els.weatherPopover.classList.remove('hidden');
+    setTimeout(() => {
+      els.weatherCityInput?.focus();
+      els.weatherCityInput?.select();
+    }, 0);
+    return;
+  }
+  closeWeatherPopover();
+}
+
+async function fetchJsonWithTimeout(url, timeoutMs = 9000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json',
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`http_${response.status}`);
+    }
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function resolveWeatherCoords(city) {
+  const safeCity = normalizeWeatherCity(city);
+  const cacheKey = safeCity.toLowerCase();
+  if (state.weatherGeoCache.has(cacheKey)) {
+    return state.weatherGeoCache.get(cacheKey);
+  }
+  const geocodeUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(safeCity)}&count=1&language=ru&format=json`;
+  const payload = await fetchJsonWithTimeout(geocodeUrl, 9000);
+  const row = Array.isArray(payload?.results) ? payload.results[0] : null;
+  if (!row) {
+    throw new Error('city_not_found');
+  }
+  const coords = {
+    city: String(row.name || safeCity),
+    latitude: Number(row.latitude),
+    longitude: Number(row.longitude),
+  };
+  state.weatherGeoCache.set(cacheKey, coords);
+  return coords;
+}
+
+async function refreshWeather(forceCity = '') {
+  const city = normalizeWeatherCity(forceCity || state.settings?.weatherCity);
+  const unit = normalizeWeatherUnit(state.settings?.weatherUnit);
+  renderWeatherSummary({ city, unit, loading: true });
+  setWeatherMeta('Обновляю погоду...');
+
+  try {
+    const coords = await resolveWeatherCoords(city);
+    const forecastUrl =
+      `https://api.open-meteo.com/v1/forecast?latitude=${coords.latitude}` +
+      `&longitude=${coords.longitude}` +
+      '&current=temperature_2m,weather_code,is_day' +
+      '&timezone=auto' +
+      `&temperature_unit=${unit}`;
+    const payload = await fetchJsonWithTimeout(forecastUrl, 9000);
+    const current = payload?.current || {};
+    const weatherCode = Number(current.weather_code);
+    const temperature = Number(current.temperature_2m);
+    const isDay = Number(current.is_day || 0);
+    const icon = weatherCodeToIcon(weatherCode, isDay);
+    const weatherText = weatherCodeToRu(weatherCode);
+
+    renderWeatherSummary({
+      city: coords.city,
+      icon,
+      temperature,
+      unit,
+      loading: false,
+    });
+    const hhmm = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    setWeatherMeta(`${weatherText} • обновлено ${hhmm}`);
+  } catch (error) {
+    renderWeatherSummary({ city, unit, loading: false });
+    if (String(error?.message || '').includes('city_not_found')) {
+      setWeatherMeta('Город не найден');
+    } else {
+      setWeatherMeta('Не удалось получить погоду');
+    }
+  }
+}
+
+async function saveWeatherSettings() {
+  const draftCity = normalizeWeatherCity(els.weatherCityInput?.value || state.settings?.weatherCity);
+  const draftUnit = normalizeWeatherUnit(state.settings?.weatherUnit);
+  const nextSettings = await window.waDeck.saveSettings({
+    weatherCity: draftCity,
+    weatherUnit: draftUnit,
+  });
+  state.settings = {
+    ...(state.settings || {}),
+    ...(nextSettings || {}),
+  };
+  renderWeatherSummary({
+    city: state.settings.weatherCity,
+    unit: state.settings.weatherUnit,
+    loading: false,
+  });
+  closeWeatherPopover();
+  await refreshWeather(state.settings.weatherCity);
+}
+
+async function toggleWeatherUnit() {
+  const nextUnit = normalizeWeatherUnit(state.settings?.weatherUnit) === 'celsius' ? 'fahrenheit' : 'celsius';
+  state.settings.weatherUnit = nextUnit;
+  renderWeatherSummary({
+    city: state.settings.weatherCity,
+    unit: nextUnit,
+    loading: false,
+  });
+  const nextSettings = await window.waDeck.saveSettings({
+    weatherUnit: nextUnit,
+    weatherCity: normalizeWeatherCity(state.settings?.weatherCity),
+  });
+  state.settings = {
+    ...(state.settings || {}),
+    ...(nextSettings || {}),
+  };
+  await refreshWeather(state.settings.weatherCity);
+}
+
+function startWeatherRefreshLoop() {
+  if (state.weatherRefreshTimer) {
+    clearInterval(state.weatherRefreshTimer);
+    state.weatherRefreshTimer = null;
+  }
+  state.weatherRefreshTimer = setInterval(() => {
+    refreshWeather().catch(() => {});
+  }, WEATHER_REFRESH_INTERVAL_MS);
 }
 
 function handleAutoUpdateStatus(payload = {}) {
@@ -472,6 +705,12 @@ function patchLocalAccount(updated) {
       ...updated,
     };
   });
+  state.accounts.sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+}
+
+function replaceAccounts(nextAccounts) {
+  state.accounts = Array.isArray(nextAccounts) ? nextAccounts.map((row) => ({ ...row })) : [];
+  state.accounts.sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
 }
 
 function renderAccounts() {
@@ -486,7 +725,15 @@ function renderAccounts() {
     const chip = document.createElement('div');
     chip.className = 'account-chip';
     chip.style.background = account.color;
-    chip.textContent = account.name.slice(0, 2).toUpperCase();
+    if (account.iconUrl) {
+      const iconImg = document.createElement('img');
+      iconImg.src = account.iconUrl;
+      iconImg.alt = account.name;
+      iconImg.loading = 'lazy';
+      chip.appendChild(iconImg);
+    } else {
+      chip.textContent = account.name.slice(0, 2).toUpperCase();
+    }
     chip.title = `${account.name}: двойной клик для управления`;
     chip.addEventListener('dblclick', (event) => {
       event.preventDefault();
@@ -553,7 +800,22 @@ function ensureWebview(account) {
 
   webview.addEventListener('did-finish-load', () => {
     if (account.id === state.activeAccountId) {
+      if (state.startupHubVisible) {
+        state.startupHubVisible = false;
+        if (state.startupHubTimeoutId) {
+          clearTimeout(state.startupHubTimeoutId);
+          state.startupHubTimeoutId = null;
+        }
+        refreshWebviewVisibility();
+      }
       setStatus(`${account.name}: готово`);
+    }
+  });
+
+  webview.addEventListener('did-fail-load', () => {
+    if (account.id === state.activeAccountId && state.startupHubVisible) {
+      state.startupHubVisible = false;
+      refreshWebviewVisibility();
     }
   });
 
@@ -680,6 +942,8 @@ function ensureWebview(account) {
 }
 
 function refreshWebviewVisibility() {
+  const showHub = state.startupHubVisible || !state.activeAccountId || !selectedWebview();
+  setHubVisibility(showHub);
   for (const [accountId, webview] of state.webviews.entries()) {
     if (accountId === state.activeAccountId) {
       webview.classList.add('active');
@@ -717,6 +981,8 @@ function setActiveAccount(accountId) {
 
 function applySettingsToForm() {
   state.settings.uiTheme = normalizeTheme(state.settings.uiTheme);
+  state.settings.weatherCity = normalizeWeatherCity(state.settings.weatherCity);
+  state.settings.weatherUnit = normalizeWeatherUnit(state.settings.weatherUnit);
   applyTheme(state.settings.uiTheme);
   setSelectedTranslateProvider(state.settings.translateProvider || 'deepl');
   els.deeplApiKey.value = state.settings.deeplApiKey || '';
@@ -727,6 +993,14 @@ function applySettingsToForm() {
   resetPasswordFieldVisibility(els.deeplApiKey, els.toggleDeeplApiKey);
   resetPasswordFieldVisibility(els.libreTranslateApiKey, els.toggleLibreTranslateApiKey);
   resetPasswordFieldVisibility(els.aiApiKey, els.toggleAiApiKey);
+  if (els.weatherCityInput) {
+    els.weatherCityInput.value = state.settings.weatherCity;
+  }
+  renderWeatherSummary({
+    city: state.settings.weatherCity,
+    unit: state.settings.weatherUnit,
+    loading: false,
+  });
 }
 
 function renderAiModels(models = []) {
@@ -814,23 +1088,34 @@ function collectChatsFromSidebarScript() {
     const pane = document.querySelector('#pane-side');
     if (!pane) return [];
 
-    const takeTitles = () => {
-      const set = new Set();
-      const items = Array.from(
-        document.querySelectorAll('#pane-side [role="listitem"], #pane-side [data-testid="cell-frame-container"], #pane-side [aria-selected]')
-      );
-      for (const item of items) {
-        const byTitle = Array.from(item.querySelectorAll('span[title], div[title]'))
-          .map((node) => normalize(node.getAttribute('title') || ''))
-          .find((text) => text && !looksLikeTime(text));
-        if (byTitle) {
-          set.add(byTitle);
-          continue;
-        }
-        const lines = String(item.innerText || '')
-          .split('\\n')
-          .map((line) => normalize(line))
-          .filter((line) => line && !looksLikeTime(line));
+      const takeTitles = () => {
+        const set = new Set();
+        const items = Array.from(
+          document.querySelectorAll('#pane-side [role="listitem"], #pane-side [data-testid="cell-frame-container"], #pane-side [aria-selected]')
+        );
+        for (const item of items) {
+          const byTitle = Array.from(
+            item.querySelectorAll(
+              '[data-testid="cell-frame-title"] span[title], [data-testid="cell-frame-title"] div[title], [data-testid="conversation-list-item-title"] span[title]',
+            ),
+          )
+            .map((node) => normalize(node.getAttribute('title') || ''))
+            .find((text) => text && !looksLikeTime(text));
+          if (byTitle) {
+            set.add(byTitle);
+            continue;
+          }
+          const byGenericTitle = Array.from(item.querySelectorAll('span[title], div[title]'))
+            .map((node) => normalize(node.getAttribute('title') || ''))
+            .find((text) => text && !looksLikeTime(text));
+          if (byGenericTitle) {
+            set.add(byGenericTitle);
+            continue;
+          }
+          const lines = String(item.innerText || '')
+            .split('\\n')
+            .map((line) => normalize(line))
+            .filter((line) => line && !looksLikeTime(line));
         if (lines[0]) set.add(lines[0]);
       }
       return set;
@@ -946,7 +1231,13 @@ function openAccountMenu(accountId) {
   state.accountMenuAccountId = account.id;
   els.accountMenuTitle.textContent = `Управление: ${account.name}`;
   els.accountMenuName.value = account.name;
-  els.accountMenuFreeze.textContent = account.frozen ? 'Разморозить' : 'Заморозить';
+  const idx = state.accounts.findIndex((row) => row.id === account.id);
+  if (els.accountMenuUp) {
+    els.accountMenuUp.disabled = idx <= 0;
+  }
+  if (els.accountMenuDown) {
+    els.accountMenuDown.disabled = idx < 0 || idx >= state.accounts.length - 1;
+  }
   els.accountMenuModal.classList.remove('hidden');
 }
 
@@ -978,17 +1269,50 @@ async function saveAccountNameFromMenu() {
     renderScheduleTarget();
   }
   renderAccounts();
-  openAccountMenu(accountId);
   setStatus(`Имя обновлено: ${response.account.name}`);
+  closeAccountMenu();
 }
 
-async function toggleFreezeFromMenu() {
+async function changeAccountIconFromMenu() {
   const accountId = String(state.accountMenuAccountId || '');
   const account = accountById(accountId);
   if (!account) return;
 
-  const nextFrozen = !Boolean(account.frozen);
-  await setAccountFrozenState(accountId, nextFrozen, { reopenMenu: true });
+  const picked = await window.waDeck.pickAccountIcon();
+  if (!picked || picked.canceled || !picked.path) return;
+
+  const response = await window.waDeck.setAccountIcon({ accountId, iconPath: picked.path });
+  if (!response?.ok || !response.account) {
+    const map = {
+      icon_not_found: 'Файл иконки не найден',
+      icon_invalid_type: 'Поддерживаются только PNG/JPG',
+      account_not_found: 'Аккаунт не найден',
+    };
+    setStatus(`Иконка: ${map[response?.error] || response?.error || 'ошибка'}`);
+    return;
+  }
+  patchLocalAccount(response.account);
+  renderAccounts();
+  openAccountMenu(accountId);
+  setStatus(`Иконка обновлена: ${account.name}`);
+}
+
+async function moveAccountFromMenu(direction) {
+  const accountId = String(state.accountMenuAccountId || '');
+  if (!accountId) return;
+
+  const response = await window.waDeck.moveAccount({ accountId, direction });
+  if (!response?.ok) {
+    setStatus(`Не удалось переместить: ${response?.error || 'error'}`);
+    return;
+  }
+  if (Array.isArray(response.accounts)) {
+    replaceAccounts(response.accounts);
+  }
+  renderAccounts();
+  openAccountMenu(accountId);
+  const account = accountById(accountId);
+  setStatus(`Позиция обновлена: ${account?.name || 'WhatsApp'}`);
 }
 
 async function setAccountFrozenState(accountId, nextFrozen, options = {}) {
@@ -1166,6 +1490,7 @@ function sendScheduledScript(payload) {
       const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
 
       const normalize = (value) => String(value || '').replace(/\\u200e/g, '').replace(/\\s+/g, ' ').trim();
+      const looksLikeTime = (value) => /^\\d{1,2}:\\d{2}$/.test(String(value || '').trim()) || /^\\d{1,2}\\.\\d{1,2}\\.\\d{2,4}$/.test(String(value || '').trim());
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
       const pane = document.querySelector('#pane-side');
@@ -1177,10 +1502,50 @@ function sendScheduledScript(payload) {
         );
 
       const itemTitle = (item) => {
-        const t = item.querySelector('span[title], div[title]')?.getAttribute('title');
-        if (normalize(t)) return normalize(t);
-        const lines = String(item.innerText || '').split('\\n').map((line) => normalize(line)).filter(Boolean);
+        const titleCandidates = Array.from(
+          item.querySelectorAll(
+            '[data-testid="cell-frame-title"] span[title], [data-testid="cell-frame-title"] div[title], [data-testid="conversation-list-item-title"] span[title], span[title], div[title]',
+          ),
+        )
+          .map((node) => normalize(node.getAttribute('title') || node.textContent || ''))
+          .filter((text) => text && !looksLikeTime(text));
+        if (titleCandidates[0]) return titleCandidates[0];
+
+        const lines = String(item.innerText || '')
+          .split('\\n')
+          .map((line) => normalize(line))
+          .filter((line) => line && !looksLikeTime(line));
         return lines[0] || '';
+      };
+
+      const isChatMatch = (title) => {
+        const safeTitle = normalize(title).toLowerCase();
+        if (!safeTitle || !chatQuery) return false;
+        if (safeTitle === chatQuery) return true;
+        return false;
+      };
+
+      const activeChatTitle = () => {
+        const candidates = [
+          document.querySelector('#main header [data-testid="conversation-info-header-chat-title"]'),
+          document.querySelector('#main header [data-testid="conversation-title"]'),
+          document.querySelector('#main header span[title]'),
+          document.querySelector('#main header div[title]'),
+        ];
+        for (const node of candidates) {
+          const text = normalize(node?.getAttribute?.('title') || node?.textContent || '');
+          if (text && !looksLikeTime(text)) return text.toLowerCase();
+        }
+        return '';
+      };
+
+      const waitForActiveChatMatch = async () => {
+        for (let i = 0; i < 18; i += 1) {
+          const current = activeChatTitle();
+          if (isChatMatch(current)) return true;
+          await sleep(90);
+        }
+        return false;
       };
 
       const clickLikeUser = (node) => {
@@ -1203,10 +1568,10 @@ function sendScheduledScript(payload) {
           for (const item of items) {
             const title = itemTitle(item).toLowerCase();
             if (!title) continue;
-            if (title === chatQuery || title.includes(chatQuery) || chatQuery.includes(title)) {
+            if (isChatMatch(title)) {
               clickLikeUser(item);
-              await sleep(260);
-              return true;
+              const confirmed = await waitForActiveChatMatch();
+              if (confirmed) return true;
             }
           }
 
@@ -1501,6 +1866,7 @@ function openChatForScheduledSendScript(chatName) {
       };
 
       const normalize = (value) => String(value || '').replace(/\\u200e/g, '').replace(/\\s+/g, ' ').trim();
+      const looksLikeTime = (value) => /^\\d{1,2}:\\d{2}$/.test(String(value || '').trim()) || /^\\d{1,2}\\.\\d{1,2}\\.\\d{2,4}$/.test(String(value || '').trim());
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const query = normalize(decodeBase64Utf8('${chatB64}')).toLowerCase();
 
@@ -1513,13 +1879,50 @@ function openChatForScheduledSendScript(chatName) {
         );
 
       const itemTitle = (item) => {
-        const byTitle = item.querySelector('span[title], div[title]')?.getAttribute('title');
-        if (normalize(byTitle)) return normalize(byTitle);
+        const titleCandidates = Array.from(
+          item.querySelectorAll(
+            '[data-testid="cell-frame-title"] span[title], [data-testid="cell-frame-title"] div[title], [data-testid="conversation-list-item-title"] span[title], span[title], div[title]',
+          ),
+        )
+          .map((node) => normalize(node.getAttribute('title') || node.textContent || ''))
+          .filter((text) => text && !looksLikeTime(text));
+        if (titleCandidates[0]) return titleCandidates[0];
+
         const lines = String(item.innerText || '')
           .split('\\n')
           .map((line) => normalize(line))
-          .filter(Boolean);
+          .filter((line) => line && !looksLikeTime(line));
         return lines[0] || '';
+      };
+
+      const isChatMatch = (title) => {
+        const safeTitle = normalize(title).toLowerCase();
+        if (!safeTitle || !query) return false;
+        if (safeTitle === query) return true;
+        return false;
+      };
+
+      const activeChatTitle = () => {
+        const candidates = [
+          document.querySelector('#main header [data-testid="conversation-info-header-chat-title"]'),
+          document.querySelector('#main header [data-testid="conversation-title"]'),
+          document.querySelector('#main header span[title]'),
+          document.querySelector('#main header div[title]'),
+        ];
+        for (const node of candidates) {
+          const text = normalize(node?.getAttribute?.('title') || node?.textContent || '');
+          if (text && !looksLikeTime(text)) return text.toLowerCase();
+        }
+        return '';
+      };
+
+      const waitForActiveChatMatch = async () => {
+        for (let i = 0; i < 18; i += 1) {
+          const current = activeChatTitle();
+          if (isChatMatch(current)) return true;
+          await sleep(90);
+        }
+        return false;
       };
 
       const clickLikeUser = (node) => {
@@ -1537,10 +1940,10 @@ function openChatForScheduledSendScript(chatName) {
           for (const item of sidebarItems()) {
             const title = itemTitle(item).toLowerCase();
             if (!title) continue;
-            if (title === query || title.includes(query) || query.includes(title)) {
+            if (isChatMatch(title)) {
               clickLikeUser(item);
-              await sleep(260);
-              return true;
+              const confirmed = await waitForActiveChatMatch();
+              if (confirmed) return true;
             }
           }
 
@@ -2397,6 +2800,8 @@ async function saveSettings() {
     deeplApiKey: els.deeplApiKey.value.trim(),
     libreTranslateUrl: els.libreTranslateUrl.value.trim(),
     libreTranslateApiKey: els.libreTranslateApiKey.value.trim(),
+    weatherCity: normalizeWeatherCity(state.settings?.weatherCity),
+    weatherUnit: normalizeWeatherUnit(state.settings?.weatherUnit),
     aiApiKey: els.aiApiKey.value.trim(),
     aiModel: String(els.aiModel.value || state.aiModel || '').trim(),
     aiRolePrompt: String(els.aiRolePrompt.value || '').trim(),
@@ -2845,6 +3250,26 @@ function bindActions() {
   els.closePanel.addEventListener('click', closeSettingsPanel);
   els.manualUpdate?.addEventListener('click', () => requestManualUpdate().catch(console.error));
   els.brandFrog?.addEventListener('click', playFrogMoneyBurst);
+  els.weatherToggle?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleWeatherPopover();
+  });
+  els.weatherRefresh?.addEventListener('click', () => refreshWeather().catch(console.error));
+  els.weatherSave?.addEventListener('click', () => saveWeatherSettings().catch(console.error));
+  els.weatherUnit?.addEventListener('click', () => toggleWeatherUnit().catch(console.error));
+  els.weatherCityInput?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      saveWeatherSettings().catch(console.error);
+    }
+  });
+  document.addEventListener('click', (event) => {
+    if (!els.weatherWidget || !els.weatherPopover) return;
+    if (els.weatherPopover.classList.contains('hidden')) return;
+    if (els.weatherWidget.contains(event.target)) return;
+    closeWeatherPopover();
+  });
 
   els.saveSettings.addEventListener('click', () => saveSettings().catch(console.error));
   els.testTranslateApiDeepl.addEventListener('click', () => testTranslateApi('deepl').catch(console.error));
@@ -2916,7 +3341,9 @@ function bindActions() {
     if (event.target === els.chatPickerModal) closeChatPicker();
   });
   els.accountMenuSave.addEventListener('click', () => saveAccountNameFromMenu().catch(console.error));
-  els.accountMenuFreeze.addEventListener('click', () => toggleFreezeFromMenu().catch(console.error));
+  els.accountMenuIcon?.addEventListener('click', () => changeAccountIconFromMenu().catch(console.error));
+  els.accountMenuUp?.addEventListener('click', () => moveAccountFromMenu('up').catch(console.error));
+  els.accountMenuDown?.addEventListener('click', () => moveAccountFromMenu('down').catch(console.error));
   els.accountMenuCancel.addEventListener('click', closeAccountMenu);
   els.accountMenuModal.addEventListener('click', (event) => {
     if (event.target === els.accountMenuModal) closeAccountMenu();
@@ -2957,6 +3384,8 @@ async function init() {
     deeplApiKey: String(boot.settings?.deeplApiKey || ''),
     libreTranslateApiKey: String(boot.settings?.libreTranslateApiKey || boot.settings?.googleTranslateApiKey || ''),
     libreTranslateUrl: String(boot.settings?.libreTranslateUrl || 'https://libretranslate.com/translate'),
+    weatherCity: normalizeWeatherCity(boot.settings?.weatherCity || 'Moscow'),
+    weatherUnit: normalizeWeatherUnit(boot.settings?.weatherUnit || 'celsius'),
     aiApiKey: String(boot.settings?.aiApiKey || ''),
     aiModel: String(boot.settings?.aiModel || 'google/gemma-3-4b-it'),
     aiRolePrompt: String(boot.settings?.aiRolePrompt || ''),
@@ -2968,6 +3397,19 @@ async function init() {
 
   for (const account of state.accounts) {
     ensureWebview(account);
+  }
+
+  state.startupHubVisible = true;
+  if (state.startupHubTimeoutId) {
+    clearTimeout(state.startupHubTimeoutId);
+    state.startupHubTimeoutId = null;
+  }
+  if (state.accounts.length) {
+    state.startupHubTimeoutId = setTimeout(() => {
+      if (!state.startupHubVisible) return;
+      state.startupHubVisible = false;
+      refreshWebviewVisibility();
+    }, 12000);
   }
 
   if (state.accounts.length) {
@@ -3013,6 +3455,8 @@ async function init() {
   await renderScheduled();
 
   bindActions();
+  startWeatherRefreshLoop();
+  refreshWeather().catch(() => {});
   await refreshAiModels(false).catch(() => {});
   startScheduleRunner();
   startUnreadPolling();

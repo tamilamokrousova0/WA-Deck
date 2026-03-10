@@ -11,6 +11,7 @@
     radial-gradient(900px 500px at 12% -15%, #1a3b5e 0%, transparent 55%),
     radial-gradient(900px 500px at 98% -20%, #2f1f4f 0%, transparent 50%),
     linear-gradient(180deg, #0a1220 0%, #060c15 65%);
+  --hub-bg: url('../../assets/hub/hub-dark-forest.svg');
 }
 
 html[data-theme='light'] {
@@ -51,7 +52,7 @@ body {
   height: 100%;
   position: relative;
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -60,14 +61,14 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
-  padding: 8px 6px;
+  gap: 6px;
+  padding: 9px 7px;
 }
 
 .brand {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
   overflow: hidden;
   border: 1px solid #35577d;
   background: linear-gradient(180deg, #18273b 0%, #142235 100%);
@@ -134,7 +135,7 @@ body {
   border-radius: 10px;
   background: linear-gradient(180deg, #16253a 0%, #121f32 100%);
   color: var(--text);
-  padding: 6px 3px 5px;
+  padding: 7px 3px 6px;
   cursor: pointer;
   display: grid;
   gap: 3px;
@@ -157,15 +158,23 @@ body {
 }
 
 .account-chip {
-  width: 26px;
-  height: 16px;
-  border-radius: 6px;
+  width: 34px;
+  height: 22px;
+  border-radius: 8px;
   display: grid;
   place-items: center;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 900;
   color: #05141e;
   cursor: pointer;
+  overflow: hidden;
+}
+
+.account-chip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .account-chip:hover {
@@ -175,7 +184,7 @@ body {
 .account-name {
   width: 100%;
   text-align: center;
-  font-size: 8.8px;
+  font-size: 9.2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -185,18 +194,22 @@ body {
   position: absolute;
   top: 2px;
   right: 2px;
-  min-width: 13px;
-  height: 13px;
+  min-width: 16px;
+  height: 16px;
   border-radius: 999px;
-  border: 1px solid #8a314b;
-  background: linear-gradient(180deg, #ff5f88 0%, #e63d6a 100%);
+  border: 1px solid #9a2c50;
+  background: linear-gradient(180deg, #ff6b94 0%, #ea416f 100%);
   color: #fff;
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 800;
-  line-height: 11px;
+  line-height: 14px;
   text-align: center;
   padding: 0 2px;
   z-index: 2;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.18) inset,
+    0 2px 5px rgba(33, 4, 14, 0.45);
 }
 
 .account-remove {
@@ -349,6 +362,104 @@ body {
   color: #b3c7e2;
 }
 
+.weather-widget {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(calc(-100% - 14px), -50%);
+  z-index: 3;
+}
+
+.weather-toggle {
+  border: 1px solid #315275;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(25, 43, 67, 0.94) 0%, rgba(18, 31, 49, 0.96) 100%);
+  color: #d6e9ff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 5px 12px rgba(4, 12, 22, 0.34);
+}
+
+.weather-toggle:hover {
+  border-color: #46709d;
+}
+
+.weather-icon {
+  font-size: 12px;
+}
+
+.weather-temp {
+  color: #ecf5ff;
+  font-weight: 800;
+}
+
+.weather-city {
+  max-width: 95px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #aac5e4;
+  font-weight: 600;
+}
+
+.weather-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 250px;
+  border: 1px solid #2f5073;
+  border-radius: 11px;
+  background:
+    radial-gradient(160% 120% at 0% 0%, rgba(47, 211, 129, 0.09), transparent 62%),
+    linear-gradient(180deg, #112038 0%, #0e1a2d 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 14px 26px rgba(0, 0, 0, 0.48);
+  padding: 10px;
+  display: grid;
+  gap: 7px;
+}
+
+.weather-label {
+  display: grid;
+  gap: 4px;
+  font-size: 9px;
+  color: #9eb6d3;
+}
+
+.weather-label input {
+  width: 100%;
+}
+
+.weather-popover-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.weather-popover-actions .btn {
+  padding: 4px 8px;
+  font-size: 9.5px;
+}
+
+.weather-unit {
+  min-width: 48px;
+}
+
+.weather-meta {
+  font-size: 9px;
+  color: #97b2d3;
+  line-height: 1.25;
+  min-height: 24px;
+}
+
 .unread-indicator {
   display: inline-flex;
   align-items: center;
@@ -357,8 +468,9 @@ body {
   background: #13263d;
   color: #ffd9e3;
   border-radius: 999px;
-  padding: 2px 6px;
-  font-size: 9px;
+  padding: 3px 7px;
+  font-size: 10px;
+  font-weight: 700;
   line-height: 1;
 }
 
@@ -368,7 +480,7 @@ body {
 
 .unread-icon {
   color: #ff4f7c;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .add-account-btn {
@@ -390,6 +502,7 @@ body {
   position: relative;
   min-width: 0;
   min-height: 0;
+  background: #060d18;
 }
 
 .webviews webview {
@@ -402,6 +515,48 @@ body {
 
 .webviews webview.active {
   display: flex;
+}
+
+.hub-screen {
+  position: absolute;
+  inset: 0;
+  display: none;
+  background-color: #060d18;
+  background-image: var(--hub-bg, none);
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+}
+
+.webviews.hub-mode .hub-screen {
+  display: grid;
+  place-items: center;
+}
+
+.hub-overlay {
+  border: 1px solid rgba(129, 170, 214, 0.32);
+  border-radius: 14px;
+  padding: 14px 16px;
+  min-width: min(420px, 82vw);
+  text-align: center;
+  background: linear-gradient(180deg, rgba(8, 18, 33, 0.58) 0%, rgba(9, 19, 34, 0.72) 100%);
+  backdrop-filter: blur(3px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 12px 26px rgba(4, 9, 19, 0.45);
+}
+
+.hub-title {
+  font-size: 20px;
+  letter-spacing: 0.02em;
+  font-weight: 800;
+  color: #dff1ff;
+}
+
+.hub-subtitle {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #b6cae5;
 }
 
 .panel {
@@ -422,7 +577,7 @@ body {
   overflow: auto;
   z-index: 20;
   box-shadow: -18px 0 28px rgba(0, 0, 0, 0.45);
-  padding-bottom: 54px;
+  padding-bottom: 10px;
 }
 
 .panel.hidden {
@@ -472,16 +627,14 @@ body {
 }
 
 .panel-bottom-actions {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
+  position: static;
   display: flex;
   justify-content: flex-end;
-  padding: 0;
+  padding: 6px 0 0;
   background: transparent;
   margin: 0;
-  width: auto;
-  z-index: 2;
+  width: 100%;
+  z-index: 0;
 }
 
 .panel-bottom-actions .btn {
@@ -966,7 +1119,7 @@ textarea[readonly] {
 
 @media (max-width: 1450px) {
   .app {
-    grid-template-columns: 56px minmax(0, 1fr);
+    grid-template-columns: 60px minmax(0, 1fr);
   }
 
   .panel {
@@ -1025,6 +1178,22 @@ html[data-theme='light'] .toolbar {
     linear-gradient(180deg, #f9fcff 0%, #eef5ff 100%);
 }
 
+html[data-theme='light'] .hub-overlay {
+  border-color: rgba(149, 176, 208, 0.48);
+  background: linear-gradient(180deg, rgba(246, 250, 255, 0.72) 0%, rgba(236, 244, 255, 0.78) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 12px 22px rgba(82, 111, 148, 0.24);
+}
+
+html[data-theme='light'] .hub-title {
+  color: #1a3557;
+}
+
+html[data-theme='light'] .hub-subtitle {
+  color: #4e6a8b;
+}
+
 html[data-theme='light'] .active-account-display {
   border-color: rgba(64, 159, 108, 0.42);
   background:
@@ -1041,10 +1210,50 @@ html[data-theme='light'] .active-account-display.is-empty {
   color: #58708f;
 }
 
+html[data-theme='light'] .weather-toggle {
+  border-color: #b8cae0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(237, 245, 255, 0.95) 100%);
+  color: #19375b;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    0 5px 12px rgba(89, 116, 155, 0.2);
+}
+
+html[data-theme='light'] .weather-temp {
+  color: #143b67;
+}
+
+html[data-theme='light'] .weather-city {
+  color: #5d7597;
+}
+
+html[data-theme='light'] .weather-popover {
+  border-color: #c6d8ee;
+  background:
+    radial-gradient(130% 120% at 0% 0%, rgba(47, 211, 129, 0.1), transparent 62%),
+    linear-gradient(180deg, #ffffff 0%, #f2f8ff 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    0 12px 22px rgba(76, 108, 145, 0.24);
+}
+
+html[data-theme='light'] .weather-label {
+  color: #5b7395;
+}
+
+html[data-theme='light'] .weather-meta {
+  color: #546f91;
+}
+
 html[data-theme='light'] .unread-indicator {
   border-color: #c4d5ea;
   background: #eef5ff;
   color: #c2305f;
+}
+
+html[data-theme='light'] .account-unread {
+  border-color: #cc416b;
+  background: linear-gradient(180deg, #ff6f99 0%, #e73f6d 100%);
 }
 
 html[data-theme='light'] .panel {

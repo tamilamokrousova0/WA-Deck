@@ -47,6 +47,25 @@
             <button id="open-ai-modal" class="btn" hidden>AI помощник</button>
             <button id="open-crm-modal" class="btn">CRM</button>
           </div>
+          <div id="weather-widget" class="weather-widget">
+            <button id="weather-toggle" class="weather-toggle" title="Погода">
+              <span id="weather-icon" class="weather-icon">🌙</span>
+              <span id="weather-temp" class="weather-temp">--°C</span>
+              <span id="weather-city" class="weather-city">Москва</span>
+            </button>
+            <div id="weather-popover" class="weather-popover hidden">
+              <label class="weather-label">
+                Город
+                <input id="weather-city-input" type="text" placeholder="Москва" />
+              </label>
+              <div class="weather-popover-actions">
+                <button id="weather-unit" class="btn btn-ghost weather-unit" type="button">°C</button>
+                <button id="weather-refresh" class="btn btn-ghost" type="button">Обновить</button>
+                <button id="weather-save" class="btn" type="button">Сохранить</button>
+              </div>
+              <div id="weather-meta" class="weather-meta">Погода не загружена</div>
+            </div>
+          </div>
           <div id="active-account-display" class="active-account-display" title="Активный WhatsApp">—</div>
           <div class="toolbar-right">
             <div id="active-unread" class="unread-indicator hidden" title="Непрочитанные сообщения">
@@ -67,7 +86,14 @@
             </button>
           </div>
         </header>
-        <section id="webviews" class="webviews"></section>
+        <section id="webviews" class="webviews">
+          <div id="hub-screen" class="hub-screen hidden" aria-hidden="true">
+            <div id="hub-overlay" class="hub-overlay">
+              <div class="hub-title">WA Deck</div>
+              <div class="hub-subtitle">Хаб режим. Выберите WhatsApp слева.</div>
+            </div>
+          </div>
+        </section>
       </main>
 
       <aside id="panel" class="panel hidden">
@@ -260,10 +286,13 @@
           Название WhatsApp
           <input id="account-menu-name" type="text" placeholder="WP_1" maxlength="60" />
         </label>
-        <div class="hint">Замороженный аккаунт не грузится и не держит соединение, пока не будет разморожен.</div>
         <div class="row">
           <button id="account-menu-save" class="btn btn-primary">Сохранить имя</button>
-          <button id="account-menu-freeze" class="btn">Заморозить</button>
+          <button id="account-menu-icon" class="btn">Поменять иконку</button>
+        </div>
+        <div class="row">
+          <button id="account-menu-up" class="btn">Вверх</button>
+          <button id="account-menu-down" class="btn">Вниз</button>
           <button id="account-menu-cancel" class="btn">Закрыть</button>
         </div>
       </div>
