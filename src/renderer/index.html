@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WA Deck</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app-root" class="app panel-hidden">
+      <aside class="sidebar">
+        <div class="brand">
+          <img src="../../assets/icon/wadeck-icon-512.png" alt="WA Deck" />
+        </div>
+        <div id="accounts-list" class="accounts-list"></div>
+        <button id="add-account" class="btn btn-ghost add-account-btn" title="Добавить WhatsApp">+</button>
+      </aside>
+
+      <main class="workspace">
+        <header class="toolbar">
+          <div class="toolbar-left">
+            <button id="refresh-active" class="btn btn-icon btn-toolbar-icon btn-refresh" title="Обновить вкладку (F5)">
+              <svg class="icon icon-refresh" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+            <button id="freeze-active" class="btn btn-icon btn-toolbar-icon" title="Заморозить/разморозить активный WhatsApp">
+              <svg class="icon icon-snow" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 2v20M4.5 6.5L19.5 17.5M19.5 6.5L4.5 17.5M6 12h12"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+            <button id="open-translate-modal" class="btn">Перевод</button>
+            <button id="open-ai-modal" class="btn" hidden>AI помощник</button>
+            <button id="open-crm-modal" class="btn">CRM</button>
+          </div>
+          <div class="toolbar-right">
+            <div id="active-unread" class="unread-indicator hidden" title="Непрочитанные сообщения">
+              <span class="unread-icon">●</span>
+              <span id="active-unread-count">0</span>
+            </div>
+            <button id="toggle-panel" class="btn btn-icon btn-toolbar-icon" title="Настройки">
+              <svg class="icon icon-gear" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Zm7.3-3.2c0-.4 0-.8-.1-1.2l2-1.5-2-3.4-2.4 1a7.4 7.4 0 0 0-2-1.2l-.4-2.5h-4l-.4 2.5a7.4 7.4 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.5c-.1.4-.1.8-.1 1.2s0 .8.1 1.2l-2 1.5 2 3.4 2.4-1a7.4 7.4 0 0 0 2 1.2l.4 2.5h4l.4-2.5a7.4 7.4 0 0 0 2-1.2l2.4 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+            <div id="status" class="status">Инициализация...</div>
+          </div>
+        </header>
+        <section id="webviews" class="webviews"></section>
+      </main>
+
+      <aside id="panel" class="panel hidden">
+        <div class="panel-top">
+          <div class="panel-title">Настройки</div>
+          <div class="panel-actions">
+            <button id="theme-toggle" class="btn btn-icon btn-theme" title="Переключить тему">🌙</button>
+            <button id="close-panel" class="btn btn-icon" title="Закрыть">✕</button>
+          </div>
+        </div>
+        <div id="panel-status" class="panel-status">Готово</div>
+        <details class="card card-collapsible" id="translate-settings-card">
+          <summary>Настройки переводчика</summary>
+          <div class="translate-settings-top">
+            <label class="grow">
+              Переводчик по умолчанию
+              <div class="provider-choice" role="radiogroup" aria-label="Переводчик по умолчанию">
+                <label class="provider-option">
+                  <input id="translate-provider-deepl" type="radio" name="translate-provider-default" value="deepl" checked />
+                  <span>DeepL</span>
+                </label>
+                <label class="provider-option">
+                  <input id="translate-provider-libre" type="radio" name="translate-provider-default" value="libre" />
+                  <span>LibreTranslate</span>
+                </label>
+              </div>
+            </label>
+            <button id="save-settings" class="btn btn-icon btn-save-settings" type="button" title="Сохранить настройки переводчика">
+              <svg class="icon icon-save" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M5 3h11l3 3v15H5V3Zm2 0v6h8V3M8 21v-7h8v7"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+          <label>
+            DeepL API Key
+            <div class="password-field">
+              <input id="deepl-api-key" type="password" placeholder="DeepL Auth Key" />
+              <button id="toggle-deepl-api-key" class="btn btn-icon btn-eye" type="button" title="Показать ключ">
+                <svg class="icon icon-eye" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Zm10 3.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          </label>
+          <div class="row">
+            <button id="test-translate-api-deepl" class="btn">Проверить DeepL API</button>
+          </div>
+          <label>
+            LibreTranslate URL
+            <input id="libretranslate-url" type="text" placeholder="https://libretranslate.com/translate" />
+          </label>
+          <label>
+            LibreTranslate API Key
+            <div class="password-field">
+              <input id="libretranslate-api-key" type="password" placeholder="API key (если требуется сервером)" />
+              <button id="toggle-libretranslate-api-key" class="btn btn-icon btn-eye" type="button" title="Показать ключ">
+                <svg class="icon icon-eye" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Zm10 3.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          </label>
+          <div class="hint">
+            Для публичного LibreTranslate ключ может не требоваться, для приватного сервера обычно нужен.
+          </div>
+          <div class="row">
+            <button id="test-translate-api-libre" class="btn">Проверить LibreTranslate API</button>
+          </div>
+        </details>
+
+        <details class="card card-collapsible" id="templates-settings-card">
+          <summary>Общие шаблоны</summary>
+          <label>
+            Шаблон
+            <select id="template-select">
+              <option value="">Новый шаблон</option>
+            </select>
+          </label>
+          <label>
+            Название шаблона
+            <input id="template-title" type="text" placeholder="Например: Приветствие" maxlength="120" />
+          </label>
+          <label>
+            Текст шаблона
+            <textarea id="template-text" rows="5" placeholder="Текст шаблона, доступный для всех WhatsApp и чатов"></textarea>
+          </label>
+          <div class="row template-main-actions">
+            <button id="template-save" class="btn btn-primary">Сохранить шаблон</button>
+            <button id="template-new" class="btn">Новый</button>
+            <button id="template-delete" class="btn">Удалить</button>
+            <button id="template-to-chat" class="btn">В чат</button>
+          </div>
+          <div class="hint">Шаблоны общие: работают для всех WhatsApp-аккаунтов и всех чатов.</div>
+        </details>
+
+        <details class="card card-collapsible" id="schedule-settings-card">
+          <summary>Отложенная отправка</summary>
+          <label>
+            Цель отправки
+            <input id="schedule-target" type="text" placeholder="Выберите WhatsApp и чат" readonly />
+          </label>
+          <button id="open-chat-picker" class="btn">Выбрать WhatsApp и чат</button>
+          <label>
+            Сообщение
+            <textarea id="schedule-text" rows="4" placeholder="Текст сообщения"></textarea>
+          </label>
+          <label>
+            Время отправки
+            <input id="schedule-at" type="datetime-local" step="1" />
+          </label>
+          <div class="row">
+            <button id="pick-attachments" class="btn">Добавить вложения</button>
+            <button id="clear-attachments" class="btn">Очистить вложения</button>
+          </div>
+          <div id="attachments-list" class="attachments-list"></div>
+          <button id="create-schedule" class="btn btn-primary full">Запланировать</button>
+          <div id="scheduled-list" class="scheduled-list"></div>
+        </details>
+      </aside>
+    </div>
+
+    <div id="chat-picker-modal" class="modal hidden">
+      <div class="modal-card">
+        <h3>Выбор чата для отложенной отправки</h3>
+        <label>
+          WhatsApp
+          <select id="picker-account"></select>
+        </label>
+        <label>
+          Чат
+          <select id="picker-chat"></select>
+        </label>
+        <div class="row">
+          <button id="picker-refresh" class="btn">Обновить чаты</button>
+          <button id="picker-cancel" class="btn">Отмена</button>
+          <button id="picker-apply" class="btn btn-primary">Выбрать</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="account-menu-modal" class="modal hidden">
+      <div class="modal-card">
+        <h3 id="account-menu-title">Управление аккаунтом</h3>
+        <label>
+          Название WhatsApp
+          <input id="account-menu-name" type="text" placeholder="WP_1" maxlength="60" />
+        </label>
+        <div class="hint">Замороженный аккаунт не грузится и не держит соединение, пока не будет разморожен.</div>
+        <div class="row">
+          <button id="account-menu-save" class="btn btn-primary">Сохранить имя</button>
+          <button id="account-menu-freeze" class="btn">Заморозить</button>
+          <button id="account-menu-cancel" class="btn">Закрыть</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="translate-modal" class="modal hidden">
+      <div class="modal-card modal-card-wide">
+        <h3>Перевод сообщения</h3>
+        <div class="row">
+          <label class="grow">
+            Язык источника
+            <select id="translate-source-lang">
+              <option value="AUTO">Автоопределение</option>
+              <option value="DE">Немецкий</option>
+              <option value="EN">Английский</option>
+              <option value="FR">Французский</option>
+              <option value="ES">Испанский</option>
+              <option value="IT">Итальянский</option>
+              <option value="NL">Нидерландский</option>
+              <option value="PL">Польский</option>
+              <option value="PT">Португальский</option>
+              <option value="TR">Турецкий</option>
+              <option value="UK">Украинский</option>
+              <option value="RU">Русский</option>
+            </select>
+          </label>
+          <label class="grow">
+            Язык перевода
+            <select id="translate-target-lang">
+              <option value="RU">Русский</option>
+              <option value="DE">Немецкий</option>
+              <option value="EN-US">Английский (US)</option>
+              <option value="EN-GB">Английский (UK)</option>
+              <option value="UK">Украинский</option>
+              <option value="FR">Французский</option>
+              <option value="ES">Испанский</option>
+              <option value="IT">Итальянский</option>
+              <option value="NL">Нидерландский</option>
+              <option value="PL">Польский</option>
+              <option value="PT-PT">Португальский</option>
+              <option value="TR">Турецкий</option>
+            </select>
+          </label>
+        </div>
+
+        <label>
+          Текст для перевода
+          <textarea id="translate-input" rows="6" placeholder="Выделите текст в чате и нажмите «Взять выделенный текст»"></textarea>
+        </label>
+
+        <div class="row">
+          <button id="fill-selected-text" class="btn">Взять выделенный текст</button>
+          <button id="do-translate" class="btn btn-primary">Перевести</button>
+          <button id="copy-translate" class="btn">Копировать перевод</button>
+          <button id="clear-translate" class="btn">Очистить</button>
+          <button id="close-translate-modal" class="btn">Закрыть</button>
+        </div>
+
+        <label>
+          Результат
+          <textarea id="translate-output" rows="6" readonly placeholder="Здесь появится перевод"></textarea>
+        </label>
+      </div>
+    </div>
+
+    <div id="ai-modal" class="modal hidden">
+      <div class="modal-card modal-card-wide">
+        <h3>AI помощник</h3>
+        <label>
+          Сообщение для ответа
+          <textarea id="ai-input" rows="6" placeholder="Выделите сообщение в чате и нажмите «Взять выделенный текст»"></textarea>
+        </label>
+
+        <div class="ai-mode-grid">
+          <button id="ai-mode-short" class="btn ai-mode-btn" type="button" data-ai-mode="short">Коротко</button>
+          <button id="ai-mode-warm" class="btn ai-mode-btn is-active" type="button" data-ai-mode="warm">Тепло</button>
+          <button id="ai-mode-business" class="btn ai-mode-btn" type="button" data-ai-mode="business">Деловой</button>
+          <button id="ai-mode-flirt" class="btn ai-mode-btn" type="button" data-ai-mode="flirt">Флирт</button>
+        </div>
+
+        <div class="row ai-advanced-row">
+          <label class="ai-inline-label">
+            Контекст (входящих)
+            <input id="ai-context-count" type="number" min="0" max="10" step="1" value="3" />
+          </label>
+          <label class="ai-checkbox-label">
+            <input id="ai-reply-source-lang" type="checkbox" checked />
+            Ответ на языке собеседника
+          </label>
+        </div>
+
+        <div class="row">
+          <button id="fill-ai-selected-text" class="btn">Взять выделенный текст</button>
+          <button id="do-ai-reply" class="btn btn-primary">Сгенерировать ответ</button>
+          <button id="copy-ai-reply" class="btn">Копировать ответ</button>
+          <button id="insert-ai-reply" class="btn">Вставить в чат</button>
+          <button id="clear-ai" class="btn">Очистить</button>
+          <button id="close-ai-modal" class="btn">Закрыть</button>
+        </div>
+
+        <label>
+          Вариант ответа
+          <textarea id="ai-output" rows="6" readonly placeholder="Здесь появится вариант ответа"></textarea>
+        </label>
+      </div>
+    </div>
+
+    <div id="crm-modal" class="modal hidden">
+      <div class="modal-card modal-card-wide">
+        <h3>CRM контакта</h3>
+        <label>
+          Контакт
+          <input id="crm-contact-name" type="text" readonly />
+        </label>
+        <label>
+          Имя фамилия
+          <input id="crm-full-name" type="text" placeholder="Имя Фамилия" readonly />
+        </label>
+        <label>
+          Страна город
+          <input id="crm-country-city" type="text" placeholder="Страна, Город" readonly />
+        </label>
+        <label>
+          О нём
+          <textarea id="crm-about" rows="5" placeholder="Краткая информация о контакте" readonly></textarea>
+        </label>
+        <label>
+          Моя информация
+          <textarea id="crm-my-info" rows="5" placeholder="Что важно помнить мне" readonly></textarea>
+        </label>
+        <div class="row">
+          <button id="crm-edit" class="btn">Изменить</button>
+          <button id="crm-save" class="btn btn-primary">Сохранить</button>
+          <button id="crm-copy" class="btn">Копировать</button>
+          <button id="crm-close" class="btn">Закрыть</button>
+        </div>
+        <div id="crm-meta" class="hint">Файл: —</div>
+      </div>
+    </div>
+
+    <div id="ai-internal-controls" hidden>
+      <input id="ai-api-key" type="password" />
+      <button id="toggle-ai-api-key" type="button" aria-hidden="true"></button>
+      <select id="ai-model"></select>
+      <button id="refresh-ai-models" type="button"></button>
+      <textarea id="ai-role-prompt"></textarea>
+    </div>
+
+    <script src="templates.js"></script>
+    <script src="renderer.js"></script>
+  </body>
+</html>

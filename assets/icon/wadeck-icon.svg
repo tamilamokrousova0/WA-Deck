@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#143227"/>
+      <stop offset="55%" stop-color="#1f4e38"/>
+      <stop offset="100%" stop-color="#2a6a47"/>
+    </linearGradient>
+
+    <radialGradient id="shine" cx="28%" cy="18%" r="72%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.34"/>
+      <stop offset="42%" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="frogGreen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#84df6d"/>
+      <stop offset="100%" stop-color="#5fbe55"/>
+    </linearGradient>
+
+    <linearGradient id="belly" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#efe7d2"/>
+      <stop offset="100%" stop-color="#e2d8bf"/>
+    </linearGradient>
+
+    <linearGradient id="euroGold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffe7a3"/>
+      <stop offset="55%" stop-color="#f6c95f"/>
+      <stop offset="100%" stop-color="#cc9840"/>
+    </linearGradient>
+
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000" flood-opacity="0.24"/>
+    </filter>
+
+    <filter id="softInner" x="-20%" y="-20%" width="140%" height="140%">
+      <feOffset dx="0" dy="2"/>
+      <feGaussianBlur stdDeviation="6" result="offset-blur"/>
+      <feComposite operator="out" in="SourceGraphic" in2="offset-blur" result="inverse"/>
+      <feFlood flood-color="#ffffff" flood-opacity="0.08" result="color"/>
+      <feComposite operator="in" in="color" in2="inverse" result="shadow"/>
+      <feComposite operator="over" in="shadow" in2="SourceGraphic"/>
+    </filter>
+  </defs>
+
+  <!-- transparent padding around icon to match system visual size -->
+  <g filter="url(#shadow)">
+    <rect x="112" y="112" width="800" height="800" rx="190" fill="url(#bgGrad)"/>
+  </g>
+  <rect x="112" y="112" width="800" height="800" rx="190" fill="url(#shine)"/>
+
+  <g transform="translate(112 112)">
+    <circle cx="170" cy="170" r="102" fill="url(#frogGreen)"/>
+    <circle cx="630" cy="170" r="102" fill="url(#frogGreen)"/>
+
+    <ellipse cx="400" cy="430" rx="330" ry="315" fill="url(#frogGreen)"/>
+    <ellipse cx="400" cy="495" rx="270" ry="210" fill="url(#belly)" filter="url(#softInner)"/>
+
+    <circle cx="170" cy="172" r="34" fill="#46392f"/>
+    <circle cx="630" cy="172" r="34" fill="#46392f"/>
+    <circle cx="343" cy="196" r="11" fill="#4a3c31"/>
+    <circle cx="457" cy="196" r="11" fill="#4a3c31"/>
+
+    <text x="400" y="605" text-anchor="middle" font-family="Avenir Next, SF Pro Display, Arial, sans-serif" font-size="228" font-weight="900" fill="url(#euroGold)">€</text>
+    <text x="400" y="605" text-anchor="middle" font-family="Avenir Next, SF Pro Display, Arial, sans-serif" font-size="228" font-weight="900" fill="none" stroke="#7b5b28" stroke-opacity="0.45" stroke-width="6">€</text>
+  </g>
+</svg>
