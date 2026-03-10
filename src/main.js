@@ -6,7 +6,7 @@ const fsSync = require('fs');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
-const APP_ID = 'com.local.wadeck.v2';
+const APP_ID = 'com.local.wadeck';
 const APP_TITLE = 'WA Deck';
 const FALLBACK_CHROME_VERSION = '136.0.0.0';
 const APP_ICON_PNG_PATH = path.join(__dirname, '..', 'assets', 'icon', 'wadeck-icon-512.png');
@@ -98,6 +98,89 @@ function ensurePaths() {
   }
   if (!fsSync.existsSync(state.paths.crmDir)) {
     fsSync.mkdirSync(state.paths.crmDir, { recursive: true });
+  }
+
+  migrateLegacyStoreIfNeeded();
+}
+
+function legacyUserDataCandidates(currentUserData) {
+  const appData = app.getPath('appData');
+  const normalizedCurrent = path.resolve(currentUserData);
+  const candidates = new Set();
+
+  const knownNames = ['WA Deck', 'wa-deck', 'WA-Deck', 'wa_deck', 'wadeck', 'wa deck'];
+  for (const name of knownNames) {
+    const candidate = path.join(appData, name);
+    if (path.resolve(candidate) !== normalizedCurrent) {
+      candidates.add(candidate);
+    }
+  }
+
+  try {
+    const entries = fsSync.readdirSync(appData, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (!/wa|deck/i.test(entry.name)) continue;
+      const candidate = path.join(appData, entry.name);
+      if (path.resolve(candidate) !== normalizedCurrent) {
+        candidates.add(candidate);
+      }
+    }
+  } catch {
+    // ignore scan errors
+  }
+
+  return Array.from(candidates).filter((candidate) => fsSync.existsSync(candidate));
+}
+
+function migrateLegacyStoreIfNeeded() {
+  if (fsSync.existsSync(state.paths.storePath)) {
+    return;
+  }
+
+  const candidates = legacyUserDataCandidates(state.paths.userData);
+  let best = null;
+
+  for (const candidateDir of candidates) {
+    const candidateStore = path.join(candidateDir, 'wa-deck-store.json');
+    if (!fsSync.existsSync(candidateStore)) continue;
+    try {
+      const stat = fsSync.statSync(candidateStore);
+      const mtimeMs = Number(stat.mtimeMs || 0);
+      if (!best || mtimeMs > best.mtimeMs) {
+        best = {
+          dir: candidateDir,
+          storePath: candidateStore,
+          mtimeMs,
+        };
+      }
+    } catch {
+      // ignore stat errors
+    }
+  }
+
+  if (!best) {
+    return;
+  }
+
+  try {
+    fsSync.copyFileSync(best.storePath, state.paths.storePath);
+
+    const legacyCrmDir = path.join(best.dir, 'crm-contacts');
+    const targetCrmEmpty =
+      !fsSync.existsSync(state.paths.crmDir) ||
+      (() => {
+        try {
+          return fsSync.readdirSync(state.paths.crmDir).length === 0;
+        } catch {
+          return true;
+        }
+      })();
+    if (fsSync.existsSync(legacyCrmDir) && targetCrmEmpty) {
+      fsSync.cpSync(legacyCrmDir, state.paths.crmDir, { recursive: true });
+    }
+  } catch {
+    // ignore migration errors
   }
 }
 
@@ -1264,6 +1347,8 @@ function setupAutoUpdater() {
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+  // NSIS differential patches can be flaky on some Windows setups and cause integrity errors.
+  autoUpdater.disableDifferentialDownload = true;
 
   autoUpdater.on('checking-for-update', () => {
     sendAutoUpdateStatus({ status: 'checking', source: 'manual', message: 'Проверка обновлений...' });

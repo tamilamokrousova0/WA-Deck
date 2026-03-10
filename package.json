@@ -1,6 +1,6 @@
 {
   "name": "wa-deck",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "WA Deck for macOS Apple Silicon",
   "main": "src/main.js",
   "scripts": {
@@ -36,6 +36,7 @@
     "mac": {
       "category": "public.app-category.social-networking",
       "icon": "assets/icon/icon.icns",
+      "artifactName": "WA-Deck-${version}-${arch}.${ext}",
       "target": [
         {
           "target": "dmg",
@@ -52,6 +53,7 @@
       ]
     },
     "win": {
+      "artifactName": "WA-Deck-Setup-${version}.${ext}",
       "target": [
         {
           "target": "nsis",

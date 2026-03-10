@@ -47,11 +47,13 @@
             <button id="open-ai-modal" class="btn" hidden>AI помощник</button>
             <button id="open-crm-modal" class="btn">CRM</button>
           </div>
+          <div id="active-account-display" class="active-account-display" title="Активный WhatsApp">—</div>
           <div class="toolbar-right">
             <div id="active-unread" class="unread-indicator hidden" title="Непрочитанные сообщения">
               <span class="unread-icon">●</span>
               <span id="active-unread-count">0</span>
             </div>
+            <div id="status" class="status">Инициализация...</div>
             <button id="toggle-panel" class="btn btn-icon btn-toolbar-icon" title="Настройки">
               <svg class="icon icon-gear" viewBox="0 0 24 24" aria-hidden="true">
                 <path
@@ -63,7 +65,6 @@
                 />
               </svg>
             </button>
-            <div id="status" class="status">Инициализация...</div>
           </div>
         </header>
         <section id="webviews" class="webviews"></section>
@@ -162,9 +163,29 @@
           <summary>Общие шаблоны</summary>
           <label>
             Шаблон
-            <select id="template-select">
-              <option value="">Новый шаблон</option>
-            </select>
+            <div class="template-select-row">
+              <button id="template-search" class="btn btn-icon btn-template-search" type="button" title="Поиск шаблона по названию">
+                <svg class="icon icon-search" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Zm9 2-4.2-4.2"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+              <select id="template-select">
+                <option value="">Новый шаблон</option>
+              </select>
+            </div>
+            <div id="template-search-row" class="template-search-inline hidden">
+              <input id="template-search-input" type="text" placeholder="Поиск по названию шаблона" />
+            </div>
+            <div id="template-search-results-row" class="template-search-results hidden">
+              <select id="template-search-results" size="5"></select>
+            </div>
           </label>
           <label>
             Название шаблона

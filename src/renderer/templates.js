@@ -13,6 +13,7 @@
 
     let selectedTemplateId = '';
     let isBound = false;
+    let searchMatches = [];
 
     const byId = (id) => state.templates.find((tpl) => tpl.id === id) || null;
 
@@ -136,6 +137,156 @@
       setStatus('Новый шаблон');
     }
 
+    function setTemplateSearchVisible(visible) {
+      if (!els.templateSearchRow || !els.templateSearchInput) return;
+      const next = Boolean(visible);
+      els.templateSearchRow.classList.toggle('hidden', !next);
+      els.templateSearchResultsRow?.classList.add('hidden');
+      if (els.templateSearchResults) {
+        els.templateSearchResults.innerHTML = '';
+      }
+      searchMatches = [];
+      if (next) {
+        els.templateSearchInput.focus();
+        els.templateSearchInput.select();
+      } else {
+        els.templateSearchInput.value = '';
+      }
+    }
+
+    function findTemplateByQuery(query) {
+      const q = String(query || '').trim().toLowerCase();
+      if (!q) return null;
+      const startsWith = state.templates.find((tpl) => String(tpl.title || '').toLowerCase().startsWith(q));
+      const includes = state.templates.find((tpl) => String(tpl.title || '').toLowerCase().includes(q));
+      return startsWith || includes || null;
+    }
+
+    function findTemplateMatches(query) {
+      const q = String(query || '').trim().toLowerCase();
+      if (!q) return [];
+
+      const startsWith = state.templates.filter((tpl) => String(tpl.title || '').toLowerCase().startsWith(q));
+      const includes = state.templates.filter((tpl) => {
+        const title = String(tpl.title || '').toLowerCase();
+        return title.includes(q) && !title.startsWith(q);
+      });
+      return [...startsWith, ...includes];
+    }
+
+    function selectTemplate(template, options = {}) {
+      if (!template) return;
+      const silent = Boolean(options.silent);
+      selectedTemplateId = String(template.id || '');
+      if (els.templateSelect) {
+        els.templateSelect.value = selectedTemplateId;
+      }
+      fillEditorFromTemplate(template);
+      if (!silent) {
+        setStatus(`Найден шаблон: ${template.title || 'Без названия'}`);
+      }
+    }
+
+    function renderTemplateSearchResults(matches) {
+      if (!els.templateSearchResultsRow || !els.templateSearchResults) return;
+      if (!Array.isArray(matches) || !matches.length) {
+        els.templateSearchResultsRow.classList.add('hidden');
+        els.templateSearchResults.innerHTML = '';
+        return;
+      }
+
+      els.templateSearchResults.innerHTML = '';
+      for (const tpl of matches) {
+        const option = document.createElement('option');
+        option.value = String(tpl.id || '');
+        option.textContent = String(tpl.title || 'Без названия');
+        els.templateSearchResults.appendChild(option);
+      }
+      els.templateSearchResultsRow.classList.remove('hidden');
+    }
+
+    function applyTemplateSearch(query, options = {}) {
+      const silent = Boolean(options.silent);
+      const q = String(query || '').trim();
+      if (!q) {
+        searchMatches = [];
+        renderTemplateSearchResults([]);
+        if (selectedTemplateId) {
+          if (els.templateSelect) {
+            els.templateSelect.value = selectedTemplateId;
+          }
+          fillEditorFromTemplate(byId(selectedTemplateId));
+        }
+        return;
+      }
+
+      const matches = findTemplateMatches(q);
+      searchMatches = matches;
+      if (!matches.length) {
+        renderTemplateSearchResults([]);
+        if (!silent) {
+          setStatus(`Шаблон не найден: ${q}`);
+        }
+        return;
+      }
+
+      if (matches.length === 1) {
+        renderTemplateSearchResults([]);
+        selectTemplate(matches[0], { silent });
+        return;
+      }
+
+      renderTemplateSearchResults(matches);
+      if (els.templateSearchResults) {
+        els.templateSearchResults.value = String(matches[0].id || '');
+      }
+      if (!silent) {
+        setStatus(`Найдено шаблонов: ${matches.length}. Выберите нужный в списке.`);
+      }
+    }
+
+    function toggleTemplateSearch() {
+      if (!els.templateSearchRow || !els.templateSearchInput) return;
+      const hidden = els.templateSearchRow.classList.contains('hidden');
+      if (hidden) {
+        setTemplateSearchVisible(true);
+        return;
+      }
+      const hasQuery = Boolean(String(els.templateSearchInput.value || '').trim());
+      if (hasQuery) {
+        els.templateSearchInput.value = '';
+        applyTemplateSearch('', { silent: true });
+        return;
+      }
+      setTemplateSearchVisible(false);
+    }
+
+    function onTemplateSearchInput() {
+      if (!els.templateSearchInput) return;
+      applyTemplateSearch(els.templateSearchInput.value, { silent: true });
+    }
+
+    function onTemplateSearchResultSelected() {
+      if (!els.templateSearchResults) return;
+      const id = String(els.templateSearchResults.value || '').trim();
+      if (!id) return;
+      const found = byId(id);
+      if (!found) return;
+      selectTemplate(found, { silent: false });
+    }
+
+    function onTemplateSearchKeydown(event) {
+      if (!els.templateSearchInput) return;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        applyTemplateSearch(els.templateSearchInput.value, { silent: false });
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setTemplateSearchVisible(false);
+      }
+    }
+
     function bind() {
       if (isBound) return;
       isBound = true;
@@ -144,6 +295,11 @@
       els.templateSave?.addEventListener('click', () => saveCurrentTemplate().catch(console.error));
       els.templateDelete?.addEventListener('click', () => deleteCurrentTemplate().catch(console.error));
       els.templateNew?.addEventListener('click', newTemplate);
+      els.templateSearch?.addEventListener('click', toggleTemplateSearch);
+      els.templateSearchInput?.addEventListener('input', onTemplateSearchInput);
+      els.templateSearchInput?.addEventListener('keydown', onTemplateSearchKeydown);
+      els.templateSearchResults?.addEventListener('change', onTemplateSearchResultSelected);
+      els.templateSearchResults?.addEventListener('dblclick', onTemplateSearchResultSelected);
       els.templateToChat?.addEventListener('click', () => insertIntoChat().catch(console.error));
     }
 
@@ -157,6 +313,7 @@
       }
       renderSelect();
       fillEditorFromTemplate(byId(selectedTemplateId));
+      setTemplateSearchVisible(false);
     }
 
     return {

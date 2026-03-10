@@ -32,6 +32,10 @@ html[data-theme='light'] {
   box-sizing: border-box;
 }
 
+.hidden {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -47,7 +51,7 @@ body {
   height: 100%;
   position: relative;
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-columns: 58px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -56,14 +60,14 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 10px 7px;
+  gap: 5px;
+  padding: 8px 6px;
 }
 
 .brand {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
   overflow: hidden;
   border: 1px solid #35577d;
   background: linear-gradient(180deg, #18273b 0%, #142235 100%);
@@ -120,20 +124,20 @@ body {
 .accounts-list {
   width: 100%;
   display: grid;
-  gap: 6px;
+  gap: 5px;
   overflow: auto;
 }
 
 .account-item {
   width: 100%;
   border: 1px solid #2a4360;
-  border-radius: 12px;
+  border-radius: 10px;
   background: linear-gradient(180deg, #16253a 0%, #121f32 100%);
   color: var(--text);
-  padding: 7px 4px 6px;
+  padding: 6px 3px 5px;
   cursor: pointer;
   display: grid;
-  gap: 4px;
+  gap: 3px;
   justify-items: center;
   position: relative;
 }
@@ -153,12 +157,12 @@ body {
 }
 
 .account-chip {
-  width: 30px;
-  height: 18px;
-  border-radius: 7px;
+  width: 26px;
+  height: 16px;
+  border-radius: 6px;
   display: grid;
   place-items: center;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 900;
   color: #05141e;
   cursor: pointer;
@@ -171,7 +175,7 @@ body {
 .account-name {
   width: 100%;
   text-align: center;
-  font-size: 9.5px;
+  font-size: 8.8px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -181,15 +185,15 @@ body {
   position: absolute;
   top: 2px;
   right: 2px;
-  min-width: 14px;
-  height: 14px;
+  min-width: 13px;
+  height: 13px;
   border-radius: 999px;
   border: 1px solid #8a314b;
   background: linear-gradient(180deg, #ff5f88 0%, #e63d6a 100%);
   color: #fff;
-  font-size: 8px;
+  font-size: 7px;
   font-weight: 800;
-  line-height: 12px;
+  line-height: 11px;
   text-align: center;
   padding: 0 2px;
   z-index: 2;
@@ -199,13 +203,13 @@ body {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   border-radius: 999px;
   border: 1px solid #35567a;
   background: #102137;
   color: #adc7e7;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1;
   display: grid;
   place-items: center;
@@ -230,7 +234,7 @@ body {
 .workspace {
   min-width: 0;
   display: grid;
-  grid-template-rows: 44px 1fr;
+  grid-template-rows: 40px 1fr;
 }
 
 .toolbar {
@@ -239,46 +243,52 @@ body {
     radial-gradient(460px 100px at 18% 0%, rgba(41, 212, 127, 0.14), transparent 70%),
     linear-gradient(180deg, #0f1828 0%, #0b1320 100%);
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 7px;
-  padding: 5px 8px;
+  gap: 6px;
+  padding: 4px 7px;
+  position: relative;
 }
 
 .toolbar-left,
 .toolbar-right {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
 .toolbar-left {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.toolbar-right {
+  margin-left: auto;
 }
 
 .status {
-  max-width: 560px;
+  max-width: 420px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
   white-space: normal;
   overflow: hidden;
   line-height: 1.2;
 }
 
 .toolbar .btn {
-  padding: 5px 9px;
-  font-size: 10.5px;
-  border-radius: 10px;
+  padding: 4px 8px;
+  font-size: 9.8px;
+  border-radius: 9px;
 }
 
 .btn-toolbar-icon {
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
+  width: 27px;
+  min-width: 27px;
+  height: 27px;
   padding: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btn-toolbar-icon.is-active {
@@ -287,9 +297,56 @@ body {
 }
 
 .icon {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
   display: block;
+  margin: 0 auto;
+}
+
+.btn-toolbar-icon .icon {
+  transform: translateX(-1px);
+}
+
+.icon-gear {
+  transform: translateX(-1.7px);
+}
+
+.icon-refresh {
+  transform: translateX(-1.5px);
+}
+
+.icon-snow {
+  transform: translateX(-1.5px);
+}
+
+.active-account-display {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: min(36vw, 380px);
+  border: 1px solid rgba(90, 220, 156, 0.46);
+  border-radius: 999px;
+  background:
+    radial-gradient(120% 200% at 50% 0%, rgba(76, 238, 161, 0.16), rgba(22, 44, 63, 0.86)),
+    linear-gradient(180deg, rgba(20, 33, 51, 0.85) 0%, rgba(16, 27, 41, 0.92) 100%);
+  color: #d9ffe9;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 6px 14px rgba(2, 12, 22, 0.28);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.active-account-display.is-empty {
+  border-color: rgba(92, 123, 157, 0.45);
+  color: #b3c7e2;
 }
 
 .unread-indicator {
@@ -300,8 +357,8 @@ body {
   background: #13263d;
   color: #ffd9e3;
   border-radius: 999px;
-  padding: 3px 7px;
-  font-size: 10px;
+  padding: 2px 6px;
+  font-size: 9px;
   line-height: 1;
 }
 
@@ -315,10 +372,10 @@ body {
 }
 
 .add-account-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  font-size: 24px;
+  width: 35px;
+  height: 35px;
+  border-radius: 10px;
+  font-size: 20px;
   line-height: 1;
   padding: 0;
   display: grid;
@@ -352,19 +409,20 @@ body {
   right: 0;
   top: 0;
   bottom: 0;
-  width: 390px;
+  width: 370px;
   border-left: 1px solid var(--line);
   background:
     radial-gradient(420px 220px at 10% -8%, rgba(49, 213, 132, 0.08), transparent 70%),
     linear-gradient(180deg, #111b2b 0%, #0d1522 100%);
-  padding: 10px;
+  padding: 8px;
   display: grid;
-  gap: 8px;
+  gap: 6px;
   grid-auto-rows: max-content;
   align-content: start;
   overflow: auto;
   z-index: 20;
   box-shadow: -18px 0 28px rgba(0, 0, 0, 0.45);
+  padding-bottom: 54px;
 }
 
 .panel.hidden {
@@ -375,7 +433,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
 }
 
 .panel-actions {
@@ -384,8 +442,17 @@ body {
   gap: 6px;
 }
 
+.panel-actions .btn-icon {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+
 .panel-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: #d9e8ff;
@@ -396,27 +463,31 @@ body {
   border-radius: 10px;
   background: linear-gradient(180deg, #15253c 0%, #122035 100%);
   color: #9bb2d1;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.25;
-  padding: 7px 9px;
-  min-height: 32px;
-  max-height: 54px;
+  padding: 6px 8px;
+  min-height: 30px;
+  max-height: 48px;
   overflow: hidden;
 }
 
 .panel-bottom-actions {
-  position: sticky;
-  bottom: -10px;
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
   display: flex;
   justify-content: flex-end;
-  padding: 7px 2px 2px;
-  border-top: 1px solid #29415d;
-  background: linear-gradient(180deg, rgba(12, 21, 34, 0.36) 0%, rgba(12, 21, 34, 0.96) 55%);
-  margin-top: 2px;
+  padding: 0;
+  background: transparent;
+  margin: 0;
+  width: auto;
+  z-index: 2;
 }
 
 .panel-bottom-actions .btn {
-  min-width: 122px;
+  min-width: 84px;
+  padding: 4px 8px;
+  font-size: 9.5px;
 }
 
 .card {
@@ -424,10 +495,10 @@ body {
   background:
     radial-gradient(120% 120% at -10% 0%, rgba(47, 211, 129, 0.05), transparent 60%),
     linear-gradient(180deg, #16263d 0%, #121f33 100%);
-  border-radius: 12px;
-  padding: 10px;
+  border-radius: 11px;
+  padding: 8px;
   display: grid;
-  gap: 8px;
+  gap: 7px;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.03),
     0 6px 16px rgba(2, 10, 20, 0.26);
@@ -449,16 +520,17 @@ body {
 .card-collapsible > summary {
   list-style: none;
   cursor: pointer;
-  padding: 9px 11px;
-  font-size: 12.5px;
+  padding: 8px 30px 8px 10px;
+  font-size: 11.6px;
   letter-spacing: 0.01em;
   color: #c8daf2;
   font-weight: 700;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  min-height: 40px;
-  border-radius: 12px;
+  justify-content: flex-start;
+  min-height: 34px;
+  border-radius: 11px;
+  position: relative;
 }
 
 .card-collapsible > summary::-webkit-details-marker {
@@ -466,15 +538,18 @@ body {
 }
 
 .card-collapsible > summary::after {
-  content: '▸';
-  font-size: 11px;
+  content: '⌄';
+  position: absolute;
+  right: 10px;
+  bottom: 6px;
+  font-size: 10px;
   color: #94adce;
   transform: rotate(0deg);
   transition: transform 0.18s ease;
 }
 
 .card-collapsible[open] > summary::after {
-  transform: rotate(90deg);
+  transform: rotate(180deg);
 }
 
 .card-collapsible[open] > summary {
@@ -484,7 +559,7 @@ body {
 }
 
 .card-collapsible > :not(summary) {
-  margin: 0 10px 10px;
+  margin: 0 8px 8px;
 }
 
 .card-collapsible:not([open]) > :not(summary) {
@@ -521,26 +596,32 @@ textarea[readonly] {
 
 .password-field {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 40px;
+  grid-template-columns: minmax(0, 1fr) 34px;
   gap: 6px;
   align-items: center;
 }
 
 .btn-eye {
-  min-width: 40px;
-  padding: 6px 0;
+  min-width: 34px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
   position: relative;
+  display: grid;
+  place-items: center;
 }
 
 .btn-eye .icon-eye {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
+  margin: 0 auto;
+  transform: translateX(-0.4px);
 }
 
 .btn-eye.is-revealed::after {
   content: '';
   position: absolute;
-  width: 18px;
+  width: 14px;
   height: 2px;
   background: currentColor;
   transform: rotate(-28deg);
@@ -574,16 +655,21 @@ textarea[readonly] {
 .translate-settings-top {
   display: flex;
   align-items: flex-end;
-  gap: 10px;
+  gap: 8px;
 }
 
 .btn-save-settings {
-  width: 40px;
-  min-width: 40px;
-  height: 40px;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
   padding: 0;
   display: grid;
   place-items: center;
+}
+
+.btn-save-settings .icon-save {
+  width: 13px;
+  height: 13px;
 }
 
 .btn-save-settings.is-saving .icon-save {
@@ -643,6 +729,39 @@ textarea[readonly] {
   cursor: pointer;
 }
 
+.template-select-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.template-search-inline {
+  margin-top: 6px;
+}
+
+.template-search-results {
+  margin-top: 6px;
+}
+
+.template-search-results select {
+  min-height: 98px;
+}
+
+.btn-template-search {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+
+.btn-template-search .icon-search {
+  width: 12px;
+  height: 12px;
+}
+
 .btn:hover {
   border-color: #4670a0;
 }
@@ -659,7 +778,8 @@ textarea[readonly] {
 
 .btn-theme {
   min-width: 34px;
-  font-size: 14px;
+  font-size: 17px;
+  line-height: 1;
 }
 
 .btn-primary {
@@ -846,11 +966,11 @@ textarea[readonly] {
 
 @media (max-width: 1450px) {
   .app {
-    grid-template-columns: 60px minmax(0, 1fr);
+    grid-template-columns: 56px minmax(0, 1fr);
   }
 
   .panel {
-    width: min(390px, 92vw);
+    width: min(370px, 92vw);
   }
 
   #crm-modal {
@@ -905,6 +1025,22 @@ html[data-theme='light'] .toolbar {
     linear-gradient(180deg, #f9fcff 0%, #eef5ff 100%);
 }
 
+html[data-theme='light'] .active-account-display {
+  border-color: rgba(64, 159, 108, 0.42);
+  background:
+    radial-gradient(120% 200% at 50% 0%, rgba(79, 219, 147, 0.18), rgba(235, 245, 255, 0.9)),
+    linear-gradient(180deg, rgba(249, 252, 255, 0.94) 0%, rgba(233, 242, 253, 0.96) 100%);
+  color: #174f38;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 6px 12px rgba(95, 124, 161, 0.2);
+}
+
+html[data-theme='light'] .active-account-display.is-empty {
+  border-color: rgba(128, 150, 179, 0.38);
+  color: #58708f;
+}
+
 html[data-theme='light'] .unread-indicator {
   border-color: #c4d5ea;
   background: #eef5ff;
@@ -929,8 +1065,7 @@ html[data-theme='light'] .panel-status {
 }
 
 html[data-theme='light'] .panel-bottom-actions {
-  border-top-color: #c8d8ec;
-  background: linear-gradient(180deg, rgba(238, 246, 255, 0.35) 0%, rgba(238, 246, 255, 0.96) 55%);
+  background: transparent;
 }
 
 html[data-theme='light'] .card {

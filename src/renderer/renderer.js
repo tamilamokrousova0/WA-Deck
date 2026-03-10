@@ -49,6 +49,7 @@ const els = {
   openTranslateModal: document.getElementById('open-translate-modal'),
   openAiModal: document.getElementById('open-ai-modal'),
   openCrmModal: document.getElementById('open-crm-modal'),
+  activeAccountDisplay: document.getElementById('active-account-display'),
   activeUnread: document.getElementById('active-unread'),
   activeUnreadCount: document.getElementById('active-unread-count'),
   togglePanel: document.getElementById('toggle-panel'),
@@ -74,6 +75,11 @@ const els = {
   refreshAiModels: document.getElementById('refresh-ai-models'),
   aiRolePrompt: document.getElementById('ai-role-prompt'),
   templateSelect: document.getElementById('template-select'),
+  templateSearch: document.getElementById('template-search'),
+  templateSearchRow: document.getElementById('template-search-row'),
+  templateSearchInput: document.getElementById('template-search-input'),
+  templateSearchResultsRow: document.getElementById('template-search-results-row'),
+  templateSearchResults: document.getElementById('template-search-results'),
   templateTitle: document.getElementById('template-title'),
   templateText: document.getElementById('template-text'),
   templateSave: document.getElementById('template-save'),
@@ -153,6 +159,7 @@ function applyTheme(theme) {
   const safeTheme = normalizeTheme(theme);
   document.documentElement.setAttribute('data-theme', safeTheme);
   if (els.themeToggle) {
+    els.themeToggle.textContent = safeTheme === 'light' ? '☀︎' : '☾';
     els.themeToggle.title = safeTheme === 'light' ? 'Включить тёмную тему' : 'Включить светлую тему';
   }
 }
@@ -422,6 +429,21 @@ function activeAccount() {
   return state.accounts.find((acc) => acc.id === state.activeAccountId) || null;
 }
 
+function updateActiveAccountDisplay() {
+  if (!els.activeAccountDisplay) return;
+  const account = activeAccount();
+  if (!account) {
+    els.activeAccountDisplay.textContent = 'Нет активного WhatsApp';
+    els.activeAccountDisplay.title = 'Нет активного WhatsApp';
+    els.activeAccountDisplay.classList.add('is-empty');
+    return;
+  }
+  const suffix = account.frozen ? ' • заморожен' : '';
+  els.activeAccountDisplay.textContent = `${account.name}${suffix}`;
+  els.activeAccountDisplay.title = account.name;
+  els.activeAccountDisplay.classList.remove('is-empty');
+}
+
 function updateFreezeButtonState() {
   const account = activeAccount();
   if (!els.freezeActive) return;
@@ -458,14 +480,15 @@ function renderAccounts() {
   for (const account of state.accounts) {
     const card = document.createElement('div');
     card.className = `account-item ${state.activeAccountId === account.id ? 'active' : ''} ${account.frozen ? 'frozen' : ''}`;
+    card.title = account.name;
     card.addEventListener('click', () => setActiveAccount(account.id));
 
     const chip = document.createElement('div');
     chip.className = 'account-chip';
     chip.style.background = account.color;
     chip.textContent = account.name.slice(0, 2).toUpperCase();
-    chip.title = `${account.name}: управление`;
-    chip.addEventListener('click', (event) => {
+    chip.title = `${account.name}: двойной клик для управления`;
+    chip.addEventListener('dblclick', (event) => {
       event.preventDefault();
       event.stopPropagation();
       openAccountMenu(account.id);
@@ -474,6 +497,7 @@ function renderAccounts() {
     const name = document.createElement('div');
     name.className = 'account-name';
     name.textContent = account.name;
+    name.title = account.name;
 
     const remove = document.createElement('button');
     remove.className = 'account-remove';
@@ -504,6 +528,8 @@ function renderAccounts() {
     card.append(remove, chip, name);
     els.accountsList.appendChild(card);
   }
+
+  updateActiveAccountDisplay();
 }
 
 function ensureWebview(account) {
@@ -666,6 +692,7 @@ function refreshWebviewVisibility() {
 function setActiveAccount(accountId) {
   state.activeAccountId = accountId;
   renderAccounts();
+  updateActiveAccountDisplay();
   updateFreezeButtonState();
   updateActiveUnreadIndicator();
   refreshWebviewVisibility();
