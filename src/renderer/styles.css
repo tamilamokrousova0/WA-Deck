@@ -471,6 +471,38 @@ body {
   min-height: 24px;
 }
 
+.release-notes-list {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0 4px;
+  max-height: 52vh;
+  overflow: auto;
+}
+
+.release-notes-version-block {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(18, 34, 57, 0.96), rgba(12, 22, 39, 0.98));
+  padding: 12px 14px;
+}
+
+.release-notes-version-title {
+  font-size: 14px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.release-notes-version-block ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.release-notes-version-block li + li {
+  margin-top: 5px;
+}
+
 .unread-indicator {
   display: inline-flex;
   align-items: center;

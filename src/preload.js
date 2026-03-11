@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('waDeck', {
   saveSettings: (payload) => ipcRenderer.invoke('save-settings', payload),
   translateText: (payload) => ipcRenderer.invoke('translate-text', payload),
   testTranslateApi: (payload) => ipcRenderer.invoke('test-translate-api', payload),
+  saveExportFile: (payload) => ipcRenderer.invoke('save-export-file', payload),
   generateAiReply: (payload) => ipcRenderer.invoke('generate-ai-reply', payload),
   crmLoadContact: (payload) => ipcRenderer.invoke('crm-load-contact', payload),
   crmSaveContact: (payload) => ipcRenderer.invoke('crm-save-contact', payload),

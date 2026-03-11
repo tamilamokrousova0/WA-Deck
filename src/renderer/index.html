@@ -43,7 +43,7 @@
                 />
               </svg>
             </button>
-            <button id="open-translate-modal" class="btn">Перевод</button>
+            <button id="open-export-modal" class="btn">Экспорт</button>
             <button id="open-ai-modal" class="btn" hidden>AI помощник</button>
             <button id="open-crm-modal" class="btn">CRM</button>
           </div>
@@ -288,6 +288,7 @@
         </label>
         <div class="row">
           <button id="account-menu-save" class="btn btn-primary">Сохранить</button>
+          <button id="account-menu-reset" class="btn">Сбросить</button>
           <button id="account-menu-icon" class="btn">Поменять иконку</button>
           <button id="account-menu-cancel" class="btn">Закрыть</button>
         </div>
@@ -351,6 +352,42 @@
           Результат
           <textarea id="translate-output" rows="6" readonly placeholder="Здесь появится перевод"></textarea>
         </label>
+      </div>
+    </div>
+
+    <div id="export-modal" class="modal hidden">
+      <div class="modal-card">
+        <h3>Экспорт чата</h3>
+        <label>
+          WhatsApp
+          <select id="export-account"></select>
+        </label>
+        <label>
+          Чат
+          <select id="export-chat"></select>
+        </label>
+        <label>
+          Имя файла
+          <input id="export-file-name" type="text" placeholder="Название файла" maxlength="120" />
+        </label>
+        <div class="hint">Перед экспортом WA Deck сам откроет выбранный чат и прокрутит историю вверх, чтобы собрать больше сообщений.</div>
+        <div class="row">
+          <button id="export-refresh-chats" class="btn">Обновить чаты</button>
+          <button id="export-txt" class="btn btn-primary">TXT</button>
+          <button id="export-html" class="btn">HTML</button>
+          <button id="close-export-modal" class="btn">Закрыть</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="release-notes-modal" class="modal hidden">
+      <div class="modal-card modal-card-wide">
+        <h3 id="release-notes-title">Что нового</h3>
+        <div id="release-notes-version" class="hint"></div>
+        <div id="release-notes-list" class="release-notes-list"></div>
+        <div class="row">
+          <button id="close-release-notes" class="btn btn-primary">Закрыть</button>
+        </div>
       </div>
     </div>
 

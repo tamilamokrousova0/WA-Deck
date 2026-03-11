@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell, clipboard, session } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, clipboard, session, Menu } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs/promises');
@@ -31,6 +31,7 @@ const DEFAULT_SETTINGS = {
   aiModel: DEFAULT_AI_MODEL,
   aiRolePrompt:
     'Ты помощник в переписке WhatsApp. Пиши короткий, естественный и вежливый вариант ответа по контексту сообщения. Без лишних объяснений.',
+  lastSeenReleaseNotesVersion: '',
 };
 
 function normalizeWeatherUnit(value) {
@@ -226,6 +227,9 @@ function sanitizeStore(raw) {
   clean.settings.aiApiKey = String(clean.settings.aiApiKey || '').trim();
   clean.settings.aiModel = String(clean.settings.aiModel || DEFAULT_AI_MODEL).trim() || DEFAULT_AI_MODEL;
   clean.settings.aiRolePrompt = String(clean.settings.aiRolePrompt || DEFAULT_SETTINGS.aiRolePrompt).trim();
+  clean.settings.lastSeenReleaseNotesVersion = String(
+    clean.settings.lastSeenReleaseNotesVersion || DEFAULT_SETTINGS.lastSeenReleaseNotesVersion,
+  ).trim();
   clean.settings.weatherCity = String(clean.settings.weatherCity || DEFAULT_SETTINGS.weatherCity).trim() || DEFAULT_SETTINGS.weatherCity;
   clean.settings.weatherUnit = normalizeWeatherUnit(clean.settings.weatherUnit);
 
@@ -1374,6 +1378,69 @@ function setupWebviewGuards() {
         event.preventDefault();
       }
     });
+    contents.on('context-menu', (_event, params) => {
+      const template = [];
+      const selectionText = String(params?.selectionText || '').trim();
+      const linkURL = String(params?.linkURL || '').trim();
+      const srcURL = String(params?.srcURL || '').trim();
+      const mediaType = String(params?.mediaType || '').trim().toLowerCase();
+
+      if (selectionText) {
+        template.push({ role: 'copy', label: 'Копировать' });
+      }
+
+      if (params?.isEditable) {
+        template.push(
+          { role: 'undo', label: 'Отменить' },
+          { role: 'redo', label: 'Повторить' },
+          { type: 'separator' },
+          { role: 'cut', label: 'Вырезать' },
+          { role: 'copy', label: 'Копировать' },
+          { role: 'paste', label: 'Вставить' },
+          { role: 'selectAll', label: 'Выделить всё' },
+        );
+      }
+
+      if (mediaType === 'image') {
+        template.push({
+          label: 'Копировать изображение',
+          click: () => {
+            try {
+              contents.copyImageAt(params.x, params.y);
+            } catch {
+              // ignore copy image errors
+            }
+          },
+        });
+
+        if (srcURL && !srcURL.startsWith('blob:') && !srcURL.startsWith('data:')) {
+          template.push({
+            label: 'Открыть изображение',
+            click: () => shell.openExternal(srcURL).catch(() => {}),
+          });
+        }
+      }
+
+      if (linkURL) {
+        template.push(
+          {
+            label: 'Открыть ссылку',
+            click: () => shell.openExternal(linkURL).catch(() => {}),
+          },
+          {
+            label: 'Копировать ссылку',
+            click: () => clipboard.writeText(linkURL),
+          },
+        );
+      }
+
+      if (!template.length) {
+        template.push({ role: 'copy', label: 'Копировать' });
+      }
+
+      const menu = Menu.buildFromTemplate(template);
+      menu.popup({ window: BrowserWindow.fromWebContents(contents.hostWebContents || contents) || mainWindow });
+    });
   });
 }
 
@@ -1547,6 +1614,50 @@ function nextTemplateTitle() {
   return `Шаблон ${max + 1}`;
 }
 
+function sanitizeExportBaseName(value, fallback = 'chat-export') {
+  const raw = String(value || '').trim();
+  const cleaned = raw
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+  return cleaned || fallback;
+}
+
+async function saveExportFile(payload = {}) {
+  const format = ['txt', 'csv', 'html'].includes(String(payload?.format || '').toLowerCase())
+    ? String(payload.format).toLowerCase()
+    : '';
+  const content = String(payload?.content || '');
+  const chatName = sanitizeExportBaseName(payload?.fileName || payload?.chatName, 'chat-export');
+  if (!format) return { ok: false, error: 'format_required' };
+  if (!content.trim()) return { ok: false, error: 'content_required' };
+
+  const defaultPath = path.join(app.getPath('downloads'), `${chatName}.${format}`);
+  const filters = {
+    txt: [{ name: 'Text', extensions: ['txt'] }],
+    csv: [{ name: 'CSV', extensions: ['csv'] }],
+    html: [{ name: 'HTML', extensions: ['html'] }],
+  };
+
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: `Сохранить экспорт ${format.toUpperCase()}`,
+    defaultPath,
+    filters: filters[format],
+    properties: ['createDirectory', 'showOverwriteConfirmation'],
+  });
+  if (result.canceled || !result.filePath) {
+    return { ok: false, error: 'canceled' };
+  }
+
+  await fs.writeFile(result.filePath, content, 'utf8');
+  return {
+    ok: true,
+    filePath: result.filePath,
+    format,
+  };
+}
+
 async function saveTemplate(payload = {}) {
   const id = String(payload?.id || '').trim();
   const title = String(payload?.title || '').trim() || nextTemplateTitle();
@@ -1663,6 +1774,9 @@ function registerIpc() {
       aiApiKey: String(payload?.aiApiKey ?? current.aiApiKey ?? '').trim(),
       aiModel: String(payload?.aiModel ?? current.aiModel ?? DEFAULT_AI_MODEL).trim() || DEFAULT_AI_MODEL,
       aiRolePrompt: String(payload?.aiRolePrompt ?? current.aiRolePrompt ?? DEFAULT_SETTINGS.aiRolePrompt).trim(),
+      lastSeenReleaseNotesVersion: String(
+        payload?.lastSeenReleaseNotesVersion ?? current.lastSeenReleaseNotesVersion ?? DEFAULT_SETTINGS.lastSeenReleaseNotesVersion,
+      ).trim(),
     };
 
     state.store.settings = next;
@@ -1690,6 +1804,10 @@ function registerIpc() {
       detectedSourceLanguage: probe.detectedSourceLanguage,
       targetLanguage: probe.targetLanguage,
     };
+  });
+
+  ipcMain.handle('save-export-file', async (_event, payload) => {
+    return saveExportFile(payload);
   });
 
   ipcMain.handle('generate-ai-reply', async (_event, payload) => {
