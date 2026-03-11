@@ -130,6 +130,8 @@ body {
   min-height: 0;
   display: grid;
   gap: 5px;
+  align-content: start;
+  grid-auto-rows: max-content;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
@@ -137,6 +139,7 @@ body {
 
 .account-item {
   width: 100%;
+  align-self: start;
   border: 1px solid #2a4360;
   border-radius: 10px;
   background: linear-gradient(180deg, #16253a 0%, #121f32 100%);
