@@ -43,6 +43,21 @@ const state = {
   hoverTranslatePending: new Set(),
 };
 
+const HOVER_TRANSLATE_LANG_OPTIONS = [
+  { value: 'RU', label: 'Русский' },
+  { value: 'DE', label: 'Немецкий' },
+  { value: 'EN-US', label: 'Английский (US)' },
+  { value: 'EN-GB', label: 'Английский (UK)' },
+  { value: 'UK', label: 'Украинский' },
+  { value: 'FR', label: 'Французский' },
+  { value: 'ES', label: 'Испанский' },
+  { value: 'IT', label: 'Итальянский' },
+  { value: 'NL', label: 'Нидерландский' },
+  { value: 'PL', label: 'Польский' },
+  { value: 'PT-PT', label: 'Португальский' },
+  { value: 'TR', label: 'Турецкий' },
+];
+
 const els = {
   appRoot: document.getElementById('app-root'),
   brandFrog: document.getElementById('brand-frog'),
@@ -178,6 +193,11 @@ const els = {
 let templateController = null;
 const WEATHER_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 const RELEASE_NOTES = {
+  '0.1.9': [
+    'Исправлен hover-перевод сообщений: удалены дубли текста и хвосты со временем.',
+    'Для hover-перевода добавлен выбор языка прямо в popover сообщения.',
+    'В hover-перевод добавлена кнопка копирования результата.',
+  ],
   '0.1.8': [
     'Усилено извлечение текста: DOM + emoji alt + data-pre-plain-text + fallback через выделение строки.',
     'Исправлен скролл списка WhatsApp в левой панели при большом количестве аккаунтов.',
@@ -253,6 +273,12 @@ function applyTheme(theme) {
 
 function getSelectedTranslateProvider() {
   return els.translateProviderLibre?.checked ? 'libre' : 'deepl';
+}
+
+function normalizeTranslateTargetLang(value) {
+  const raw = String(value || '').trim().toUpperCase();
+  const matched = HOVER_TRANSLATE_LANG_OPTIONS.find((option) => option.value.toUpperCase() === raw);
+  return matched?.value || 'RU';
 }
 
 function setSelectedTranslateProvider(provider) {
@@ -1040,7 +1066,10 @@ function ensureWebview(account) {
 
             if (tag === 'BR') return '\\n';
             if (tag === 'IMG') {
-              return element.getAttribute('alt') || '';
+              const alt = normalize(element.getAttribute('alt') || '');
+              const looksLikeEmoji = /[\p{Extended_Pictographic}\u2600-\u27BF]/u.test(alt);
+              const hasLetters = /[A-Za-zА-Яа-я]/u.test(alt);
+              return looksLikeEmoji || (!hasLetters && alt.length <= 4) ? alt : '';
             }
             if (tag === 'SPAN' && element.getAttribute('data-icon') === 'reaction') {
               return '';
@@ -1089,15 +1118,56 @@ function ensureWebview(account) {
               String(line || '')
                 .replace(/^\\[\\d{1,2}:\\d{2}(?:,\\s*[^\\]]+)?\\]\\s*[^:]{1,80}:\\s*/u, '')
                 .replace(/^\\d{1,2}:\\d{2}\\s*[-–—]\\s*[^:]{1,80}:\\s*/u, '');
+            const stripTrailingMeta = (line) =>
+              String(line || '')
+                .replace(/[ \\t]+(?:\\d{1,2}:\\d{2}(?::\\d{2})?)$/u, '')
+                .replace(/[ \\t]+(?:вчера|сегодня)$/iu, '')
+                .trim();
+            const dedupeLines = (lines) => {
+              const seen = new Set();
+              const out = [];
+              for (const line of lines) {
+                const normalizedLine = normalize(line);
+                if (!normalizedLine) continue;
+                if (seen.has(normalizedLine)) continue;
+                seen.add(normalizedLine);
+                out.push(normalizedLine);
+              }
+              return out;
+            };
+            const collapseRepeatedText = (value) => {
+              const text = normalize(value);
+              if (!text) return '';
+              const lines = dedupeLines(
+                text
+                  .split('\\n')
+                  .map((line) => stripTrailingMeta(stripWhatsappPrefix(line)))
+                  .filter(Boolean),
+              );
+              const joined = normalize(lines.join('\\n'));
+              if (!joined) return '';
+
+              for (let parts = 2; parts <= 6; parts += 1) {
+                if (joined.length % parts !== 0) continue;
+                const chunkLength = joined.length / parts;
+                if (chunkLength < 8) continue;
+                const chunk = joined.slice(0, chunkLength);
+                if (chunk.repeat(parts) === joined) {
+                  return normalize(chunk);
+                }
+              }
+              return joined;
+            };
             const cleanupMeta = (value) => {
               if (!value) return '';
               const lines = String(value)
                 .split('\\n')
-                .map((line) => normalize(stripWhatsappPrefix(line)))
+                .map((line) => normalize(stripTrailingMeta(stripWhatsappPrefix(line))))
                 .filter(Boolean)
                 .filter((line) => !/^\\d{1,2}:\\d{2}$/.test(line))
+                .filter((line) => !/^\\d{1,2}:\\d{2}:\\d{2}$/.test(line))
                 .filter((line) => !/^\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}$/.test(line));
-              return normalize(lines.join('\\n'));
+              return collapseRepeatedText(lines.join('\\n'));
             };
             const prefixInfo = (() => {
               const raw = String(row.getAttribute('data-pre-plain-text') || '').trim();
@@ -1109,24 +1179,56 @@ function ensureWebview(account) {
               };
             })();
 
-            const candidates = Array.from(
-              row.querySelectorAll(
-                '[data-testid=\"msg-text\"], span.selectable-text.copyable-text, span.selectable-text, div.selectable-text.copyable-text'
-              )
-            );
+            const containerCandidates = [
+              ...Array.from(row.querySelectorAll('[data-testid=\"msg-text\"]')),
+              ...Array.from(row.querySelectorAll('[data-testid=\"media-caption\"], [data-testid=\"caption\"]')),
+            ];
+            const candidates = [
+              ...containerCandidates,
+              ...Array.from(
+                row.querySelectorAll(
+                  'span.selectable-text.copyable-text, span.selectable-text, div.selectable-text.copyable-text'
+                ),
+              ),
+            ];
+
+            const primaryTexts = [];
+            const uniqueTexts = [];
+            const pushPrimaryText = (value) => {
+              const text = cleanupMeta(value);
+              if (!text) return;
+              if (primaryTexts.includes(text)) return;
+              primaryTexts.push(text);
+            };
+            const pushUniqueText = (value) => {
+              const text = cleanupMeta(value);
+              if (!text) return;
+              if (uniqueTexts.includes(text)) return;
+              uniqueTexts.push(text);
+            };
 
             let best = '';
+            for (const candidate of containerCandidates) {
+              const text = extractTextFromNode(candidate);
+              pushPrimaryText(text);
+              pushUniqueText(text);
+            }
             for (const candidate of candidates) {
-              const text = cleanupMeta(extractTextFromNode(candidate));
-              if (text.length > best.length) {
-                best = text;
-              }
+              pushUniqueText(extractTextFromNode(candidate));
+            }
+
+            if (primaryTexts.length) {
+              primaryTexts.sort((a, b) => a.length - b.length);
+              best = primaryTexts[0];
+            } else if (uniqueTexts.length) {
+              uniqueTexts.sort((a, b) => a.length - b.length);
+              best = uniqueTexts[0];
             }
 
             if (!best) {
               const clone = row.cloneNode(true);
               const metaNodes = clone.querySelectorAll(
-                '[data-testid=\"msg-meta\"], [data-testid=\"msg-time\"], time, [aria-label*=\"Delivered\"], [aria-label*=\"Read\"], [aria-label*=\"Отправ\"], [aria-label*=\"Прочит\"]'
+                '[data-testid=\"msg-meta\"], [data-testid=\"msg-time\"], time, [aria-label*=\"Delivered\"], [aria-label*=\"Read\"], [aria-label*=\"Отправ\"], [aria-label*=\"Прочит\"], [aria-label*=\"opened\"], [aria-label*=\"Просмотр\"], [aria-label*=\"Open\"], [data-testid=\"media-viewer-caption\"]'
               );
               metaNodes.forEach((node) => node.remove());
               best = cleanupMeta(extractTextFromNode(clone));
@@ -1159,7 +1261,7 @@ function ensureWebview(account) {
       )
       .catch(() => {});
 
-    webview.executeJavaScript(hoverTranslateBridgeScript(), true).catch(() => {});
+    webview.executeJavaScript(hoverTranslateBridgeScript(state.translateTargetLang), true).catch(() => {});
   };
 
   webview.addEventListener('dom-ready', bindDomHelpers);
@@ -1260,6 +1362,7 @@ function applySettingsToForm() {
     unit: state.settings.weatherUnit,
     loading: false,
   });
+  syncHoverTranslateTargetLang();
 }
 
 function renderAiModels(models = []) {
@@ -1704,10 +1807,14 @@ function selectedTextScript() {
   })();`;
 }
 
-function hoverTranslateBridgeScript() {
+function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
+  const safeDefaultTarget = normalizeTranslateTargetLang(defaultTargetLang);
+  const languageOptions = JSON.stringify(HOVER_TRANSLATE_LANG_OPTIONS);
   return `(() => {
     if (window.__waDeckHoverTranslateBound) return true;
     window.__waDeckHoverTranslateBound = true;
+    window.__waDeckHoverTranslateTargetLang = '${safeDefaultTarget}';
+    const hoverTranslateLanguages = ${languageOptions};
 
     const normalize = typeof window.__waDeckNormalizeText === 'function'
       ? window.__waDeckNormalizeText
@@ -1736,7 +1843,7 @@ function hoverTranslateBridgeScript() {
         .waDeck-hover-translate-popover {
           position: fixed;
           z-index: 2147483642;
-          min-width: 240px;
+          min-width: 258px;
           max-width: min(420px, calc(100vw - 24px));
           border: 1px solid rgba(70, 120, 180, 0.72);
           border-radius: 14px;
@@ -1756,6 +1863,49 @@ function hoverTranslateBridgeScript() {
         .waDeck-hover-translate-meta {
           font: 600 11px/1.25 "Segoe UI", sans-serif;
           color: #94b7dd;
+        }
+        .waDeck-hover-translate-controls {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 8px;
+          align-items: end;
+          margin-bottom: 8px;
+        }
+        .waDeck-hover-translate-label {
+          display: grid;
+          gap: 4px;
+          color: #a9c6e4;
+          font: 600 10px/1.2 "Segoe UI", sans-serif;
+          letter-spacing: 0.02em;
+        }
+        .waDeck-hover-translate-select {
+          width: 100%;
+          min-width: 0;
+          border: 1px solid rgba(66, 101, 144, 0.84);
+          border-radius: 10px;
+          background: rgba(8, 21, 38, 0.95);
+          color: #eff6ff;
+          font: 600 12px/1.2 "Segoe UI", sans-serif;
+          padding: 7px 10px;
+          outline: none;
+        }
+        .waDeck-hover-translate-actions {
+          display: inline-flex;
+          gap: 6px;
+          align-items: center;
+        }
+        .waDeck-hover-translate-copy {
+          border: 1px solid rgba(79, 121, 172, 0.82);
+          background: rgba(10, 23, 40, 0.9);
+          color: #dfeeff;
+          border-radius: 10px;
+          padding: 7px 10px;
+          cursor: pointer;
+          font: 700 11px/1 "Segoe UI", sans-serif;
+        }
+        .waDeck-hover-translate-copy:disabled {
+          opacity: 0.45;
+          cursor: default;
         }
         .waDeck-hover-translate-close {
           border: 1px solid rgba(79, 121, 172, 0.82);
@@ -1792,15 +1942,32 @@ function hoverTranslateBridgeScript() {
     if (!popover) {
       popover = document.createElement('div');
       popover.className = 'waDeck-hover-translate-popover hidden';
-      popover.innerHTML = '<div class="waDeck-hover-translate-head"><div class="waDeck-hover-translate-meta"></div><button class="waDeck-hover-translate-close" type="button">✕</button></div><div class="waDeck-hover-translate-text"></div>';
+      popover.innerHTML = '<div class="waDeck-hover-translate-head"><div class="waDeck-hover-translate-meta"></div><button class="waDeck-hover-translate-close" type="button">✕</button></div><div class="waDeck-hover-translate-controls"><label class="waDeck-hover-translate-label">Язык перевода<select class="waDeck-hover-translate-select"></select></label><div class="waDeck-hover-translate-actions"><button class="waDeck-hover-translate-copy" type="button" disabled>Копировать</button></div></div><div class="waDeck-hover-translate-text"></div>';
       document.body.appendChild(popover);
     }
 
     const metaNode = popover.querySelector('.waDeck-hover-translate-meta');
+    const selectNode = popover.querySelector('.waDeck-hover-translate-select');
+    const copyNode = popover.querySelector('.waDeck-hover-translate-copy');
     const textNode = popover.querySelector('.waDeck-hover-translate-text');
     const closeNode = popover.querySelector('.waDeck-hover-translate-close');
     let activeRow = null;
     let hoverHideTimer = null;
+    let lastTranslatedText = '';
+
+    const setCopyState = (text) => {
+      lastTranslatedText = String(text || '');
+      if (copyNode) {
+        copyNode.disabled = !lastTranslatedText.trim();
+      }
+    };
+
+    if (selectNode && !selectNode.options.length) {
+      selectNode.innerHTML = hoverTranslateLanguages
+        .map((option) => '<option value="' + option.value + '">' + option.label + '</option>')
+        .join('');
+      selectNode.value = window.__waDeckHoverTranslateTargetLang || '${safeDefaultTarget}';
+    }
 
     const ensureRowId = (row) => {
       if (!row) return '';
@@ -1815,6 +1982,7 @@ function hoverTranslateBridgeScript() {
       const rect = row.getBoundingClientRect();
       metaNode.textContent = meta || 'Перевод';
       textNode.textContent = text || '';
+      setCopyState(isError ? '' : text || '');
       popover.classList.toggle('waDeck-hover-translate-error', Boolean(isError));
       popover.classList.remove('hidden');
       const width = Math.min(420, Math.max(240, Math.round(window.innerWidth * 0.28)));
@@ -1831,6 +1999,7 @@ function hoverTranslateBridgeScript() {
     const hidePopover = () => {
       popover.classList.add('hidden');
       button.classList.remove('is-loading');
+      setCopyState('');
     };
 
     const setButtonPosition = (row) => {
@@ -1887,9 +2056,10 @@ function hoverTranslateBridgeScript() {
       const text = normalize(extractMessage(activeRow) || '');
       if (!text) return;
       const requestId = rowId + '_' + Date.now().toString(36);
+      const targetLang = selectNode?.value || window.__waDeckHoverTranslateTargetLang || '${safeDefaultTarget}';
       button.classList.add('is-loading');
       showPopover(activeRow, 'Перевод...', 'Запрос к API', false);
-      console.log('__WADECK_HOVER_TRANSLATE__' + JSON.stringify({ requestId, rowId, text }));
+      console.log('__WADECK_HOVER_TRANSLATE__' + JSON.stringify({ type: 'translate', requestId, rowId, text, targetLang }));
     }, true);
 
     closeNode?.addEventListener('click', (event) => {
@@ -1898,12 +2068,39 @@ function hoverTranslateBridgeScript() {
       hidePopover();
     });
 
+    selectNode?.addEventListener('change', (event) => {
+      const targetLang = String(event.target?.value || '${safeDefaultTarget}');
+      window.__waDeckHoverTranslateTargetLang = targetLang;
+      if (!activeRow || popover.classList.contains('hidden')) return;
+      const rowId = ensureRowId(activeRow);
+      const text = normalize(extractMessage(activeRow) || '');
+      if (!text) return;
+      const requestId = rowId + '_' + Date.now().toString(36);
+      button.classList.add('is-loading');
+      showPopover(activeRow, 'Перевод...', 'Запрос к API', false);
+      console.log('__WADECK_HOVER_TRANSLATE__' + JSON.stringify({ type: 'translate', requestId, rowId, text, targetLang }));
+    });
+
+    copyNode?.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!lastTranslatedText.trim()) return;
+      console.log('__WADECK_HOVER_TRANSLATE__' + JSON.stringify({ type: 'copy', text: lastTranslatedText }));
+    });
+
     window.__waDeckApplyHoverTranslation = (payload) => {
       const rowId = String(payload?.rowId || '');
       const row = rowId ? document.querySelector('[data-wa-deck-row-id="' + CSS.escape(rowId) + '"]') : null;
       if (!row) {
         button.classList.remove('is-loading');
         return false;
+      }
+      const targetLang = String(payload?.targetLang || '').trim();
+      if (targetLang) {
+        window.__waDeckHoverTranslateTargetLang = targetLang;
+        if (selectNode) {
+          selectNode.value = targetLang;
+        }
       }
       showPopover(row, String(payload?.text || ''), String(payload?.meta || 'Перевод'), Boolean(payload?.isError));
       button.classList.remove('is-loading');
@@ -1931,6 +2128,27 @@ function applyHoverTranslationResultScript(payload = {}) {
   })();`;
 }
 
+function setHoverTranslateTargetLangScript(targetLang) {
+  const safeTarget = normalizeTranslateTargetLang(targetLang);
+  return `(() => {
+    try {
+      window.__waDeckHoverTranslateTargetLang = '${safeTarget}';
+      const selectNode = document.querySelector('.waDeck-hover-translate-select');
+      if (selectNode) selectNode.value = '${safeTarget}';
+      return true;
+    } catch {
+      return false;
+    }
+  })();`;
+}
+
+function syncHoverTranslateTargetLang() {
+  const targetLang = normalizeTranslateTargetLang(state.translateTargetLang || 'RU');
+  for (const webview of state.webviews.values()) {
+    webview.executeJavaScript(setHoverTranslateTargetLangScript(targetLang), true).catch(() => {});
+  }
+}
+
 async function handleHoverTranslateMessage(accountId, message) {
   if (!message.startsWith('__WADECK_HOVER_TRANSLATE__')) return false;
   const webview = state.webviews.get(accountId);
@@ -1943,28 +2161,44 @@ async function handleHoverTranslateMessage(accountId, message) {
     return true;
   }
   const requestId = String(payload?.requestId || '').trim();
+  const type = String(payload?.type || 'translate').trim().toLowerCase();
+  if (type === 'copy') {
+    const translatedText = String(payload?.text || '').trim();
+    if (!translatedText) return true;
+    await window.waDeck.setClipboardText(translatedText);
+    setStatus('Перевод скопирован');
+    return true;
+  }
   const rowId = String(payload?.rowId || '').trim();
   const text = String(payload?.text || '').trim();
+  const targetLang = normalizeTranslateTargetLang(payload?.targetLang || state.translateTargetLang || 'RU');
   if (!requestId || !rowId || !text) return true;
   if (state.hoverTranslatePending.has(requestId)) return true;
   state.hoverTranslatePending.add(requestId);
 
   try {
-    const targetLang = String(state.translateTargetLang || 'RU').toUpperCase();
+    state.translateTargetLang = targetLang;
+    if (els.translateTargetLang) {
+      els.translateTargetLang.value = targetLang;
+    }
     const result = await translateTextAndRender(text, 'hover', 'AUTO', targetLang);
+    const provider = String(state.settings?.translateProvider || 'deepl').toLowerCase();
+    const providerLabel = provider === 'libre' ? 'LibreTranslate' : 'DeepL';
     const responsePayload = result?.ok
       ? {
           rowId,
           text: String(result.response?.translatedText || ''),
-          meta: `${String(result.response?.detectedSourceLanguage || 'auto').toUpperCase()} → ${String(
+          meta: `${providerLabel} • ${String(result.response?.detectedSourceLanguage || 'auto').toUpperCase()} → ${String(
             result.response?.targetLanguage || targetLang,
           ).toUpperCase()}`,
+          targetLang,
           isError: false,
         }
       : {
           rowId,
           text: mapTranslateError(result?.response || {}),
           meta: 'Ошибка перевода',
+          targetLang,
           isError: true,
         };
     await webview.executeJavaScript(applyHoverTranslationResultScript(responsePayload), true).catch(() => {});
@@ -3956,7 +4190,8 @@ function bindActions() {
     updateCrmModalPosition().catch(() => {});
   });
   els.translateTargetLang.addEventListener('change', () => {
-    state.translateTargetLang = String(els.translateTargetLang.value || 'RU').toUpperCase();
+    state.translateTargetLang = normalizeTranslateTargetLang(els.translateTargetLang.value || 'RU');
+    syncHoverTranslateTargetLang();
   });
   els.translateSourceLang.addEventListener('change', () => {
     state.translateSourceLang = String(els.translateSourceLang.value || 'AUTO').toUpperCase();
