@@ -43,7 +43,6 @@
                 />
               </svg>
             </button>
-            <button id="open-export-modal" class="btn">Экспорт</button>
             <button id="open-ai-modal" class="btn" hidden>AI помощник</button>
             <button id="open-crm-modal" class="btn">CRM</button>
           </div>
@@ -262,7 +261,10 @@
 
     <div id="chat-picker-modal" class="modal hidden">
       <div class="modal-card">
-        <h3>Выбор чата для отложенной отправки</h3>
+        <div class="modal-head">
+          <h3>Выбор чата для отложенной отправки</h3>
+          <button id="close-chat-picker" class="btn btn-icon modal-close-btn" title="Закрыть">✕</button>
+        </div>
         <label>
           WhatsApp
           <select id="picker-account"></select>
@@ -273,7 +275,6 @@
         </label>
         <div class="row">
           <button id="picker-refresh" class="btn">Обновить чаты</button>
-          <button id="picker-cancel" class="btn">Отмена</button>
           <button id="picker-apply" class="btn btn-primary">Выбрать</button>
         </div>
       </div>
@@ -281,7 +282,10 @@
 
     <div id="account-menu-modal" class="modal hidden">
       <div class="modal-card">
-        <h3 id="account-menu-title">Управление аккаунтом</h3>
+        <div class="modal-head">
+          <h3 id="account-menu-title">Управление аккаунтом</h3>
+          <button id="account-menu-cancel" class="btn btn-icon modal-close-btn" title="Закрыть">✕</button>
+        </div>
         <label>
           Название WhatsApp
           <input id="account-menu-name" type="text" placeholder="WP_1" maxlength="60" />
@@ -290,14 +294,16 @@
           <button id="account-menu-save" class="btn btn-primary">Сохранить</button>
           <button id="account-menu-reset" class="btn">Сбросить</button>
           <button id="account-menu-icon" class="btn">Поменять иконку</button>
-          <button id="account-menu-cancel" class="btn">Закрыть</button>
         </div>
       </div>
     </div>
 
     <div id="translate-modal" class="modal hidden">
       <div class="modal-card modal-card-wide">
-        <h3>Перевод сообщения</h3>
+        <div class="modal-head">
+          <h3>Перевод сообщения</h3>
+          <button id="close-translate-modal" class="btn btn-icon modal-close-btn" title="Закрыть">✕</button>
+        </div>
         <div class="row">
           <label class="grow">
             Язык источника
@@ -345,7 +351,6 @@
           <button id="do-translate" class="btn btn-primary">Перевести</button>
           <button id="copy-translate" class="btn">Копировать перевод</button>
           <button id="clear-translate" class="btn">Очистить</button>
-          <button id="close-translate-modal" class="btn">Закрыть</button>
         </div>
 
         <label>
@@ -355,45 +360,23 @@
       </div>
     </div>
 
-    <div id="export-modal" class="modal hidden">
-      <div class="modal-card">
-        <h3>Экспорт чата</h3>
-        <label>
-          WhatsApp
-          <select id="export-account"></select>
-        </label>
-        <label>
-          Чат
-          <select id="export-chat"></select>
-        </label>
-        <label>
-          Имя файла
-          <input id="export-file-name" type="text" placeholder="Название файла" maxlength="120" />
-        </label>
-        <div class="hint">Перед экспортом WA Deck сам откроет выбранный чат и прокрутит историю вверх, чтобы собрать больше сообщений.</div>
-        <div class="row">
-          <button id="export-refresh-chats" class="btn">Обновить чаты</button>
-          <button id="export-txt" class="btn btn-primary">TXT</button>
-          <button id="export-html" class="btn">HTML</button>
-          <button id="close-export-modal" class="btn">Закрыть</button>
-        </div>
-      </div>
-    </div>
-
     <div id="release-notes-modal" class="modal hidden">
       <div class="modal-card modal-card-wide">
-        <h3 id="release-notes-title">Что нового</h3>
+        <div class="modal-head">
+          <h3 id="release-notes-title">Что нового</h3>
+          <button id="close-release-notes" class="btn btn-icon modal-close-btn" title="Закрыть">✕</button>
+        </div>
         <div id="release-notes-version" class="hint"></div>
         <div id="release-notes-list" class="release-notes-list"></div>
-        <div class="row">
-          <button id="close-release-notes" class="btn btn-primary">Закрыть</button>
-        </div>
       </div>
     </div>
 
     <div id="ai-modal" class="modal hidden">
       <div class="modal-card modal-card-wide">
-        <h3>AI помощник</h3>
+        <div class="modal-head">
+          <h3>AI помощник</h3>
+          <button id="close-ai-modal" class="btn btn-icon modal-close-btn" title="Закрыть">✕</button>
+        </div>
         <label>
           Сообщение для ответа
           <textarea id="ai-input" rows="6" placeholder="Выделите сообщение в чате и нажмите «Взять выделенный текст»"></textarea>
@@ -423,7 +406,6 @@
           <button id="copy-ai-reply" class="btn">Копировать ответ</button>
           <button id="insert-ai-reply" class="btn">Вставить в чат</button>
           <button id="clear-ai" class="btn">Очистить</button>
-          <button id="close-ai-modal" class="btn">Закрыть</button>
         </div>
 
         <label>
@@ -435,7 +417,10 @@
 
     <div id="crm-modal" class="modal hidden">
       <div class="modal-card modal-card-wide">
-        <h3>CRM контакта</h3>
+        <div class="modal-head">
+          <h3>CRM контакта</h3>
+          <button id="crm-close" class="btn btn-icon modal-close-btn" title="Закрыть">✕</button>
+        </div>
         <label>
           Контакт
           <input id="crm-contact-name" type="text" readonly />
@@ -460,7 +445,6 @@
           <button id="crm-edit" class="btn">Изменить</button>
           <button id="crm-save" class="btn btn-primary">Сохранить</button>
           <button id="crm-copy" class="btn">Копировать</button>
-          <button id="crm-close" class="btn">Закрыть</button>
         </div>
         <div id="crm-meta" class="hint">Файл: —</div>
       </div>

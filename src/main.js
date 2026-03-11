@@ -1614,50 +1614,6 @@ function nextTemplateTitle() {
   return `Шаблон ${max + 1}`;
 }
 
-function sanitizeExportBaseName(value, fallback = 'chat-export') {
-  const raw = String(value || '').trim();
-  const cleaned = raw
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
-  return cleaned || fallback;
-}
-
-async function saveExportFile(payload = {}) {
-  const format = ['txt', 'csv', 'html'].includes(String(payload?.format || '').toLowerCase())
-    ? String(payload.format).toLowerCase()
-    : '';
-  const content = String(payload?.content || '');
-  const chatName = sanitizeExportBaseName(payload?.fileName || payload?.chatName, 'chat-export');
-  if (!format) return { ok: false, error: 'format_required' };
-  if (!content.trim()) return { ok: false, error: 'content_required' };
-
-  const defaultPath = path.join(app.getPath('downloads'), `${chatName}.${format}`);
-  const filters = {
-    txt: [{ name: 'Text', extensions: ['txt'] }],
-    csv: [{ name: 'CSV', extensions: ['csv'] }],
-    html: [{ name: 'HTML', extensions: ['html'] }],
-  };
-
-  const result = await dialog.showSaveDialog(mainWindow, {
-    title: `Сохранить экспорт ${format.toUpperCase()}`,
-    defaultPath,
-    filters: filters[format],
-    properties: ['createDirectory', 'showOverwriteConfirmation'],
-  });
-  if (result.canceled || !result.filePath) {
-    return { ok: false, error: 'canceled' };
-  }
-
-  await fs.writeFile(result.filePath, content, 'utf8');
-  return {
-    ok: true,
-    filePath: result.filePath,
-    format,
-  };
-}
-
 async function saveTemplate(payload = {}) {
   const id = String(payload?.id || '').trim();
   const title = String(payload?.title || '').trim() || nextTemplateTitle();
@@ -1804,10 +1760,6 @@ function registerIpc() {
       detectedSourceLanguage: probe.detectedSourceLanguage,
       targetLanguage: probe.targetLanguage,
     };
-  });
-
-  ipcMain.handle('save-export-file', async (_event, payload) => {
-    return saveExportFile(payload);
   });
 
   ipcMain.handle('generate-ai-reply', async (_event, payload) => {

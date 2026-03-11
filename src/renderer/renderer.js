@@ -55,7 +55,6 @@ const els = {
   status: document.getElementById('status'),
   refreshActive: document.getElementById('refresh-active'),
   freezeActive: document.getElementById('freeze-active'),
-  openExportModal: document.getElementById('open-export-modal'),
   openAiModal: document.getElementById('open-ai-modal'),
   openCrmModal: document.getElementById('open-crm-modal'),
   weatherWidget: document.getElementById('weather-widget'),
@@ -117,10 +116,10 @@ const els = {
   createSchedule: document.getElementById('create-schedule'),
   scheduledList: document.getElementById('scheduled-list'),
   chatPickerModal: document.getElementById('chat-picker-modal'),
+  closeChatPicker: document.getElementById('close-chat-picker'),
   pickerAccount: document.getElementById('picker-account'),
   pickerChat: document.getElementById('picker-chat'),
   pickerRefresh: document.getElementById('picker-refresh'),
-  pickerCancel: document.getElementById('picker-cancel'),
   pickerApply: document.getElementById('picker-apply'),
   accountMenuModal: document.getElementById('account-menu-modal'),
   accountMenuTitle: document.getElementById('account-menu-title'),
@@ -140,15 +139,6 @@ const els = {
   copyTranslate: document.getElementById('copy-translate'),
   clearTranslate: document.getElementById('clear-translate'),
   closeTranslateModal: document.getElementById('close-translate-modal'),
-
-  exportModal: document.getElementById('export-modal'),
-  exportAccount: document.getElementById('export-account'),
-  exportChat: document.getElementById('export-chat'),
-  exportFileName: document.getElementById('export-file-name'),
-  exportRefreshChats: document.getElementById('export-refresh-chats'),
-  exportTxt: document.getElementById('export-txt'),
-  exportHtml: document.getElementById('export-html'),
-  closeExportModal: document.getElementById('close-export-modal'),
 
   releaseNotesModal: document.getElementById('release-notes-modal'),
   releaseNotesTitle: document.getElementById('release-notes-title'),
@@ -188,10 +178,14 @@ const els = {
 let templateController = null;
 const WEATHER_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 const RELEASE_NOTES = {
+  '0.1.8': [
+    'Усилено извлечение текста: DOM + emoji alt + data-pre-plain-text + fallback через выделение строки.',
+    'Исправлен скролл списка WhatsApp в левой панели при большом количестве аккаунтов.',
+    'Модальные окна больше не закрываются по клику в пустое место — только через крестик.',
+    'Убрана функция экспорта чатов из интерфейса.',
+  ],
   '0.1.7': [
     'Добавлен hover-перевод сообщений через выбранный API-переводчик.',
-    'Добавлен экспорт выбранного чата в TXT и HTML с открытием чата по выбору.',
-    'Экспорт стал глубже: приложение агрессивно прокручивает историю вверх перед сохранением.',
     'Добавлено правое меню в WhatsApp Web для копирования текста, ссылок и изображений.',
     'Добавлено окно «Что нового» после обновления приложения.',
   ],
@@ -1059,6 +1053,36 @@ function ensureWebview(account) {
             return out;
           };
 
+          const selectNodeText = (node) => {
+            if (!node) return '';
+            const selection = window.getSelection();
+            if (!selection) return '';
+            const saved = [];
+            for (let i = 0; i < selection.rangeCount; i += 1) {
+              saved.push(selection.getRangeAt(i).cloneRange());
+            }
+            let text = '';
+            try {
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              selection.removeAllRanges();
+              selection.addRange(range);
+              text = selection.toString() || '';
+            } catch {
+              text = '';
+            } finally {
+              selection.removeAllRanges();
+              for (const range of saved) {
+                try {
+                  selection.addRange(range);
+                } catch {
+                  // ignore restore failures
+                }
+              }
+            }
+            return text;
+          };
+
           const extractMessageFromRow = (row) => {
             if (!row) return '';
             const stripWhatsappPrefix = (line) =>
@@ -1075,6 +1099,15 @@ function ensureWebview(account) {
                 .filter((line) => !/^\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}$/.test(line));
               return normalize(lines.join('\\n'));
             };
+            const prefixInfo = (() => {
+              const raw = String(row.getAttribute('data-pre-plain-text') || '').trim();
+              const match = raw.match(/^\\[(.+?)\\]\\s*([^:]+):\\s*$/u);
+              return {
+                raw,
+                timestamp: normalize(match?.[1] || ''),
+                author: normalize(match?.[2] || ''),
+              };
+            })();
 
             const candidates = Array.from(
               row.querySelectorAll(
@@ -1097,6 +1130,14 @@ function ensureWebview(account) {
               );
               metaNodes.forEach((node) => node.remove());
               best = cleanupMeta(extractTextFromNode(clone));
+            }
+
+            if (!best) {
+              best = cleanupMeta(selectNodeText(row));
+            }
+
+            if (!best && prefixInfo.raw) {
+              best = cleanupMeta(prefixInfo.raw);
             }
 
             return best;
@@ -1155,7 +1196,6 @@ function handleEscapeToHub() {
   closeChatPicker();
   closeSettingsPanel();
   closeTranslateModal();
-  closeExportModal();
   if (els.releaseNotesModal && !els.releaseNotesModal.classList.contains('hidden')) {
     closeReleaseNotesModal().catch(() => {});
   }
@@ -2861,440 +2901,6 @@ function closeTranslateModal() {
   els.translateModal.classList.add('hidden');
 }
 
-async function refreshExportChats(force = false) {
-  const accountId = String(els.exportAccount?.value || '').trim();
-  const account = accountById(accountId);
-  if (!els.exportChat) return;
-  if (!accountId || !account) {
-    els.exportChat.innerHTML = '';
-    return;
-  }
-  if (account.frozen) {
-    els.exportChat.innerHTML = '<option value="">Аккаунт заморожен</option>';
-    return;
-  }
-
-  const chats = await fetchChatsForAccount(accountId, force);
-  els.exportChat.innerHTML = '';
-  if (!chats.length) {
-    els.exportChat.innerHTML = '<option value="">Чаты не найдены</option>';
-    return;
-  }
-  for (const chat of chats) {
-    const option = document.createElement('option');
-    option.value = chat;
-    option.textContent = chat;
-    els.exportChat.appendChild(option);
-  }
-  const currentChat = await (accountId === state.activeAccountId ? getActiveChatContactName() : Promise.resolve(''));
-  if (currentChat && chats.includes(currentChat)) {
-    els.exportChat.value = currentChat;
-  }
-  syncExportFileName();
-}
-
-function syncExportFileName() {
-  if (!els.exportFileName) return;
-  const chatName = String(els.exportChat?.value || '').trim();
-  if (!chatName) return;
-  if (!els.exportFileName.value.trim() || els.exportFileName.dataset.autofill === '1') {
-    els.exportFileName.value = chatName;
-    els.exportFileName.dataset.autofill = '1';
-  }
-}
-
-async function openExportModal() {
-  if (!els.exportAccount || !els.exportModal) return;
-  els.exportAccount.innerHTML = '';
-  for (const account of state.accounts) {
-    const option = document.createElement('option');
-    option.value = account.id;
-    option.textContent = account.frozen ? `${account.name} (заморожен)` : account.name;
-    els.exportAccount.appendChild(option);
-  }
-  const preferred = state.activeAccountId || state.accounts[0]?.id || '';
-  els.exportAccount.value = preferred;
-  els.exportFileName.value = '';
-  els.exportFileName.dataset.autofill = '1';
-  await refreshExportChats(true);
-  els.exportModal.classList.remove('hidden');
-}
-
-function closeExportModal() {
-  els.exportModal.classList.add('hidden');
-}
-
-function openChatForExportScript(chatName) {
-  const chatB64 = encodeBase64Utf8(String(chatName || ''));
-  return `(async () => {
-    const decodeBase64Utf8 = (base64) => {
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-      return new TextDecoder().decode(bytes);
-    };
-    const normalize = (value) =>
-      String(value || '')
-        .replace(/\\u200e|\\u200f/g, '')
-        .replace(/\\u00a0/g, ' ')
-        .replace(/\\s+/g, ' ')
-        .trim();
-    const looksLikeMeta = (value) => {
-      const text = normalize(value).toLowerCase();
-      if (!text) return true;
-      if (/^(online|в сети|typing|печатает|last seen|был|была|был\\(-а\\)|сегодня в|вчера в)/i.test(text)) return true;
-      if (/^\\d{1,2}:\\d{2}$/.test(text)) return true;
-      return false;
-    };
-    const pickTitle = (item) => {
-      const nodes = Array.from(
-        item.querySelectorAll('[data-testid="cell-frame-title"] span[title], span[title], div[title], span[dir="auto"], div[dir="auto"]')
-      );
-      for (const node of nodes) {
-        const text = normalize(node.getAttribute?.('title') || node.textContent || '');
-        if (text && !looksLikeMeta(text)) return text;
-      }
-      const lines = String(item.innerText || '').split('\\n').map((line) => normalize(line)).filter((line) => line && !looksLikeMeta(line));
-      return lines[0] || '';
-    };
-    const query = normalize(decodeBase64Utf8('${chatB64}')).toLowerCase();
-    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    const pane = document.querySelector('#pane-side');
-    if (!pane || !query) return { ok: false, error: 'chat_not_found' };
-
-    const clickLikeUser = (node) => {
-      const target = node?.closest?.('[role="listitem"], [data-testid="cell-frame-container"]') || node;
-      if (!target) return;
-      if (typeof target.click === 'function') target.click();
-      target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-      target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-      target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-    };
-
-    const items = () => Array.from(document.querySelectorAll('#pane-side [role="listitem"], #pane-side [data-testid="cell-frame-container"]'));
-    const tryOpenVisible = async () => {
-      for (const item of items()) {
-        if (pickTitle(item).toLowerCase() !== query) continue;
-        clickLikeUser(item);
-        await sleep(280);
-        return true;
-      }
-      return false;
-    };
-
-    pane.scrollTop = 0;
-    await sleep(120);
-    let idle = 0;
-    for (let round = 0; round < 45 && idle < 3; round += 1) {
-      if (await tryOpenVisible()) return { ok: true };
-      const prev = pane.scrollTop;
-      pane.scrollTop += Math.max(140, Math.floor(pane.clientHeight * 0.84));
-      await sleep(130);
-      idle = pane.scrollTop === prev ? idle + 1 : 0;
-    }
-
-    pane.scrollTop = pane.scrollHeight;
-    await sleep(120);
-    idle = 0;
-    for (let round = 0; round < 45 && idle < 3; round += 1) {
-      if (await tryOpenVisible()) return { ok: true };
-      const prev = pane.scrollTop;
-      pane.scrollTop -= Math.max(140, Math.floor(pane.clientHeight * 0.84));
-      await sleep(130);
-      idle = pane.scrollTop === prev ? idle + 1 : 0;
-    }
-    return { ok: false, error: 'chat_not_found' };
-  })();`;
-}
-
-function loadFullChatHistoryScript() {
-  return `(async () => {
-    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    const rows = () => Array.from(document.querySelectorAll('#main [data-pre-plain-text]'));
-    const firstRowKey = () => {
-      const row = rows()[0];
-      if (!row) return '';
-      return String(row.getAttribute('data-id') || row.getAttribute('data-pre-plain-text') || row.innerText || '').slice(0, 180);
-    };
-    const hasLoader = () =>
-      Boolean(
-        document.querySelector(
-          '#main [data-testid="spinner"], #main [role="progressbar"], #main [aria-label*="Loading"], #main [aria-label*="Загрузка"]'
-        )
-      );
-    const findScrollable = () => {
-      const firstRow = rows()[0];
-      let node = firstRow?.parentElement || document.querySelector('#main');
-      while (node && node !== document.body) {
-        if (node.scrollHeight > node.clientHeight + 24) return node;
-        node = node.parentElement;
-      }
-      return document.querySelector('#main [tabindex="-1"]') || document.querySelector('#main');
-    };
-
-    const container = findScrollable();
-    if (!container) return { ok: true, loaded: rows().length };
-    let prevTop = Number(container.scrollTop || 0);
-    let prevCount = rows().length;
-    let prevFirstKey = firstRowKey();
-    let stable = 0;
-    for (let i = 0; i < 120 && stable < 8; i += 1) {
-      const beforeCount = rows().length;
-      const beforeFirstKey = firstRowKey();
-      const jump = Math.max(220, Math.floor(container.clientHeight * 1.35));
-
-      container.scrollTop = Math.max(0, Number(container.scrollTop || 0) - jump);
-      container.dispatchEvent(new Event('scroll', { bubbles: true }));
-      container.dispatchEvent(new WheelEvent('wheel', { deltaY: -jump, bubbles: true, cancelable: true }));
-      await sleep(260);
-
-      if (container.scrollTop > 0) {
-        container.scrollTop = 0;
-        container.dispatchEvent(new Event('scroll', { bubbles: true }));
-      }
-
-      let waited = 0;
-      while (hasLoader() && waited < 2000) {
-        await sleep(160);
-        waited += 160;
-      }
-      await sleep(120);
-
-      const afterTop = Number(container.scrollTop || 0);
-      const afterCount = rows().length;
-      const afterFirstKey = firstRowKey();
-      const progressed = afterCount > beforeCount || afterFirstKey !== beforeFirstKey || afterTop < prevTop;
-
-      if (progressed) {
-        stable = 0;
-      } else {
-        stable += 1;
-      }
-
-      prevTop = afterTop;
-      prevCount = afterCount;
-      prevFirstKey = afterFirstKey;
-
-      if (afterTop <= 0 && !hasLoader() && afterCount === beforeCount && afterFirstKey === beforeFirstKey) {
-        stable += 1;
-      }
-    }
-    return { ok: true, loaded: rows().length, top: Number(container.scrollTop || 0), firstKey: prevFirstKey, count: prevCount };
-  })();`;
-}
-
-function escapeHtml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function formatMessagesToTxt(exportData) {
-  const lines = exportData.messages.map((message) => {
-    const timestamp = message.timestamp ? `[${message.timestamp}] ` : '';
-    const author = message.author || (message.direction === 'out' ? 'Я' : exportData.chatName || 'Контакт');
-    return `${timestamp}${author}: ${String(message.text || '').trim()}`;
-  });
-  return lines.join('\n');
-}
-
-function formatMessagesToHtml(exportData) {
-  const title = escapeHtml(exportData.chatName || 'Экспорт чата');
-  const body = exportData.messages
-    .map((message) => {
-      const own = message.direction === 'out';
-      const author = escapeHtml(message.author || (own ? 'Я' : exportData.chatName || 'Контакт'));
-      const timestamp = escapeHtml(message.timestamp || '');
-      const text = escapeHtml(String(message.text || '').trim()).replace(/\n/g, '<br />');
-      return `<article class="msg ${own ? 'out' : 'in'}"><div class="meta"><span class="author">${author}</span><span class="time">${timestamp}</span></div><div class="text">${text}</div></article>`;
-    })
-    .join('\n');
-  return `<!doctype html>
-<html lang="ru">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${title}</title>
-    <style>
-      :root { color-scheme: dark; }
-      body { margin: 0; font-family: "Avenir Next", "Segoe UI", sans-serif; background: #0b1220; color: #e7f0ff; }
-      .wrap { max-width: 980px; margin: 0 auto; padding: 24px 18px 48px; }
-      h1 { margin: 0 0 8px; font-size: 28px; }
-      .sub { color: #96abc7; margin-bottom: 24px; font-size: 14px; }
-      .list { display: grid; gap: 12px; }
-      .msg { border: 1px solid #243e60; border-radius: 16px; padding: 12px 14px; background: #122036; }
-      .msg.out { background: #103524; border-color: #246c4a; }
-      .meta { display: flex; justify-content: space-between; gap: 12px; color: #9eb8d9; font-size: 12px; margin-bottom: 8px; }
-      .author { font-weight: 700; color: #f0f7ff; }
-      .text { line-height: 1.48; white-space: normal; word-break: break-word; }
-    </style>
-  </head>
-  <body>
-    <div class="wrap">
-      <h1>${title}</h1>
-      <div class="sub">Сообщений: ${exportData.messages.length}</div>
-      <section class="list">${body}</section>
-    </div>
-  </body>
-</html>`;
-}
-
-function collectActiveChatExportScript() {
-  return `(() => {
-    const normalize = typeof window.__waDeckNormalizeText === 'function'
-      ? window.__waDeckNormalizeText
-      : ((value) => String(value || '').replace(/\\u200e|\\u200f/g, '').replace(/\\u00a0/g, ' ').replace(/\\s+/g, ' ').trim());
-    const extractMessage = typeof window.__waDeckExtractMessageFromRow === 'function'
-      ? window.__waDeckExtractMessageFromRow
-      : ((row) => normalize(row?.innerText || ''));
-
-    const parsePrefix = (raw) => {
-      const text = String(raw || '').trim();
-      const match = text.match(/^\\[(.+?)\\]\\s*([^:]+):\\s*$/u);
-      if (match) {
-        return {
-          timestamp: normalize(match[1] || ''),
-          author: normalize(match[2] || ''),
-        };
-      }
-      return { timestamp: '', author: '' };
-    };
-
-    const headerCandidates = Array.from(
-      document.querySelectorAll(
-        '#main header [data-testid="conversation-info-header-chat-title"], #main header [data-testid="conversation-title"], #main header [data-testid="conversation-header-name"], #main header h1, #main header h2, #main header span[title], #main header div[title], #main header span[dir="auto"]'
-      )
-    )
-      .map((node) => normalize(node?.getAttribute?.('title') || node?.textContent || ''))
-      .filter(Boolean);
-    const chatName = headerCandidates[0] || '';
-
-    const rows = Array.from(document.querySelectorAll('#main [data-pre-plain-text]'));
-    const messages = [];
-
-    for (const row of rows) {
-      const text = normalize(extractMessage(row) || '');
-      if (!text) continue;
-      const prefix = parsePrefix(row.getAttribute('data-pre-plain-text') || '');
-      const direction = row.closest('.message-out') ? 'out' : 'in';
-      messages.push({
-        timestamp: prefix.timestamp,
-        author: prefix.author || (direction === 'out' ? 'Я' : chatName),
-        direction,
-        text,
-      });
-    }
-
-    return {
-      ok: true,
-      chatName,
-      messages,
-    };
-  })();`;
-}
-
-async function collectActiveChatExportDataFromWebview(webview) {
-  if (!webview) return { ok: false, error: 'no_active_chat' };
-  try {
-    const data = await webview.executeJavaScript(collectActiveChatExportScript(), true);
-    if (!data?.ok) return { ok: false, error: String(data?.error || 'export_collect_failed') };
-    if (!data?.chatName) return { ok: false, error: 'chat_name_not_found' };
-    if (!Array.isArray(data?.messages) || !data.messages.length) return { ok: false, error: 'messages_not_found' };
-    return {
-      ok: true,
-      chatName: String(data.chatName || '').trim(),
-      messages: data.messages.map((message) => ({
-        timestamp: String(message?.timestamp || '').trim(),
-        author: String(message?.author || '').trim(),
-        direction: String(message?.direction || '').trim() === 'out' ? 'out' : 'in',
-        text: String(message?.text || '').replace(/\r/g, '').trim(),
-      })),
-    };
-  } catch (error) {
-    return { ok: false, error: String(error?.message || error || 'export_collect_failed') };
-  }
-}
-
-async function collectActiveChatExportData() {
-  const account = activeAccount();
-  if (!account) return { ok: false, error: 'no_active_account' };
-  if (account.frozen) return { ok: false, error: 'account_frozen' };
-  return collectActiveChatExportDataFromWebview(selectedWebview());
-}
-
-async function exportActiveChat(format) {
-  const safeFormat = ['txt', 'html'].includes(String(format || '').toLowerCase())
-    ? String(format).toLowerCase()
-    : '';
-  if (!safeFormat) return;
-
-  const accountId = String(els.exportAccount?.value || '').trim();
-  const chatName = String(els.exportChat?.value || '').trim();
-  const fileName = String(els.exportFileName?.value || '').trim() || chatName;
-  const account = accountById(accountId);
-  if (!accountId || !account || !chatName) {
-    setStatus('Экспорт: выберите WhatsApp и чат');
-    return;
-  }
-  if (account.frozen) {
-    setStatus('Экспорт: выбранный WhatsApp заморожен');
-    return;
-  }
-  const webview = state.webviews.get(accountId);
-  if (!webview) {
-    setStatus('Экспорт: webview не найден');
-    return;
-  }
-
-  await waitForWebviewReady(webview).catch(() => {});
-  setStatus(`Экспорт: открываю чат ${chatName}`);
-  const opened = await webview.executeJavaScript(openChatForExportScript(chatName), true).catch((error) => ({
-    ok: false,
-    error: String(error?.message || error || 'chat_open_failed'),
-  }));
-  if (!opened?.ok) {
-    setStatus(`Экспорт: ${opened?.error || 'chat_open_failed'}`);
-    return;
-  }
-
-  setStatus(`Экспорт: загружаю историю ${chatName}`);
-  await webview.executeJavaScript(loadFullChatHistoryScript(), true).catch(() => null);
-
-  const data = await collectActiveChatExportDataFromWebview(webview);
-  if (!data?.ok) {
-    const map = {
-      no_active_account: 'Нет активного WhatsApp',
-      account_frozen: 'Аккаунт заморожен',
-      no_active_chat: 'Нет активного чата',
-      chat_name_not_found: 'Не удалось определить название чата',
-      messages_not_found: 'В открытом чате нет загруженных текстовых сообщений',
-    };
-    setStatus(`Экспорт: ${map[data?.error] || data?.error || 'ошибка'}`);
-    return;
-  }
-
-  const formatters = {
-    txt: formatMessagesToTxt,
-    html: formatMessagesToHtml,
-  };
-  const content = formatters[safeFormat](data);
-  const result = await window.waDeck.saveExportFile({
-    format: safeFormat,
-    chatName: data.chatName,
-    fileName,
-    content,
-  });
-  if (!result?.ok) {
-    if (result?.error !== 'canceled') {
-      setStatus(`Экспорт: ${result?.error || 'save_failed'}`);
-    }
-    return;
-  }
-  setStatus(`Экспорт ${safeFormat.toUpperCase()}: ${data.chatName}`);
-}
-
 function openAiModal() {
   renderAiModeButtons();
   els.aiContextCount.value = String(state.aiContextCount);
@@ -4267,7 +3873,6 @@ function bindActions() {
   els.refreshActive.addEventListener('click', refreshActiveWebview);
   els.freezeActive?.addEventListener('click', () => toggleActiveFreeze().catch(console.error));
   els.openTranslateModal?.addEventListener('click', openTranslateModal);
-  els.openExportModal?.addEventListener('click', openExportModal);
   els.openAiModal?.addEventListener('click', openAiModal);
   els.openCrmModal.addEventListener('click', () => openCrmModal().catch(console.error));
 
@@ -4320,33 +3925,7 @@ function bindActions() {
     els.translateOutput.value = '';
   });
   els.closeTranslateModal.addEventListener('click', closeTranslateModal);
-  els.translateModal.addEventListener('click', (event) => {
-    if (event.target === els.translateModal) closeTranslateModal();
-  });
-  els.exportTxt?.addEventListener('click', () => exportActiveChat('txt').catch(console.error));
-  els.exportHtml?.addEventListener('click', () => exportActiveChat('html').catch(console.error));
-  els.exportAccount?.addEventListener('change', () => {
-    if (els.exportFileName) {
-      els.exportFileName.dataset.autofill = '1';
-      els.exportFileName.value = '';
-    }
-    refreshExportChats(true).catch(console.error);
-  });
-  els.exportChat?.addEventListener('change', () => syncExportFileName());
-  els.exportFileName?.addEventListener('input', () => {
-    els.exportFileName.dataset.autofill = '0';
-  });
-  els.exportRefreshChats?.addEventListener('click', () => refreshExportChats(true).catch(console.error));
-  els.closeExportModal?.addEventListener('click', closeExportModal);
-  els.exportModal?.addEventListener('click', (event) => {
-    if (event.target === els.exportModal) closeExportModal();
-  });
   els.closeReleaseNotes?.addEventListener('click', () => closeReleaseNotesModal().catch(console.error));
-  els.releaseNotesModal?.addEventListener('click', (event) => {
-    if (event.target === els.releaseNotesModal) {
-      closeReleaseNotesModal().catch(console.error);
-    }
-  });
   els.fillAiSelectedText.addEventListener('click', () => fillAiInputFromSelection().catch(console.error));
   els.aiModeShort.addEventListener('click', () => setAiMode('short'));
   els.aiModeWarm.addEventListener('click', () => setAiMode('warm'));
@@ -4368,16 +3947,10 @@ function bindActions() {
     els.aiOutput.value = '';
   });
   els.closeAiModal.addEventListener('click', closeAiModal);
-  els.aiModal.addEventListener('click', (event) => {
-    if (event.target === els.aiModal) closeAiModal();
-  });
   els.crmEdit.addEventListener('click', toggleCrmEdit);
   els.crmSave.addEventListener('click', () => saveCrmCard().catch(console.error));
   els.crmCopy.addEventListener('click', () => copyCrmCard().catch(console.error));
   els.crmClose.addEventListener('click', closeCrmModal);
-  els.crmModal.addEventListener('click', (event) => {
-    if (event.target === els.crmModal) closeCrmModal();
-  });
   window.addEventListener('resize', () => {
     if (els.crmModal.classList.contains('hidden')) return;
     updateCrmModalPosition().catch(() => {});
@@ -4394,17 +3967,11 @@ function bindActions() {
   els.openChatPicker.addEventListener('click', () => openChatPicker().catch(console.error));
   els.pickerAccount.addEventListener('change', () => refreshPickerChats(true).catch(console.error));
   els.pickerRefresh.addEventListener('click', () => refreshPickerChats(true).catch(console.error));
-  els.pickerCancel.addEventListener('click', closeChatPicker);
-  els.chatPickerModal.addEventListener('click', (event) => {
-    if (event.target === els.chatPickerModal) closeChatPicker();
-  });
+  els.closeChatPicker?.addEventListener('click', closeChatPicker);
   els.accountMenuSave.addEventListener('click', () => saveAccountFromMenu().catch(console.error));
   els.accountMenuReset?.addEventListener('click', () => resetAccountFromMenu().catch(console.error));
   els.accountMenuIcon?.addEventListener('click', () => changeAccountIconFromMenu().catch(console.error));
   els.accountMenuCancel.addEventListener('click', closeAccountMenu);
-  els.accountMenuModal.addEventListener('click', (event) => {
-    if (event.target === els.accountMenuModal) closeAccountMenu();
-  });
   els.pickerApply.addEventListener('click', () => {
     const accountId = String(els.pickerAccount.value || '').trim();
     const chatName = String(els.pickerChat.value || '').trim();
