@@ -1,6 +1,6 @@
 {
   "name": "wa-deck",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "WA Deck for macOS Apple Silicon",
   "main": "src/main.js",
   "scripts": {

@@ -61,8 +61,10 @@ const HOVER_TRANSLATE_LANG_OPTIONS = [
 const els = {
   appRoot: document.getElementById('app-root'),
   brandFrog: document.getElementById('brand-frog'),
+  accountsScrollUp: document.getElementById('accounts-scroll-up'),
   brandMoneyBurst: document.getElementById('brand-money-burst'),
   accountsList: document.getElementById('accounts-list'),
+  accountsScrollDown: document.getElementById('accounts-scroll-down'),
   addAccount: document.getElementById('add-account'),
   webviews: document.getElementById('webviews'),
   hubScreen: document.getElementById('hub-screen'),
@@ -193,6 +195,10 @@ const els = {
 let templateController = null;
 const WEATHER_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 const RELEASE_NOTES = {
+  '0.1.13': [
+    'Скрыта системная полоса прокрутки в левой панели WhatsApp-аккаунтов.',
+    'Добавлены стрелки вверх и вниз для прокрутки списка аккаунтов без перекрытия иконок.',
+  ],
   '0.1.12': [
     'Упрощён hover-перевод: убран выбор языка из popover.',
     'Окно hover-перевода перенесено в фиксированную левую зону чата и сделано полупрозрачным.',
@@ -995,6 +1001,28 @@ function renderAccounts() {
   }
 
   updateActiveAccountDisplay();
+  updateSidebarScrollControls();
+}
+
+function updateSidebarScrollControls() {
+  if (!els.accountsList || !els.accountsScrollUp || !els.accountsScrollDown) return;
+  const pane = els.accountsList;
+  const hasOverflow = pane.scrollHeight > pane.clientHeight + 4;
+  const atTop = pane.scrollTop <= 4;
+  const atBottom = pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 4;
+
+  els.accountsScrollUp.classList.toggle('hidden', !hasOverflow || atTop);
+  els.accountsScrollDown.classList.toggle('hidden', !hasOverflow || atBottom);
+}
+
+function scrollAccountsList(direction) {
+  if (!els.accountsList) return;
+  const step = Math.max(120, Math.floor(els.accountsList.clientHeight * 0.52));
+  els.accountsList.scrollBy({
+    top: direction === 'down' ? step : -step,
+    behavior: 'smooth',
+  });
+  window.setTimeout(updateSidebarScrollControls, 220);
 }
 
 function ensureWebview(account) {
@@ -4093,6 +4121,9 @@ function startScheduleRunner() {
 
 function bindActions() {
   els.addAccount.addEventListener('click', () => addAccount().catch(console.error));
+  els.accountsScrollUp?.addEventListener('click', () => scrollAccountsList('up'));
+  els.accountsScrollDown?.addEventListener('click', () => scrollAccountsList('down'));
+  els.accountsList?.addEventListener('scroll', updateSidebarScrollControls, { passive: true });
   els.refreshActive.addEventListener('click', refreshActiveWebview);
   els.freezeActive?.addEventListener('click', () => toggleActiveFreeze().catch(console.error));
   els.openTranslateModal?.addEventListener('click', openTranslateModal);
@@ -4178,6 +4209,7 @@ function bindActions() {
     if (els.crmModal.classList.contains('hidden')) return;
     updateCrmModalPosition().catch(() => {});
   });
+  window.addEventListener('resize', updateSidebarScrollControls);
   els.translateTargetLang.addEventListener('change', () => {
     state.translateTargetLang = normalizeTranslateTargetLang(els.translateTargetLang.value || 'RU');
     syncHoverTranslateTargetLang();

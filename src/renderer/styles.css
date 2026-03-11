@@ -135,6 +135,37 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.accounts-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.sidebar-scroll-btn {
+  width: 28px;
+  height: 24px;
+  min-width: 28px;
+  padding: 0;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  border-color: #315375;
+  background: linear-gradient(180deg, #17283f 0%, #132239 100%);
+  color: #a9c6e5;
+}
+
+.sidebar-scroll-btn .icon-chevron {
+  width: 14px;
+  height: 14px;
+}
+
+.sidebar-scroll-btn:not(.hidden):hover {
+  border-color: #4d7fb4;
+  color: #eef7ff;
 }
 
 .account-item {
