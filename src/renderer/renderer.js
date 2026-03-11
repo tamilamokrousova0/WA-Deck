@@ -193,6 +193,11 @@ const els = {
 let templateController = null;
 const WEATHER_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 const RELEASE_NOTES = {
+  '0.1.12': [
+    'Упрощён hover-перевод: убран выбор языка из popover.',
+    'Окно hover-перевода перенесено в фиксированную левую зону чата и сделано полупрозрачным.',
+    'Вертикальное положение hover-перевода сглажено, чтобы окно не прыгало резко между сообщениями.',
+  ],
   '0.1.11': [
     'Исправлено растягивание карточек WhatsApp в левой панели при малом количестве аккаунтов.',
     'Карточки аккаунтов теперь всегда держат компактную высоту по содержимому.',
@@ -1836,12 +1841,10 @@ function selectedTextScript() {
 
 function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
   const safeDefaultTarget = normalizeTranslateTargetLang(defaultTargetLang);
-  const languageOptions = JSON.stringify(HOVER_TRANSLATE_LANG_OPTIONS);
   return `(() => {
     if (window.__waDeckHoverTranslateBound) return true;
     window.__waDeckHoverTranslateBound = true;
     window.__waDeckHoverTranslateTargetLang = '${safeDefaultTarget}';
-    const hoverTranslateLanguages = ${languageOptions};
 
     const normalize = typeof window.__waDeckNormalizeText === 'function'
       ? window.__waDeckNormalizeText
@@ -1870,14 +1873,19 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
         .waDeck-hover-translate-popover {
           position: fixed;
           z-index: 2147483642;
-          min-width: 258px;
-          max-width: min(420px, calc(100vw - 24px));
+          top: 18px;
+          left: 18px;
+          width: min(360px, calc(100vw - 36px));
+          max-height: calc(100vh - 36px);
+          overflow: auto;
           border: 1px solid rgba(70, 120, 180, 0.72);
           border-radius: 14px;
-          background: linear-gradient(180deg, rgba(12, 27, 46, 0.98), rgba(9, 21, 37, 0.99));
+          background: linear-gradient(180deg, rgba(8, 22, 39, 0.76), rgba(6, 18, 31, 0.78));
           color: #eff6ff;
           box-shadow: 0 18px 32px rgba(0,0,0,0.42);
           padding: 10px 12px 12px;
+          backdrop-filter: blur(16px) saturate(125%);
+          -webkit-backdrop-filter: blur(16px) saturate(125%);
         }
         .waDeck-hover-translate-popover.hidden { display: none; }
         .waDeck-hover-translate-head {
@@ -1890,31 +1898,6 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
         .waDeck-hover-translate-meta {
           font: 600 11px/1.25 "Segoe UI", sans-serif;
           color: #94b7dd;
-        }
-        .waDeck-hover-translate-controls {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
-          gap: 8px;
-          align-items: end;
-          margin-bottom: 8px;
-        }
-        .waDeck-hover-translate-label {
-          display: grid;
-          gap: 4px;
-          color: #a9c6e4;
-          font: 600 10px/1.2 "Segoe UI", sans-serif;
-          letter-spacing: 0.02em;
-        }
-        .waDeck-hover-translate-select {
-          width: 100%;
-          min-width: 0;
-          border: 1px solid rgba(66, 101, 144, 0.84);
-          border-radius: 10px;
-          background: rgba(8, 21, 38, 0.95);
-          color: #eff6ff;
-          font: 600 12px/1.2 "Segoe UI", sans-serif;
-          padding: 7px 10px;
-          outline: none;
         }
         .waDeck-hover-translate-actions {
           display: inline-flex;
@@ -1969,12 +1952,11 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
     if (!popover) {
       popover = document.createElement('div');
       popover.className = 'waDeck-hover-translate-popover hidden';
-      popover.innerHTML = '<div class="waDeck-hover-translate-head"><div class="waDeck-hover-translate-meta"></div><button class="waDeck-hover-translate-close" type="button">✕</button></div><div class="waDeck-hover-translate-controls"><label class="waDeck-hover-translate-label">Язык перевода<select class="waDeck-hover-translate-select"></select></label><div class="waDeck-hover-translate-actions"><button class="waDeck-hover-translate-copy" type="button" disabled>Копировать</button></div></div><div class="waDeck-hover-translate-text"></div>';
+      popover.innerHTML = '<div class="waDeck-hover-translate-head"><div class="waDeck-hover-translate-meta"></div><div class="waDeck-hover-translate-actions"><button class="waDeck-hover-translate-copy" type="button" disabled>Копировать</button><button class="waDeck-hover-translate-close" type="button">✕</button></div></div><div class="waDeck-hover-translate-text"></div>';
       document.body.appendChild(popover);
     }
 
     const metaNode = popover.querySelector('.waDeck-hover-translate-meta');
-    const selectNode = popover.querySelector('.waDeck-hover-translate-select');
     const copyNode = popover.querySelector('.waDeck-hover-translate-copy');
     const textNode = popover.querySelector('.waDeck-hover-translate-text');
     const closeNode = popover.querySelector('.waDeck-hover-translate-close');
@@ -1988,13 +1970,6 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
         copyNode.disabled = !lastTranslatedText.trim();
       }
     };
-
-    if (selectNode && !selectNode.options.length) {
-      selectNode.innerHTML = hoverTranslateLanguages
-        .map((option) => '<option value="' + option.value + '">' + option.label + '</option>')
-        .join('');
-      selectNode.value = window.__waDeckHoverTranslateTargetLang || '${safeDefaultTarget}';
-    }
 
     const ensureRowId = (row) => {
       if (!row) return '';
@@ -2012,15 +1987,18 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
       setCopyState(isError ? '' : text || '');
       popover.classList.toggle('waDeck-hover-translate-error', Boolean(isError));
       popover.classList.remove('hidden');
-      const width = Math.min(420, Math.max(240, Math.round(window.innerWidth * 0.28)));
-      popover.style.width = width + 'px';
-      const top = Math.max(10, rect.top + 6);
-      let left = rect.right + 14;
-      if (left + width > window.innerWidth - 10) {
-        left = Math.max(10, rect.left - width - 14);
-      }
-      popover.style.top = top + 'px';
+      const left = 18;
+      const popoverHeight = Math.max(100, popover.offsetHeight || 180);
+      const minTop = 86;
+      const maxTop = Math.max(minTop, window.innerHeight - popoverHeight - 18);
+      const preferredTop = Math.max(minTop, Math.min(rect.top - 18, maxTop));
+      const previousTop = Number(popover.dataset.lastTop || preferredTop);
+      const delta = preferredTop - previousTop;
+      const limitedTop = previousTop + Math.max(-84, Math.min(84, delta));
+      const nextTop = Math.max(minTop, Math.min(limitedTop, maxTop));
       popover.style.left = left + 'px';
+      popover.style.top = nextTop + 'px';
+      popover.dataset.lastTop = String(nextTop);
     };
 
     const hidePopover = () => {
@@ -2083,7 +2061,7 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
       const text = normalize(extractMessage(activeRow) || '');
       if (!text) return;
       const requestId = rowId + '_' + Date.now().toString(36);
-      const targetLang = selectNode?.value || window.__waDeckHoverTranslateTargetLang || '${safeDefaultTarget}';
+      const targetLang = window.__waDeckHoverTranslateTargetLang || '${safeDefaultTarget}';
       button.classList.add('is-loading');
       showPopover(activeRow, 'Перевод...', 'Запрос к API', false);
       console.log('__WADECK_HOVER_TRANSLATE__' + JSON.stringify({ type: 'translate', requestId, rowId, text, targetLang }));
@@ -2093,19 +2071,6 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
       event.preventDefault();
       event.stopPropagation();
       hidePopover();
-    });
-
-    selectNode?.addEventListener('change', (event) => {
-      const targetLang = String(event.target?.value || '${safeDefaultTarget}');
-      window.__waDeckHoverTranslateTargetLang = targetLang;
-      if (!activeRow || popover.classList.contains('hidden')) return;
-      const rowId = ensureRowId(activeRow);
-      const text = normalize(extractMessage(activeRow) || '');
-      if (!text) return;
-      const requestId = rowId + '_' + Date.now().toString(36);
-      button.classList.add('is-loading');
-      showPopover(activeRow, 'Перевод...', 'Запрос к API', false);
-      console.log('__WADECK_HOVER_TRANSLATE__' + JSON.stringify({ type: 'translate', requestId, rowId, text, targetLang }));
     });
 
     copyNode?.addEventListener('click', (event) => {
@@ -2125,9 +2090,6 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
       const targetLang = String(payload?.targetLang || '').trim();
       if (targetLang) {
         window.__waDeckHoverTranslateTargetLang = targetLang;
-        if (selectNode) {
-          selectNode.value = targetLang;
-        }
       }
       showPopover(row, String(payload?.text || ''), String(payload?.meta || 'Перевод'), Boolean(payload?.isError));
       button.classList.remove('is-loading');
