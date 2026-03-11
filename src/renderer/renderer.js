@@ -193,6 +193,10 @@ const els = {
 let templateController = null;
 const WEATHER_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 const RELEASE_NOTES = {
+  '0.1.10': [
+    'Исправлен запуск приложения: webview больше не получает executeJavaScript до dom-ready.',
+    'Восстановлена корректная инициализация кнопок и виджетов после старта.',
+  ],
   '0.1.9': [
     'Исправлен hover-перевод сообщений: удалены дубли текста и хвосты со временем.',
     'Для hover-перевода добавлен выбор языка прямо в popover сообщения.',
@@ -996,8 +1000,10 @@ function ensureWebview(account) {
   }
   webview.setAttribute('allowpopups', 'false');
   webview.setAttribute('webpreferences', 'contextIsolation=yes');
+  webview.dataset.waReady = '0';
 
   webview.addEventListener('did-start-loading', () => {
+    webview.dataset.waReady = '0';
     if (account.id === state.activeAccountId) {
       setStatus(`${account.name}: загрузка...`);
     }
@@ -1018,6 +1024,7 @@ function ensureWebview(account) {
   });
 
   webview.addEventListener('did-fail-load', () => {
+    webview.dataset.waReady = '0';
     if (account.id === state.activeAccountId && state.startupHubVisible) {
       state.startupHubVisible = false;
       refreshWebviewVisibility();
@@ -1031,6 +1038,7 @@ function ensureWebview(account) {
   });
 
   const bindDomHelpers = () => {
+    webview.dataset.waReady = '1';
     if (typeof webview.setUserAgent === 'function' && state.runtime?.waUserAgent) {
       webview.setUserAgent(state.runtime.waUserAgent);
     }
@@ -1274,6 +1282,21 @@ function ensureWebview(account) {
 
   state.webviews.set(account.id, webview);
   els.webviews.appendChild(webview);
+}
+
+function isWebviewReady(webview) {
+  return Boolean(webview && webview.isConnected && webview.dataset?.waReady === '1');
+}
+
+function safeExecuteInWebview(webview, script, userGesture = true) {
+  if (!isWebviewReady(webview)) {
+    return Promise.resolve(null);
+  }
+  try {
+    return Promise.resolve(webview.executeJavaScript(script, userGesture)).catch(() => null);
+  } catch {
+    return Promise.resolve(null);
+  }
 }
 
 function refreshWebviewVisibility() {
@@ -2145,7 +2168,7 @@ function setHoverTranslateTargetLangScript(targetLang) {
 function syncHoverTranslateTargetLang() {
   const targetLang = normalizeTranslateTargetLang(state.translateTargetLang || 'RU');
   for (const webview of state.webviews.values()) {
-    webview.executeJavaScript(setHoverTranslateTargetLangScript(targetLang), true).catch(() => {});
+    safeExecuteInWebview(webview, setHoverTranslateTargetLangScript(targetLang), true).catch(() => {});
   }
 }
 
