@@ -148,6 +148,8 @@
     await updateCrmModalPosition();
     els.crmModal.classList.remove('hidden');
     requestAnimationFrame(() => {
+      autoResizeCrmTextarea(els.crmAbout);
+      autoResizeCrmTextarea(els.crmMyInfo);
       updateCrmModalPosition().catch(() => {});
     });
     if (response?.migrated) {
@@ -216,14 +218,25 @@
     const now = new Date();
     const dd = String(now.getDate()).padStart(2, '0');
     const mm = String(now.getMonth() + 1).padStart(2, '0');
-    const yyyy = now.getFullYear();
     const hh = String(now.getHours()).padStart(2, '0');
     const mi = String(now.getMinutes()).padStart(2, '0');
-    const stamp = '[' + dd + '.' + mm + '.' + yyyy + ' ' + hh + ':' + mi + '] ';
+    const stamp = '[' + dd + '.' + mm + ' ' + hh + ':' + mi + '] ';
     const prev = el.value ? '\n' + el.value : '';
     el.value = stamp + prev;
     el.focus();
     el.setSelectionRange(stamp.length, stamp.length);
+    autoResizeCrmTextarea(el);
+  }
+
+  function autoResizeCrmTextarea(textarea) {
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(Math.max(textarea.scrollHeight, 80), 300) + 'px';
+  }
+
+  function bindCrmAutoResize() {
+    if (els.crmAbout) els.crmAbout.addEventListener('input', () => autoResizeCrmTextarea(els.crmAbout));
+    if (els.crmMyInfo) els.crmMyInfo.addEventListener('input', () => autoResizeCrmTextarea(els.crmMyInfo));
   }
 
   window.WaDeckCrmModule = {
@@ -235,6 +248,7 @@
     saveCrmCard,
     copyCrmCard,
     addCrmNote,
+    bindCrmAutoResize,
     updateCrmModalPosition,
   };
 })();

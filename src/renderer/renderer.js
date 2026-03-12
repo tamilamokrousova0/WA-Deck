@@ -24,6 +24,7 @@ const state = {
   accountMenuAccountId: '',
   accountMenuDraftIconPath: '',
   draggedAccountId: '',
+  collapsedGroups: new Set(),
   crmEditable: false,
   crmTarget: {
     accountId: '',
@@ -166,6 +167,11 @@ const els = {
   crmClose: document.getElementById('crm-close'),
   crmMeta: document.getElementById('crm-meta'),
   crmAddNote: document.getElementById('crm-add-note'),
+  confirmModal: document.getElementById('confirm-modal'),
+  confirmTitle: document.getElementById('confirm-title'),
+  confirmMessage: document.getElementById('confirm-message'),
+  confirmOk: document.getElementById('confirm-ok'),
+  confirmCancel: document.getElementById('confirm-cancel'),
 };
 
 let templateController = null;
@@ -237,6 +243,26 @@ function showToast(text, type, duration) {
     toast.classList.add('is-hiding');
     setTimeout(function () { toast.remove(); }, 260);
   }, duration);
+}
+
+// ── Confirm модал ──
+let _confirmResolve = null;
+function showConfirm(title, message, okText) {
+  return new Promise(function (resolve) {
+    _confirmResolve = resolve;
+    els.confirmTitle.textContent = title || 'Подтверждение';
+    els.confirmMessage.textContent = message || '';
+    els.confirmOk.textContent = okText || 'OK';
+    els.confirmModal.classList.remove('hidden');
+  });
+}
+
+function closeConfirm(result) {
+  els.confirmModal.classList.add('hidden');
+  if (_confirmResolve) {
+    _confirmResolve(Boolean(result));
+    _confirmResolve = null;
+  }
 }
 
 function trimMapSize(map, limit) {
@@ -429,10 +455,76 @@ async function reorderAccountsByDrag(sourceAccountId, targetAccountId) {
   }
 }
 
+function getAccountGroupPrefix(name) {
+  const match = String(name || '').match(/^([A-Za-zА-Яа-я0-9]+)/);
+  return match ? match[1] : '';
+}
+
 function renderAccounts() {
   els.accountsList.innerHTML = '';
 
+  // Группировка аккаунтов по префиксу
+  const groups = [];
+  const groupMap = new Map();
   for (const account of state.accounts) {
+    const prefix = getAccountGroupPrefix(account.name);
+    if (!groupMap.has(prefix)) {
+      const group = { prefix, accounts: [] };
+      groupMap.set(prefix, group);
+      groups.push(group);
+    }
+    groupMap.get(prefix).accounts.push(account);
+  }
+
+  const needGroups = groups.length > 1;
+
+  for (const group of groups) {
+    let groupContainer = els.accountsList;
+    let groupItemsContainer = els.accountsList;
+
+    if (needGroups) {
+      groupContainer = document.createElement('div');
+      groupContainer.className = 'sidebar-group';
+      groupContainer.dataset.groupPrefix = group.prefix;
+      if (state.collapsedGroups && state.collapsedGroups.has(group.prefix)) {
+        groupContainer.classList.add('collapsed');
+      }
+
+      const header = document.createElement('div');
+      header.className = 'sidebar-group-header';
+      const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      chevron.setAttribute('class', 'sidebar-group-chevron');
+      chevron.setAttribute('viewBox', '0 0 24 24');
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'M6 10l6 6 6-6');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', 'currentColor');
+      path.setAttribute('stroke-width', '2.5');
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('stroke-linejoin', 'round');
+      chevron.appendChild(path);
+      const label = document.createElement('span');
+      label.textContent = group.prefix + ' (' + group.accounts.length + ')';
+      header.append(chevron, label);
+      header.addEventListener('click', () => {
+        if (!state.collapsedGroups) state.collapsedGroups = new Set();
+        if (groupContainer.classList.contains('collapsed')) {
+          groupContainer.classList.remove('collapsed');
+          state.collapsedGroups.delete(group.prefix);
+        } else {
+          groupContainer.classList.add('collapsed');
+          state.collapsedGroups.add(group.prefix);
+        }
+        updateSidebarScrollControls();
+      });
+
+      groupItemsContainer = document.createElement('div');
+      groupItemsContainer.className = 'sidebar-group-items';
+      groupContainer.append(header, groupItemsContainer);
+      els.accountsList.appendChild(groupContainer);
+    }
+
+  for (const account of group.accounts) {
     const card = document.createElement('div');
     card.className = `account-item ${state.activeAccountId === account.id ? 'active' : ''} ${account.frozen ? 'frozen' : ''}`;
     card.dataset.accountId = account.id;
@@ -568,8 +660,9 @@ function renderAccounts() {
     });
 
     card.append(remove, chip, name);
-    els.accountsList.appendChild(card);
+    groupItemsContainer.appendChild(card);
   }
+  } // end groups loop
 
   updateActiveAccountDisplay();
   updateSidebarScrollControls();
@@ -1256,9 +1349,10 @@ async function addAccount() {
       return;
     }
     state.accounts.push(created);
-    ensureWebview(created);
     renderAccounts();
     setActiveAccount(created.id);
+    // ensureWebview после setActiveAccount — даём DOM обновиться
+    try { ensureWebview(created); } catch { /* webview создастся при переключении */ }
     setStatus(`Добавлен аккаунт: ${created.name}`);
   } catch (error) {
     setStatus(`Не удалось добавить аккаунт: ${String(error?.message || error || 'error')}`);
@@ -1269,7 +1363,7 @@ async function removeAccount(accountId) {
   const account = state.accounts.find((row) => row.id === accountId);
   if (!account) return;
 
-  const accepted = window.confirm(`Удалить ${account.name}?`);
+  const accepted = await showConfirm('Удаление аккаунта', `Удалить «${account.name}»?\nВсе данные сессии будут потеряны.`, 'Удалить');
   if (!accepted) return;
 
   const response = await window.waDeck.removeAccount(accountId);
@@ -1473,6 +1567,11 @@ function bindActions() {
   els.crmCopy.addEventListener('click', () => WaDeckCrmModule.copyCrmCard().catch(console.error));
   els.crmClose.addEventListener('click', WaDeckCrmModule.closeCrmModal);
   if (els.crmAddNote) els.crmAddNote.addEventListener('click', WaDeckCrmModule.addCrmNote);
+  WaDeckCrmModule.bindCrmAutoResize();
+  // Confirm модал
+  els.confirmOk.addEventListener('click', () => closeConfirm(true));
+  els.confirmCancel.addEventListener('click', () => closeConfirm(false));
+  els.confirmModal.addEventListener('click', (e) => { if (e.target === els.confirmModal) closeConfirm(false); });
   window.addEventListener('resize', () => {
     if (!els.crmModal.classList.contains('hidden')) {
       WaDeckCrmModule.updateCrmModalPosition().catch(() => {});
