@@ -6,11 +6,28 @@ function collectUnreadDetailsScript() {
     );
     const result = [];
     for (const item of items) {
+      let count = 0;
+
+      /* Numbered badge (natural unread) */
       const badge = item.querySelector('[data-testid="icon-unread-count"], [aria-label*="unread"], [aria-label*="непрочит"]');
-      if (!badge) continue;
-      const countText = normalize(badge.textContent || badge.getAttribute('aria-label') || '');
-      const countMatch = countText.match(/(\\d+)/);
-      const count = countMatch ? Number(countMatch[1]) || 0 : 0;
+      if (badge) {
+        const countText = normalize(badge.textContent || badge.getAttribute('aria-label') || '');
+        const countMatch = countText.match(/(\\d+)/);
+        count = countMatch ? (Number(countMatch[1]) || 1) : 0;
+        /* Badge found but empty text = "marked as unread" dot */
+        if (!count && !badge.textContent.trim()) count = 1;
+      }
+
+      /* "Marked as unread" green dot without number */
+      if (!count) {
+        const dot = item.querySelector(
+          '[data-testid*="unread"]:not([data-testid="icon-unread-count"]), ' +
+          'span[data-icon="unread-indicator"], ' +
+          'span[data-icon="unread"]'
+        );
+        if (dot) count = 1;
+      }
+
       if (!count) continue;
 
       const titleNode = item.querySelector('[data-testid="cell-frame-title"] span[title], [data-testid="conversation-list-item-title"] span[title]');
