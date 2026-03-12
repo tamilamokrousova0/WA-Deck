@@ -41,6 +41,7 @@ const state = {
   weatherGeoCache: new Map(),
   weatherRefreshTimer: null,
   hoverTranslatePending: new Set(),
+  unreadPollBusy: false,
 };
 
 const HOVER_TRANSLATE_LANG_OPTIONS = [
@@ -194,6 +195,8 @@ const els = {
 
 let templateController = null;
 const WEATHER_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+const WEATHER_GEO_CACHE_LIMIT = 24;
+const CHAT_PICKER_CACHE_LIMIT = 24;
 const RELEASE_NOTES = {
   '0.1.13': [
     'Скрыта системная полоса прокрутки в левой панели WhatsApp-аккаунтов.',
@@ -294,6 +297,15 @@ function getSelectedTranslateProvider() {
   return els.translateProviderLibre?.checked ? 'libre' : 'deepl';
 }
 
+function platformPasteModifier() {
+  const runtimePlatform = String(state.runtime?.platform || '').toLowerCase();
+  if (runtimePlatform) {
+    return runtimePlatform === 'darwin' ? 'meta' : 'control';
+  }
+  const browserPlatform = String(navigator.platform || '').toLowerCase();
+  return browserPlatform.includes('mac') ? 'meta' : 'control';
+}
+
 function normalizeTranslateTargetLang(value) {
   const raw = String(value || '').trim().toUpperCase();
   const matched = HOVER_TRANSLATE_LANG_OPTIONS.find((option) => option.value.toUpperCase() === raw);
@@ -333,6 +345,44 @@ function setStatus(text) {
   if (els.panelStatus) {
     els.panelStatus.textContent = text;
     els.panelStatus.title = text;
+  }
+}
+
+function trimMapSize(map, limit) {
+  if (!(map instanceof Map) || !Number.isFinite(limit) || limit <= 0) return;
+  while (map.size > limit) {
+    const oldestKey = map.keys().next();
+    if (oldestKey.done) break;
+    map.delete(oldestKey.value);
+  }
+}
+
+function setButtonBusy(button, busy, options = {}) {
+  if (!button) return;
+  const { text = '', title = '' } = options;
+  if (!button.dataset.idleText) {
+    button.dataset.idleText = button.textContent || '';
+  }
+  if (!button.dataset.idleTitle) {
+    button.dataset.idleTitle = button.title || '';
+  }
+  button.disabled = Boolean(busy);
+  button.classList.toggle('is-busy', Boolean(busy));
+  if (text && !button.querySelector('svg')) {
+    button.textContent = busy ? text : button.dataset.idleText;
+  }
+  if (title) {
+    button.title = busy ? title : button.dataset.idleTitle;
+  }
+}
+
+async function runWithBusyButton(button, task, options = {}) {
+  if (button?.disabled) return null;
+  setButtonBusy(button, true, options);
+  try {
+    return await task();
+  } finally {
+    setButtonBusy(button, false, options);
   }
 }
 
@@ -418,6 +468,7 @@ async function resolveWeatherCoords(city) {
     longitude: Number(row.longitude),
   };
   state.weatherGeoCache.set(cacheKey, coords);
+  trimMapSize(state.weatherGeoCache, WEATHER_GEO_CACHE_LIMIT);
   return coords;
 }
 
@@ -733,9 +784,38 @@ function setUnreadCount(accountId, count) {
     return;
   }
   state.unreadByAccount.set(safeId, safeCount);
-  renderAccounts();
+  if (!patchAccountUnreadBadge(safeId)) {
+    renderAccounts();
+  }
   updateActiveUnreadIndicator();
   scheduleDockBadgeSync();
+}
+
+function findAccountCard(accountId) {
+  const safeId = String(accountId || '').trim();
+  if (!safeId || !els.accountsList) return null;
+  return Array.from(els.accountsList.children || []).find((node) => node.dataset?.accountId === safeId) || null;
+}
+
+function patchAccountUnreadBadge(accountId) {
+  const card = findAccountCard(accountId);
+  if (!card) return false;
+
+  const unread = Number(state.unreadByAccount.get(accountId) || 0);
+  let badge = card.querySelector('.account-unread');
+
+  if (unread > 0) {
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.className = 'account-unread';
+      card.appendChild(badge);
+    }
+    badge.textContent = unread > 99 ? '99+' : String(unread);
+  } else if (badge) {
+    badge.remove();
+  }
+
+  return true;
 }
 
 function mapTranslateError(response) {
@@ -905,6 +985,7 @@ function renderAccounts() {
   for (const account of state.accounts) {
     const card = document.createElement('div');
     card.className = `account-item ${state.activeAccountId === account.id ? 'active' : ''} ${account.frozen ? 'frozen' : ''}`;
+    card.dataset.accountId = account.id;
     card.title = account.name;
     card.draggable = state.accounts.length > 1;
     card.addEventListener('click', () => setActiveAccount(account.id));
@@ -1353,7 +1434,7 @@ function openHubMode() {
   setActiveAccount('');
 }
 
-function handleEscapeToHub() {
+function handleEscapeUiReset() {
   closeWeatherPopover();
   closeChatPicker();
   closeSettingsPanel();
@@ -1364,7 +1445,6 @@ function handleEscapeToHub() {
   closeAiModal();
   closeCrmModal();
   closeAccountMenu();
-  openHubMode();
 }
 
 function setActiveAccount(accountId) {
@@ -1589,6 +1669,7 @@ async function fetchChatsForAccount(accountId, force = false) {
     : [];
 
   state.chatPickerCache.set(safeAccountId, { at: Date.now(), chats: normalized });
+  trimMapSize(state.chatPickerCache, CHAT_PICKER_CACHE_LIMIT);
   return normalized;
 }
 
@@ -1901,19 +1982,17 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
         .waDeck-hover-translate-popover {
           position: fixed;
           z-index: 2147483642;
-          top: 18px;
-          left: 18px;
-          width: min(360px, calc(100vw - 36px));
+          width: min(332px, calc(100vw - 28px));
           max-height: calc(100vh - 36px);
           overflow: auto;
           border: 1px solid rgba(70, 120, 180, 0.72);
           border-radius: 14px;
-          background: linear-gradient(180deg, rgba(8, 22, 39, 0.76), rgba(6, 18, 31, 0.78));
+          background: linear-gradient(180deg, rgba(8, 22, 39, 0.56), rgba(6, 18, 31, 0.6));
           color: #eff6ff;
           box-shadow: 0 18px 32px rgba(0,0,0,0.42);
           padding: 10px 12px 12px;
-          backdrop-filter: blur(16px) saturate(125%);
-          -webkit-backdrop-filter: blur(16px) saturate(125%);
+          backdrop-filter: blur(18px) saturate(120%);
+          -webkit-backdrop-filter: blur(18px) saturate(120%);
         }
         .waDeck-hover-translate-popover.hidden { display: none; }
         .waDeck-hover-translate-head {
@@ -2015,15 +2094,21 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
       setCopyState(isError ? '' : text || '');
       popover.classList.toggle('waDeck-hover-translate-error', Boolean(isError));
       popover.classList.remove('hidden');
-      const left = 18;
+      const popoverWidth = Math.min(332, Math.max(248, Math.round(window.innerWidth * 0.22)));
+      popover.style.width = popoverWidth + 'px';
       const popoverHeight = Math.max(100, popover.offsetHeight || 180);
       const minTop = 86;
       const maxTop = Math.max(minTop, window.innerHeight - popoverHeight - 18);
-      const preferredTop = Math.max(minTop, Math.min(rect.top - 18, maxTop));
+      const preferredTop = Math.max(minTop, Math.min(rect.top - 12, maxTop));
       const previousTop = Number(popover.dataset.lastTop || preferredTop);
       const delta = preferredTop - previousTop;
-      const limitedTop = previousTop + Math.max(-84, Math.min(84, delta));
+      const limitedTop = previousTop + Math.max(-48, Math.min(48, delta));
       const nextTop = Math.max(minTop, Math.min(limitedTop, maxTop));
+      let left = rect.right + 24;
+      if (left + popoverWidth > window.innerWidth - 14) {
+        left = Math.max(14, rect.left - popoverWidth - 18);
+      }
+      left = Math.max(14, Math.min(left, window.innerWidth - popoverWidth - 14));
       popover.style.left = left + 'px';
       popover.style.top = nextTop + 'px';
       popover.dataset.lastTop = String(nextTop);
@@ -2038,8 +2123,10 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
     const setButtonPosition = (row) => {
       const rect = row.getBoundingClientRect();
       button.style.display = 'block';
-      button.style.top = Math.max(10, rect.top + 6) + 'px';
-      button.style.left = Math.max(10, rect.right - 98) + 'px';
+      const top = Math.max(10, rect.top + 6);
+      const left = Math.min(window.innerWidth - 108, rect.right + 10);
+      button.style.top = top + 'px';
+      button.style.left = Math.max(10, left) + 'px';
     };
 
     const activateRow = (row) => {
@@ -2246,20 +2333,26 @@ function collectUnreadCountScript() {
 }
 
 async function pollUnreadCounts() {
+  if (state.unreadPollBusy) return;
+  state.unreadPollBusy = true;
+  try {
   for (const account of state.accounts) {
     if (account.frozen) {
       setUnreadCount(account.id, 0);
       continue;
     }
     const webview = state.webviews.get(account.id);
-    if (!webview) continue;
+    if (!isWebviewReady(webview)) continue;
     let count = 0;
     try {
-      count = Number(await webview.executeJavaScript(collectUnreadCountScript(), true) || 0) || 0;
+      count = Number(await safeExecuteInWebview(webview, collectUnreadCountScript(), true) || 0) || 0;
     } catch {
       count = Number(state.unreadByAccount.get(account.id) || 0);
     }
     setUnreadCount(account.id, count);
+  }
+  } finally {
+    state.unreadPollBusy = false;
   }
 }
 
@@ -2279,754 +2372,14 @@ function encodeBase64Utf8(value) {
   let binary = '';
   const chunk = 0x8000;
   for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.slice(i, i + chunk));
+    const slice = bytes.slice(i, i + chunk);
+    let piece = '';
+    for (let j = 0; j < slice.length; j += 1) {
+      piece += String.fromCharCode(slice[j]);
+    }
+    binary += piece;
   }
   return btoa(binary);
-}
-
-function sendScheduledScript(payload) {
-  const json = JSON.stringify(payload || {});
-  const payloadB64 = encodeBase64Utf8(json);
-
-  return `(async () => {
-    try {
-      const decodeBase64Utf8 = (base64) => {
-        const binary = atob(base64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i += 1) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-        return new TextDecoder().decode(bytes);
-      };
-      const payload = JSON.parse(decodeBase64Utf8('${payloadB64}'));
-      const chatQuery = String(payload.chatName || '').trim().toLowerCase();
-      const text = String(payload.text || '');
-      const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
-
-      const normalize = (value) =>
-        String(value || '')
-          .replace(/\\u200e|\\u200f/g, '')
-          .replace(/\\u00a0/g, ' ')
-          .replace(/\\s+/g, ' ')
-          .trim();
-      const looksLikeTime = (value) =>
-        /^\\d{1,2}:\\d{2}$/.test(String(value || '').trim()) || /^\\d{1,2}\\.\\d{1,2}\\.\\d{2,4}$/.test(String(value || '').trim());
-      const isMetaText = (value) => {
-        const text = normalize(value).toLowerCase();
-        if (!text) return true;
-        if (looksLikeTime(text)) return true;
-        if (/^(online|в сети|typing|печатает|recording audio|записывает аудио)/i.test(text)) return true;
-        if (/^(last seen|seen |был|была|был\\(-а\\)|был\\(а\\)|сегодня в|вчера в)/i.test(text)) return true;
-        return false;
-      };
-      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-      const pane = document.querySelector('#pane-side');
-      if (!pane) return { ok: false, error: 'sidebar_not_found' };
-
-      const sidebarItems = () =>
-        Array.from(
-          document.querySelectorAll('#pane-side [role="listitem"], #pane-side [data-testid="cell-frame-container"], #pane-side [aria-selected]')
-        );
-
-      const pickTitleFromNodes = (nodes) => {
-        for (const node of nodes) {
-          const text = normalize(node?.getAttribute?.('title') || node?.textContent || '');
-          if (!text || isMetaText(text)) continue;
-          return text;
-        }
-        return '';
-      };
-
-      const itemTitle = (item) => {
-        const titleFromNodes = pickTitleFromNodes(
-          Array.from(
-            item.querySelectorAll(
-              '[data-testid="cell-frame-title"], [data-testid="conversation-list-item-title"], span[title], div[title], span[dir="auto"], div[dir="auto"]',
-            ),
-          ),
-        );
-        if (titleFromNodes) return titleFromNodes;
-
-        const lines = String(item.innerText || '')
-          .split('\\n')
-          .map((line) => normalize(line))
-          .filter((line) => line && !isMetaText(line));
-        return lines[0] || '';
-      };
-
-      const isChatMatch = (title) => {
-        const safeTitle = normalize(title).toLowerCase();
-        if (!safeTitle || !chatQuery) return false;
-        if (safeTitle === chatQuery) return true;
-        return false;
-      };
-
-      const activeChatTitle = () => {
-        const currentItems = sidebarItems();
-        const selectedSidebarItem =
-          currentItems.find((item) => String(item.getAttribute('aria-selected') || '').toLowerCase() === 'true') || null;
-        if (selectedSidebarItem) {
-          const selectedTitle = itemTitle(selectedSidebarItem);
-          if (selectedTitle) return selectedTitle.toLowerCase();
-        }
-
-        const header = document.querySelector('#main header');
-        if (!header) return '';
-
-        const headerTitle = pickTitleFromNodes(
-          Array.from(
-            header.querySelectorAll(
-              '[data-testid="conversation-info-header-chat-title"], [data-testid="conversation-title"], [data-testid="conversation-header-name"], [data-testid="conversation-info-header-chat-title"] span[title], [data-testid="conversation-info-header-chat-title"] span[dir="auto"], h1, h2, span[title], div[title], span[dir="auto"], div[dir="auto"]',
-            ),
-          ),
-        );
-        return headerTitle ? headerTitle.toLowerCase() : '';
-      };
-
-      const waitForActiveChatMatch = async () => {
-        for (let i = 0; i < 18; i += 1) {
-          const current = activeChatTitle();
-          if (isChatMatch(current)) return true;
-          await sleep(90);
-        }
-        return false;
-      };
-
-      const clickLikeUser = (node) => {
-        if (!node) return;
-        if (typeof node.click === 'function') {
-          node.click();
-          return;
-        }
-        node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-      };
-
-      const openChatByName = async () => {
-        if (isChatMatch(activeChatTitle())) {
-          return true;
-        }
-
-        pane.scrollTop = 0;
-        await sleep(120);
-
-        let idle = 0;
-        for (let round = 0; round < 50 && idle < 3; round += 1) {
-          const items = sidebarItems();
-
-          for (const item of items) {
-            const title = itemTitle(item).toLowerCase();
-            if (!title) continue;
-            if (isChatMatch(title)) {
-              clickLikeUser(item);
-              const confirmed = await waitForActiveChatMatch();
-              if (confirmed) return true;
-            }
-          }
-
-          const prev = pane.scrollTop;
-          pane.scrollTop += Math.max(120, Math.floor(pane.clientHeight * 0.8));
-          await sleep(150);
-          if (pane.scrollTop === prev) idle += 1;
-          else idle = 0;
-        }
-        return false;
-      };
-
-      const openResult = await openChatByName();
-      if (!openResult) return { ok: false, error: 'chat_not_found' };
-
-      const findComposer = () =>
-        document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
-        document.querySelector('footer div[contenteditable="true"][data-tab]') ||
-        document.querySelector('div[contenteditable="true"][role="textbox"]');
-
-      const clearComposer = (composer) => {
-        if (!composer) return;
-        try {
-          composer.focus();
-          const selection = window.getSelection();
-          if (selection) {
-            const range = document.createRange();
-            range.selectNodeContents(composer);
-            selection.removeAllRanges();
-            selection.addRange(range);
-          }
-          document.execCommand('delete');
-        } catch {
-          // ignore
-        }
-        composer.textContent = '';
-        composer.dispatchEvent(new Event('input', { bubbles: true }));
-      };
-
-      const tryPasteText = (composer, message) => {
-        try {
-          if (typeof DataTransfer === 'undefined' || typeof ClipboardEvent === 'undefined') return false;
-          const dt = new DataTransfer();
-          dt.setData('text/plain', message);
-          const pasteEvent = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
-          composer.dispatchEvent(pasteEvent);
-          return true;
-        } catch {
-          return false;
-        }
-      };
-
-      const setComposerText = async (message) => {
-        const composer = findComposer();
-        if (!composer) return false;
-
-        const target = normalize(message);
-        if (!target) return true;
-
-        clearComposer(composer);
-        composer.focus();
-
-        let inserted = false;
-        try {
-          inserted = document.execCommand('insertText', false, message);
-        } catch {
-          inserted = false;
-        }
-
-        if (!inserted) {
-          tryPasteText(composer, message);
-        }
-
-        await sleep(70);
-        let current = normalize(composer.innerText || composer.textContent || '');
-        const token = target.slice(0, Math.min(target.length, 24));
-
-        if (!current || (token && !current.includes(token))) {
-          composer.textContent = message;
-          try {
-            composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: message }));
-          } catch {
-            // ignore
-          }
-          composer.dispatchEvent(new Event('input', { bubbles: true }));
-          await sleep(70);
-          current = normalize(composer.innerText || composer.textContent || '');
-        }
-
-        return current.length > 0;
-      };
-
-      const findSendButton = () =>
-        document.querySelector('button[data-testid="send"]') ||
-        document.querySelector('[data-testid="send"]') ||
-        document.querySelector('button[aria-label="Send"]') ||
-        document.querySelector('button[aria-label*="Отправ"]') ||
-        document.querySelector('button[title*="Send"]') ||
-        document.querySelector('[data-icon="send"]') ||
-        document.querySelector('span[data-icon="send"]');
-
-      const countOutgoing = () =>
-        document.querySelectorAll('.message-out [data-pre-plain-text], .message-out [data-testid="msg-text"]').length;
-
-      const waitForTextSent = async (beforeOutgoingCount) => {
-        for (let i = 0; i < 18; i += 1) {
-          await sleep(170);
-          const nowOutgoing = countOutgoing();
-          const composer = findComposer();
-          const composerText = normalize(composer?.innerText || composer?.textContent || '');
-          if (nowOutgoing > beforeOutgoingCount) return true;
-          if (!composerText) return true;
-        }
-        return false;
-      };
-
-      const base64ToUint8 = (base64) => {
-        const bin = atob(base64);
-        const arr = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i += 1) {
-          arr[i] = bin.charCodeAt(i);
-        }
-        return arr;
-      };
-
-      const isMediaMime = (mime) => /^(image|video|audio)\\//i.test(String(mime || ''));
-
-      const openAttachMenu = async () => {
-        const attachBtn =
-          document.querySelector('[data-testid="attach-menu-plus"]') ||
-          document.querySelector('button[title*="Attach"]') ||
-          document.querySelector('button[title*="Прикреп"]') ||
-          document.querySelector('button[aria-label*="Attach"]') ||
-          document.querySelector('button[aria-label*="Прикреп"]') ||
-          document.querySelector('footer button [data-icon="plus"]')?.closest('button') ||
-          document.querySelector('footer span[data-icon="plus"]')?.closest('button');
-
-        if (!attachBtn) return false;
-        clickLikeUser(attachBtn);
-        await sleep(180);
-        return true;
-      };
-
-      const pickFileInputs = (kind = 'media') => {
-        const inputs = Array.from(document.querySelectorAll('input[type="file"]'));
-        const score = (input) => {
-          const accept = String(input.getAttribute('accept') || '').toLowerCase();
-          let points = 0;
-          if (input.closest('footer')) points += 8;
-          if (input.multiple) points += 2;
-          if (!accept) points += 2;
-          if (kind === 'media') {
-            if (accept.includes('image') || accept.includes('video') || accept.includes('audio')) points += 6;
-            if (accept.includes('*/*')) points += 3;
-          } else {
-            if (accept.includes('*/*')) points += 8;
-            if (accept.includes('application') || accept.includes('text') || accept.includes('pdf') || accept.includes('document')) points += 6;
-          }
-          return points;
-        };
-
-        return inputs.sort((a, b) => score(b) - score(a));
-      };
-
-      const findAttachmentSendButton = () =>
-        document.querySelector('div[role="dialog"] button[data-testid="send"]') ||
-        document.querySelector('div[role="dialog"] [data-testid="send"]') ||
-        document.querySelector('div[role="dialog"] button[aria-label="Send"]') ||
-        document.querySelector('div[role="dialog"] button[aria-label*="Отправ"]') ||
-        document.querySelector('div[role="dialog"] span[data-icon="send"]') ||
-        document.querySelector('[data-testid="media-preview"] button[data-testid="send"]');
-
-      const waitForAttachmentSendButton = async () => {
-        for (let i = 0; i < 30; i += 1) {
-          const btn = findAttachmentSendButton();
-          if (btn) return btn;
-          await sleep(120);
-        }
-        return findSendButton();
-      };
-
-      const waitForOutgoingIncrease = async (beforeCount) => {
-        for (let i = 0; i < 40; i += 1) {
-          await sleep(150);
-          const nowOutgoing = countOutgoing();
-          if (nowOutgoing > beforeCount) return true;
-        }
-        return false;
-      };
-
-      const attachFiles = async () => {
-        if (!attachments.length) return true;
-        if (typeof DataTransfer === 'undefined') return false;
-        const dt = new DataTransfer();
-        for (const item of attachments) {
-          try {
-            const bytes = base64ToUint8(String(item.dataBase64 || ''));
-            const mime = String(item.mime || 'application/octet-stream');
-            const name = String(item.name || 'file.bin');
-            const file = new File([bytes], name, { type: mime });
-            dt.items.add(file);
-          } catch {
-            // ignore broken attachment
-          }
-        }
-        if (!dt.files.length) return true;
-
-        const needsDocumentInput = attachments.some((item) => !isMediaMime(item?.mime));
-        const orderedInputs = [
-          ...pickFileInputs(needsDocumentInput ? 'document' : 'media'),
-          ...pickFileInputs('document'),
-          ...pickFileInputs('media'),
-        ].filter((input, index, list) => list.indexOf(input) === index);
-
-        if (!orderedInputs.length) return false;
-
-        const beforeOutgoingCount = countOutgoing();
-        for (const fileInput of orderedInputs) {
-          await openAttachMenu();
-
-          try {
-            fileInput.files = dt.files;
-          } catch {
-            continue;
-          }
-
-          fileInput.dispatchEvent(new Event('input', { bubbles: true }));
-          fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-
-          const attachmentSendBtn = await waitForAttachmentSendButton();
-          if (!attachmentSendBtn) continue;
-
-          clickLikeUser(attachmentSendBtn.closest('button') || attachmentSendBtn);
-          const sent = await waitForOutgoingIncrease(beforeOutgoingCount);
-          if (sent) return true;
-        }
-
-        return false;
-      };
-
-      const sendText = async () => {
-        if (!text.trim()) return true;
-        const prepared = await setComposerText(text);
-        if (!prepared) return false;
-
-        const composer = findComposer();
-        if (!composer) return false;
-        const beforeOutgoingCount = countOutgoing();
-
-        const sendBtn = findSendButton();
-        if (sendBtn) {
-          clickLikeUser(sendBtn.closest('button') || sendBtn);
-        } else {
-          const down = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', which: 13, keyCode: 13, bubbles: true });
-          const up = new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', which: 13, keyCode: 13, bubbles: true });
-          composer.dispatchEvent(down);
-          composer.dispatchEvent(up);
-        }
-
-        const confirmed = await waitForTextSent(beforeOutgoingCount);
-        return confirmed;
-      };
-
-      const attached = await attachFiles();
-      const textSent = await sendText();
-
-      if (!attached && attachments.length) {
-        return { ok: false, error: 'attachment_send_failed' };
-      }
-      if (!textSent && text.trim()) {
-        return { ok: false, error: 'text_send_failed' };
-      }
-
-      return { ok: true };
-    } catch (error) {
-      return { ok: false, error: String(error?.message || error || 'send_script_failed') };
-    }
-  })();`;
-}
-
-function openChatForScheduledSendScript(chatName) {
-  const chatB64 = encodeBase64Utf8(String(chatName || ''));
-  return `(async () => {
-    try {
-      const decodeBase64Utf8 = (base64) => {
-        const binary = atob(base64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i += 1) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-        return new TextDecoder().decode(bytes);
-      };
-
-      const normalize = (value) =>
-        String(value || '')
-          .replace(/\\u200e|\\u200f/g, '')
-          .replace(/\\u00a0/g, ' ')
-          .replace(/\\s+/g, ' ')
-          .trim();
-      const looksLikeTime = (value) =>
-        /^\\d{1,2}:\\d{2}$/.test(String(value || '').trim()) || /^\\d{1,2}\\.\\d{1,2}\\.\\d{2,4}$/.test(String(value || '').trim());
-      const isMetaText = (value) => {
-        const text = normalize(value).toLowerCase();
-        if (!text) return true;
-        if (looksLikeTime(text)) return true;
-        if (/^(online|в сети|typing|печатает|recording audio|записывает аудио)/i.test(text)) return true;
-        if (/^(last seen|seen |был|была|был\\(-а\\)|был\\(а\\)|сегодня в|вчера в)/i.test(text)) return true;
-        return false;
-      };
-      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      const query = normalize(decodeBase64Utf8('${chatB64}')).toLowerCase();
-
-      const pane = document.querySelector('#pane-side');
-      if (!pane) return { ok: false, error: 'sidebar_not_found' };
-
-      const sidebarItems = () =>
-        Array.from(
-          document.querySelectorAll('#pane-side [role="listitem"], #pane-side [data-testid="cell-frame-container"], #pane-side [aria-selected]')
-        );
-
-      const pickTitleFromNodes = (nodes) => {
-        for (const node of nodes) {
-          const text = normalize(node?.getAttribute?.('title') || node?.textContent || '');
-          if (!text || isMetaText(text)) continue;
-          return text;
-        }
-        return '';
-      };
-
-      const itemTitle = (item) => {
-        const titleFromNodes = pickTitleFromNodes(
-          Array.from(
-            item.querySelectorAll(
-              '[data-testid="cell-frame-title"], [data-testid="conversation-list-item-title"], span[title], div[title], span[dir="auto"], div[dir="auto"]',
-            ),
-          ),
-        );
-        if (titleFromNodes) return titleFromNodes;
-
-        const lines = String(item.innerText || '')
-          .split('\\n')
-          .map((line) => normalize(line))
-          .filter((line) => line && !isMetaText(line));
-        return lines[0] || '';
-      };
-
-      const isChatMatch = (title) => {
-        const safeTitle = normalize(title).toLowerCase();
-        if (!safeTitle || !query) return false;
-        if (safeTitle === query) return true;
-        return false;
-      };
-
-      const activeChatTitle = () => {
-        const currentItems = sidebarItems();
-        const selectedSidebarItem =
-          currentItems.find((item) => String(item.getAttribute('aria-selected') || '').toLowerCase() === 'true') || null;
-        if (selectedSidebarItem) {
-          const selectedTitle = itemTitle(selectedSidebarItem);
-          if (selectedTitle) return selectedTitle.toLowerCase();
-        }
-
-        const header = document.querySelector('#main header');
-        if (!header) return '';
-
-        const headerTitle = pickTitleFromNodes(
-          Array.from(
-            header.querySelectorAll(
-              '[data-testid="conversation-info-header-chat-title"], [data-testid="conversation-title"], [data-testid="conversation-header-name"], [data-testid="conversation-info-header-chat-title"] span[title], [data-testid="conversation-info-header-chat-title"] span[dir="auto"], h1, h2, span[title], div[title], span[dir="auto"], div[dir="auto"]',
-            ),
-          ),
-        );
-        return headerTitle ? headerTitle.toLowerCase() : '';
-      };
-
-      const waitForActiveChatMatch = async () => {
-        for (let i = 0; i < 18; i += 1) {
-          const current = activeChatTitle();
-          if (isChatMatch(current)) return true;
-          await sleep(90);
-        }
-        return false;
-      };
-
-      const clickLikeUser = (node) => {
-        if (!node) return;
-        if (typeof node.click === 'function') {
-          node.click();
-          return;
-        }
-        node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-      };
-
-      const scanList = async (direction) => {
-        let idle = 0;
-        for (let round = 0; round < 55 && idle < 3; round += 1) {
-          for (const item of sidebarItems()) {
-            const title = itemTitle(item).toLowerCase();
-            if (!title) continue;
-            if (isChatMatch(title)) {
-              clickLikeUser(item);
-              const confirmed = await waitForActiveChatMatch();
-              if (confirmed) return true;
-            }
-          }
-
-          const prev = pane.scrollTop;
-          if (direction > 0) {
-            pane.scrollTop += Math.max(120, Math.floor(pane.clientHeight * 0.84));
-          } else {
-            pane.scrollTop -= Math.max(120, Math.floor(pane.clientHeight * 0.84));
-          }
-          await sleep(140);
-          if (pane.scrollTop === prev) idle += 1;
-          else idle = 0;
-        }
-        return false;
-      };
-
-      let opened = isChatMatch(activeChatTitle());
-      if (!opened) {
-        pane.scrollTop = 0;
-        await sleep(100);
-        opened = await scanList(1);
-      }
-      if (!opened) {
-        pane.scrollTop = pane.scrollHeight;
-        await sleep(90);
-        opened = await scanList(-1);
-      }
-      if (!opened) return { ok: false, error: 'chat_not_found' };
-
-      const findComposer = () =>
-        document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
-        document.querySelector('footer div[contenteditable="true"][data-tab]') ||
-        document.querySelector('div[contenteditable="true"][role="textbox"]');
-
-      let composer = null;
-      for (let i = 0; i < 18; i += 1) {
-        composer = findComposer();
-        if (composer) break;
-        await sleep(120);
-      }
-
-      if (!composer) return { ok: false, error: 'composer_not_found' };
-
-      composer.focus();
-      try {
-        composer.click();
-      } catch {
-        // ignore
-      }
-
-      try {
-        const selection = window.getSelection();
-        if (selection) {
-          const range = document.createRange();
-          range.selectNodeContents(composer);
-          selection.removeAllRanges();
-          selection.addRange(range);
-        }
-        document.execCommand('delete');
-      } catch {
-        // ignore
-      }
-      composer.textContent = '';
-      composer.dispatchEvent(new Event('input', { bubbles: true }));
-
-      const beforeOutgoingCount = document.querySelectorAll(
-        '.message-out [data-pre-plain-text], .message-out [data-testid="msg-text"]'
-      ).length;
-
-      return { ok: true, beforeOutgoingCount };
-    } catch (error) {
-      return { ok: false, error: String(error?.message || error || 'open_chat_failed') };
-    }
-  })();`;
-}
-
-function composerHasTextScript() {
-  return `(() => {
-    const normalize = (value) => String(value || '').replace(/\\u200e/g, '').replace(/\\s+/g, ' ').trim();
-    const composer =
-      document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
-      document.querySelector('footer div[contenteditable="true"][data-tab]') ||
-      document.querySelector('div[contenteditable="true"][role="textbox"]');
-    if (!composer) return { ok: false, error: 'composer_not_found', hasText: false };
-    const text = normalize(composer.innerText || composer.textContent || '');
-    return { ok: true, hasText: Boolean(text) };
-  })();`;
-}
-
-function setComposerTextFallbackScript(text) {
-  const textB64 = encodeBase64Utf8(String(text || ''));
-  return `(() => {
-    try {
-      const decodeBase64Utf8 = (base64) => {
-        const binary = atob(base64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i += 1) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-        return new TextDecoder().decode(bytes);
-      };
-      const message = decodeBase64Utf8('${textB64}');
-      const composer =
-        document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
-        document.querySelector('footer div[contenteditable="true"][data-tab]') ||
-        document.querySelector('div[contenteditable="true"][role="textbox"]');
-      if (!composer) return { ok: false, error: 'composer_not_found' };
-      composer.focus();
-      composer.textContent = message;
-      try {
-        composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: message }));
-      } catch {
-        // ignore
-      }
-      composer.dispatchEvent(new Event('input', { bubbles: true }));
-      return { ok: true };
-    } catch (error) {
-      return { ok: false, error: String(error?.message || error || 'set_composer_failed') };
-    }
-  })();`;
-}
-
-function clickSendButtonScript() {
-  return `(() => {
-    const clickLikeUser = (node) => {
-      if (!node) return;
-      if (typeof node.click === 'function') {
-        node.click();
-        return;
-      }
-      node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-    };
-
-    const sendBtn =
-      document.querySelector('button[data-testid="send"]') ||
-      document.querySelector('[data-testid="send"]') ||
-      document.querySelector('button[aria-label="Send"]') ||
-      document.querySelector('button[aria-label*="Отправ"]') ||
-      document.querySelector('button[title*="Send"]') ||
-      document.querySelector('[data-icon="send"]') ||
-      document.querySelector('span[data-icon="send"]');
-
-    if (!sendBtn) return { ok: false, error: 'send_button_not_found' };
-    clickLikeUser(sendBtn.closest('button') || sendBtn);
-    return { ok: true };
-  })();`;
-}
-
-function confirmScheduledSentScript(beforeOutgoingCount, expectedText) {
-  const safeBefore = Number(beforeOutgoingCount) || 0;
-  const expectedB64 = encodeBase64Utf8(String(expectedText || ''));
-  return `(async () => {
-    try {
-      const decodeBase64Utf8 = (base64) => {
-        const binary = atob(base64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i += 1) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-        return new TextDecoder().decode(bytes);
-      };
-
-      const normalize = (value) => String(value || '').replace(/\\u200e/g, '').replace(/\\s+/g, ' ').trim();
-      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      const expected = normalize(decodeBase64Utf8('${expectedB64}'));
-      const token = expected.slice(0, Math.min(26, expected.length));
-
-      const countOutgoing = () =>
-        document.querySelectorAll('.message-out [data-pre-plain-text], .message-out [data-testid="msg-text"]').length;
-
-      const readLastOutgoingText = () => {
-        const rows = Array.from(document.querySelectorAll('.message-out [data-pre-plain-text]'));
-        const row = rows[rows.length - 1];
-        if (!row) return '';
-        return normalize(
-          row.querySelector('span.selectable-text')?.innerText ||
-          row.querySelector('[data-testid="msg-text"]')?.innerText ||
-          row.innerText ||
-          ''
-        );
-      };
-
-      const composerText = () => {
-        const composer =
-          document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
-          document.querySelector('footer div[contenteditable="true"][data-tab]') ||
-          document.querySelector('div[contenteditable="true"][role="textbox"]');
-        return normalize(composer?.innerText || composer?.textContent || '');
-      };
-
-      for (let i = 0; i < 24; i += 1) {
-        await sleep(180);
-        if (countOutgoing() > ${safeBefore}) return { ok: true };
-        const last = readLastOutgoingText();
-        if (token && last && last.includes(token)) return { ok: true };
-        if (!composerText()) return { ok: true };
-      }
-
-      return { ok: false, error: 'send_not_confirmed' };
-    } catch (error) {
-      return { ok: false, error: String(error?.message || error || 'send_not_confirmed') };
-    }
-  })();`;
 }
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -3043,104 +2396,19 @@ async function sendWebviewInput(webview, event) {
   }
 }
 
-async function sendTextViaClipboard(webview, text) {
-  const message = String(text || '');
-  if (!message.trim()) return { ok: true };
-
-  let originalClipboard = null;
-  try {
-    const current = await window.waDeck.getClipboardText();
-    if (current?.ok) originalClipboard = String(current.text || '');
-  } catch {
-    originalClipboard = null;
-  }
-
-  try {
-    const setRes = await window.waDeck.setClipboardText(message);
-    if (!setRes?.ok) return { ok: false, error: 'clipboard_write_failed' };
-
-    if (typeof webview.focus === 'function') {
+async function resetWebviewUiState(webview, tries = 2) {
+  if (!webview) return;
+  if (typeof webview.focus === 'function') {
+    try {
       webview.focus();
-    }
-
-    await delay(70);
-    await sendWebviewInput(webview, { type: 'keyDown', keyCode: 'V', modifiers: ['meta'] });
-    await sendWebviewInput(webview, { type: 'keyUp', keyCode: 'V', modifiers: ['meta'] });
-    await delay(120);
-
-    let composerState = { ok: false, hasText: false };
-    try {
-      composerState = await webview.executeJavaScript(composerHasTextScript(), true);
     } catch {
-      composerState = { ok: false, hasText: false };
-    }
-
-    if (!composerState?.hasText) {
-      if (typeof webview.insertText === 'function') {
-        const out = webview.insertText(message);
-        if (out && typeof out.then === 'function') {
-          await out;
-        }
-      } else {
-        await webview.executeJavaScript(setComposerTextFallbackScript(message), true);
-      }
-      await delay(120);
-      composerState = await webview.executeJavaScript(composerHasTextScript(), true);
-    }
-
-    if (!composerState?.hasText) {
-      return { ok: false, error: 'composer_not_filled' };
-    }
-
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: String(error?.message || error || 'clipboard_send_failed') };
-  } finally {
-    if (originalClipboard !== null) {
-      await window.waDeck.setClipboardText(originalClipboard).catch(() => {});
+      // ignore
     }
   }
-}
-
-async function runScheduledSendViaClipboard(webview, item) {
-  const text = String(item?.text || '');
-  if (!text.trim()) return { ok: true };
-
-  try {
-    const opened = await webview.executeJavaScript(openChatForScheduledSendScript(item.chatName), true);
-    if (!opened?.ok) {
-      return { ok: false, error: String(opened?.error || 'chat_open_failed') };
-    }
-
-    const fillResult = await sendTextViaClipboard(webview, text);
-    if (!fillResult?.ok) {
-      return { ok: false, error: String(fillResult?.error || 'clipboard_paste_failed') };
-    }
-
-    let clickRes = { ok: false };
-    try {
-      clickRes = await webview.executeJavaScript(clickSendButtonScript(), true);
-    } catch {
-      clickRes = { ok: false, error: 'send_button_click_failed' };
-    }
-
-    if (!clickRes?.ok) {
-      await sendWebviewInput(webview, { type: 'keyDown', keyCode: 'Enter' });
-      await sendWebviewInput(webview, { type: 'keyUp', keyCode: 'Enter' });
-    }
-
-    const confirm = await webview.executeJavaScript(
-      confirmScheduledSentScript(opened.beforeOutgoingCount || 0, text),
-      true,
-    );
-
-    if (!confirm?.ok) {
-      return { ok: false, error: String(confirm?.error || 'send_not_confirmed') };
-    }
-
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: String(error?.message || error || 'scheduled_send_clipboard_failed') };
+  for (let i = 0; i < tries; i += 1) {
+    await sendWebviewInput(webview, { type: 'keyDown', keyCode: 'Escape' });
+    await sendWebviewInput(webview, { type: 'keyUp', keyCode: 'Escape' });
+    await delay(120);
   }
 }
 
@@ -3692,13 +2960,20 @@ async function saveSettings() {
   };
 
   try {
-    state.settings = await window.waDeck.saveSettings(payload);
+    const saved = await window.waDeck.saveSettings(payload);
+    if (!saved || typeof saved !== 'object') {
+      throw new Error('save_settings_failed');
+    }
+    state.settings = saved;
     state.settings.uiTheme = normalizeTheme(state.settings.uiTheme);
     state.aiModel = state.settings.aiModel || state.aiModel || 'google/gemma-3-4b-it';
     state.aiRolePrompt = state.settings.aiRolePrompt || '';
     applySettingsToForm();
     renderAiModels([state.aiModel]);
     setStatus('Настройки сохранены');
+  } catch (error) {
+    setStatus(`Не удалось сохранить настройки: ${String(error?.message || error || 'error')}`);
+    throw error;
   } finally {
     setTimeout(() => {
       els.saveSettings?.classList.remove('is-saving');
@@ -3735,12 +3010,20 @@ async function testTranslateApi(provider = 'deepl') {
 }
 
 async function addAccount() {
-  const created = await window.waDeck.addAccount();
-  state.accounts.push(created);
-  ensureWebview(created);
-  renderAccounts();
-  setActiveAccount(created.id);
-  setStatus(`Добавлен аккаунт: ${created.name}`);
+  try {
+    const created = await window.waDeck.addAccount();
+    if (!created || typeof created !== 'object' || !created.id) {
+      setStatus('Не удалось добавить аккаунт');
+      return;
+    }
+    state.accounts.push(created);
+    ensureWebview(created);
+    renderAccounts();
+    setActiveAccount(created.id);
+    setStatus(`Добавлен аккаунт: ${created.name}`);
+  } catch (error) {
+    setStatus(`Не удалось добавить аккаунт: ${String(error?.message || error || 'error')}`);
+  }
 }
 
 async function removeAccount(accountId) {
@@ -3850,7 +3133,11 @@ async function doModalTranslate() {
   state.translateSourceLang = sourceLang;
   state.translateTargetLang = targetLang;
 
-  const result = await translateTextAndRender(text, 'ручной', sourceLang, targetLang);
+  const result = await runWithBusyButton(
+    els.doTranslate,
+    () => translateTextAndRender(text, 'ручной', sourceLang, targetLang),
+    { text: 'Перевожу...', title: 'Перевод выполняется' },
+  );
   if (!result?.ok) {
     return;
   }
@@ -3896,7 +3183,11 @@ async function doAiReply() {
     replyInSourceLang: state.aiReplySourceLang,
     rolePrompt: String(els.aiRolePrompt.value || state.aiRolePrompt || '').trim(),
   };
-  const response = await window.waDeck.generateAiReply(payload);
+  const response = await runWithBusyButton(
+    els.doAiReply,
+    () => window.waDeck.generateAiReply(payload),
+    { text: 'Генерация...', title: 'AI готовит ответ' },
+  );
   if (!response?.ok) {
     setStatus(`AI: ${mapAiError(response)}`);
     return;
@@ -3935,9 +3226,47 @@ async function insertTextIntoActiveChat(text) {
     return { ok: false, error: 'no_active_chat' };
   }
 
-  const result = await sendTextViaClipboard(webview, safeText);
-  if (!result?.ok) return { ok: false, error: String(result?.error || 'clipboard_insert_failed') };
-  return { ok: true };
+  const textB64 = encodeBase64Utf8(safeText);
+  const insertScript = `(async () => {
+    try {
+      const binary = atob('${textB64}');
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const message = new TextDecoder().decode(bytes);
+
+      const composer =
+        document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
+        document.querySelector('footer div[contenteditable="true"][data-tab]') ||
+        document.querySelector('div[contenteditable="true"][role="textbox"]');
+      if (!composer) return { ok: false, error: 'composer_not_found' };
+
+      composer.focus();
+      let inserted = false;
+      try { inserted = document.execCommand('insertText', false, message); } catch { inserted = false; }
+
+      if (!inserted) {
+        try {
+          const dt = new DataTransfer();
+          dt.setData('text/plain', message);
+          composer.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
+        } catch {
+          composer.textContent = message;
+          composer.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e || 'insert_failed') };
+    }
+  })();`;
+
+  try {
+    const result = await webview.executeJavaScript(insertScript, true);
+    if (!result?.ok) return { ok: false, error: String(result?.error || 'insert_failed') };
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error || 'insert_failed') };
+  }
 }
 
 async function insertAiReplyIntoActiveChat() {
@@ -3987,7 +3316,12 @@ async function createScheduledMessage() {
   }
 
   const sendAtRaw = String(els.scheduleAt.value || '');
-  const sendAtIso = sendAtRaw ? new Date(sendAtRaw).toISOString() : '';
+  const parsedSendAt = sendAtRaw ? new Date(sendAtRaw) : null;
+  if (!parsedSendAt || Number.isNaN(parsedSendAt.getTime())) {
+    setStatus('Отложенная отправка: неверная дата/время');
+    return;
+  }
+  const sendAtIso = parsedSendAt.toISOString();
 
   const payload = {
     accountId: state.scheduleTarget.accountId,
@@ -4018,53 +3352,209 @@ async function createScheduledMessage() {
 }
 
 async function waitForWebviewReady(webview, timeoutMs = 12000) {
-  if (!webview || typeof webview.isLoading !== 'function') return;
-  if (!webview.isLoading()) return;
-
-  await new Promise((resolve) => {
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      webview.removeEventListener('did-stop-loading', finish);
-      resolve();
-    };
-    const timer = setTimeout(() => {
-      clearTimeout(timer);
-      finish();
-    }, timeoutMs);
-    webview.addEventListener('did-stop-loading', finish, { once: true });
-  });
+  if (!webview) return false;
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (isWebviewReady(webview) && (!webview.isLoading || !webview.isLoading())) {
+      return true;
+    }
+    await delay(120);
+  }
+  return Boolean(isWebviewReady(webview));
 }
 
-async function runScheduledSend(webview, item, options = {}) {
-  const includeAttachments = options.includeAttachments !== false;
-  const hasText = Boolean(String(item?.text || '').trim());
-  const hasAttachments =
-    includeAttachments && Array.isArray(item?.attachments) && item.attachments.length > 0;
+async function runScheduledSend(webview, item) {
+  const chatName = String(item.chatName || '').trim();
+  const text = String(item.text || '');
 
-  const payload = {
-    chatName: item.chatName,
-    text: item.text,
-    attachments: includeAttachments ? item.attachments || [] : [],
+  if (!chatName) return { ok: false, error: 'no_chat_name' };
+
+  const ready = await waitForWebviewReady(webview, 15000);
+  if (!ready) return { ok: false, error: 'webview_not_ready' };
+
+  /* Helper: run JS in webview to query DOM */
+  const query = async (script) => {
+    try {
+      return await webview.executeJavaScript(script, true);
+    } catch (err) {
+      return { _error: String(err?.message || err) };
+    }
   };
 
-  try {
-    await waitForWebviewReady(webview);
+  /* Helper: native click at coordinates */
+  const nativeClick = async (x, y) => {
+    await sendWebviewInput(webview, { type: 'mouseDown', x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1 });
+    await delay(30);
+    await sendWebviewInput(webview, { type: 'mouseUp', x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1 });
+    await delay(50);
+  };
 
-    if (hasText && !hasAttachments) {
-      return runScheduledSendViaClipboard(webview, item);
+  /* Helper: type text char by char via native key events */
+  const nativeType = async (str) => {
+    for (const ch of str) {
+      await sendWebviewInput(webview, { type: 'char', keyCode: ch });
+      await delay(15);
     }
+  };
 
-    const result = await webview.executeJavaScript(sendScheduledScript(payload), true);
-    const normalized = result && typeof result === 'object' ? result : { ok: false, error: 'invalid_send_result' };
-    return normalized;
-  } catch (error) {
-    const raw = String(error?.message || error || 'unknown');
-    const mapped = raw.includes('Error invoking remote method') ? `webview_invoke_failed: ${raw}` : raw;
-    console.error('[scheduled-send]', item.chatName, mapped);
-    return { ok: false, error: mapped };
+  /* Helper: press a key natively */
+  const nativeKey = async (keyCode) => {
+    await sendWebviewInput(webview, { type: 'keyDown', keyCode });
+    await delay(30);
+    await sendWebviewInput(webview, { type: 'keyUp', keyCode });
+    await delay(50);
+  };
+
+  /* ---- STEP 1: Find search input and click it ---- */
+  const searchRect = await query(`(() => {
+    const selectors = ['#side input[role="textbox"][data-tab="3"]', '#side input[role="textbox"]', '#side input[placeholder]'];
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      if (el) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) return { x: r.left + r.width/2, y: r.top + r.height/2, found: true };
+      }
+    }
+    return { found: false };
+  })()`);
+
+  if (!searchRect?.found) return { ok: false, error: 'search_input_not_found' };
+
+  await nativeClick(searchRect.x, searchRect.y);
+  await delay(200);
+
+  /* ---- STEP 2: Clear search and type chat name ---- */
+  /* Select all + delete to clear */
+  await sendWebviewInput(webview, { type: 'keyDown', keyCode: 'a', modifiers: ['meta'] });
+  await sendWebviewInput(webview, { type: 'keyUp', keyCode: 'a', modifiers: ['meta'] });
+  await delay(50);
+  await nativeKey('Backspace');
+  await delay(100);
+
+  /* Type the chat name */
+  await nativeType(chatName);
+  await delay(600);
+
+  /* ---- STEP 3: Find matching search result ---- */
+  const chatNameLower = chatName.toLowerCase();
+  const matchResult = await query(`(() => {
+    const normalize = (v) => String(v || '').replace(/\\u200e|\\u200f/g, '').replace(/\\u00a0/g, ' ').replace(/\\s+/g, ' ').trim();
+    const query = normalize('${chatName.replace(/'/g, "\\'")}').toLowerCase();
+    const items = Array.from(document.querySelectorAll('#pane-side [role="row"], #side [role="row"]'));
+    let exact = null;
+    let partial = null;
+    for (const item of items) {
+      const titleEl = item.querySelector('span[title], div[title], [data-testid="cell-frame-title"]');
+      const title = normalize(titleEl?.getAttribute('title') || titleEl?.textContent || '');
+      if (!title) continue;
+      const lower = title.toLowerCase();
+      if (lower === query && !exact) {
+        const r = item.getBoundingClientRect();
+        exact = { x: r.left + r.width/2, y: r.top + r.height/2, title, w: r.width, h: r.height };
+      } else if (lower.includes(query) && !partial) {
+        const r = item.getBoundingClientRect();
+        partial = { x: r.left + r.width/2, y: r.top + r.height/2, title, w: r.width, h: r.height };
+      }
+      if (exact) break;
+    }
+    return exact || partial || { found: false, itemCount: items.length };
+  })()`);
+
+  if (!matchResult?.x) {
+    /* Clean up: press Escape */
+    await nativeKey('Escape');
+    return { ok: false, error: 'chat_not_found', debug: matchResult };
   }
+
+  /* ---- STEP 4: Click the search result with native event ---- */
+  await nativeClick(matchResult.x, matchResult.y);
+  await delay(500);
+
+  /* ---- STEP 5: Verify chat opened (composer appeared) ---- */
+  let composerReady = false;
+  for (let i = 0; i < 25; i++) {
+    const check = await query(`(() => {
+      const c = document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
+                document.querySelector('footer div[contenteditable="true"]');
+      return { hasComposer: Boolean(c) };
+    })()`);
+    if (check?.hasComposer) { composerReady = true; break; }
+    await delay(150);
+  }
+
+  if (!composerReady) {
+    /* Only press Escape to clean up if chat didn't open */
+    await nativeKey('Escape');
+    await delay(100);
+    return { ok: false, error: 'chat_not_confirmed_after_click', clickTarget: matchResult };
+  }
+
+  /* ---- STEP 6: Send text message ---- */
+  if (!text.trim()) return { ok: true, method: 'native_input' };
+
+  /* Click on the composer — this also moves focus away from search, effectively closing it */
+  const composerRect = await query(`(() => {
+    const c = document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
+              document.querySelector('footer div[contenteditable="true"]');
+    if (!c) return { found: false };
+    const r = c.getBoundingClientRect();
+    return { x: r.left + r.width/2, y: r.top + r.height/2, found: r.width > 0 && r.height > 0 };
+  })()`);
+
+  if (!composerRect?.found) return { ok: false, error: 'composer_rect_not_found' };
+
+  await nativeClick(composerRect.x, composerRect.y);
+  await delay(150);
+
+  /* Type the message */
+  await nativeType(text);
+  await delay(300);
+
+  /* Press Enter to send */
+  await nativeKey('Enter');
+  await delay(500);
+
+  /* Verify: composer should be empty after send */
+  const afterSend = await query(`(() => {
+    const c = document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
+              document.querySelector('footer div[contenteditable="true"]');
+    const text = (c?.innerText || c?.textContent || '').trim();
+    return { composerEmpty: text.length === 0, remaining: text.slice(0, 50) };
+  })()`);
+
+  if (afterSend?.composerEmpty) {
+    return { ok: true, method: 'native_input' };
+  }
+
+  /* If composer not empty, try clicking send button */
+  const sendBtnRect = await query(`(() => {
+    const btn = document.querySelector('button[data-testid="send"]') ||
+                document.querySelector('[data-testid="send"]') ||
+                document.querySelector('span[data-icon="send"]');
+    if (!btn) return { found: false };
+    const el = btn.closest('button') || btn;
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width/2, y: r.top + r.height/2, found: true };
+  })()`);
+
+  if (sendBtnRect?.found) {
+    await nativeClick(sendBtnRect.x, sendBtnRect.y);
+    await delay(500);
+  }
+
+  /* Final check */
+  const finalCheck = await query(`(() => {
+    const c = document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
+              document.querySelector('footer div[contenteditable="true"]');
+    const text = (c?.innerText || c?.textContent || '').trim();
+    return { composerEmpty: text.length === 0 };
+  })()`);
+
+  if (finalCheck?.composerEmpty) {
+    return { ok: true, method: 'native_input_with_btn' };
+  }
+
+  return { ok: false, error: 'text_send_failed', method: 'native_input', debug: afterSend };
 }
 
 async function processDueSchedules() {
@@ -4074,18 +3564,31 @@ async function processDueSchedules() {
   try {
     const due = await window.waDeck.claimDueScheduled({ limit: 4 });
     const items = Array.isArray(due?.items) ? due.items : [];
+    if (items.length) console.log('[scheduled] due:', items.length);
     if (!items.length) return;
 
     for (const item of items) {
-      const webview = state.webviews.get(item.accountId);
-      if (!webview) {
-        const account = accountById(item.accountId);
-        const errorText = account?.frozen ? 'account_frozen' : 'webview_not_found';
+      const account = accountById(item.accountId);
+      if (!account || account.frozen) {
+        const errorText = account?.frozen ? 'account_frozen' : 'account_not_found';
+        console.warn('[scheduled]', item.chatName, errorText);
         await window.waDeck.completeScheduled({ id: item.id, ok: false, errorText });
         continue;
       }
 
-      let result = await runScheduledSend(webview, item, { includeAttachments: true });
+      let webview = state.webviews.get(item.accountId);
+      if (!webview) {
+        ensureWebview(account);
+        webview = state.webviews.get(item.accountId) || null;
+      }
+      if (!webview) {
+        console.warn('[scheduled]', item.chatName, 'webview_not_found');
+        await window.waDeck.completeScheduled({ id: item.id, ok: false, errorText: 'webview_not_found' });
+        continue;
+      }
+
+      const result = await runScheduledSend(webview, item);
+      console.log('[scheduled] result:', item.chatName, JSON.stringify(result));
 
       await window.waDeck.completeScheduled({
         id: item.id,
@@ -4120,7 +3623,9 @@ function startScheduleRunner() {
 }
 
 function bindActions() {
-  els.addAccount.addEventListener('click', () => addAccount().catch(console.error));
+  els.addAccount.addEventListener('click', () => {
+    runWithBusyButton(els.addAccount, () => addAccount(), { text: '…', title: 'Добавление WhatsApp' }).catch(console.error);
+  });
   els.accountsScrollUp?.addEventListener('click', () => scrollAccountsList('up'));
   els.accountsScrollDown?.addEventListener('click', () => scrollAccountsList('down'));
   els.accountsList?.addEventListener('scroll', updateSidebarScrollControls, { passive: true });
@@ -4136,7 +3641,10 @@ function bindActions() {
   els.themeToggle.addEventListener('click', () => toggleTheme().catch(console.error));
   els.closePanel.addEventListener('click', closeSettingsPanel);
   els.manualUpdate?.addEventListener('click', () => requestManualUpdate().catch(console.error));
-  els.brandFrog?.addEventListener('click', playFrogMoneyBurst);
+  els.brandFrog?.addEventListener('click', () => {
+    playFrogMoneyBurst();
+    openHubMode();
+  });
   els.weatherToggle?.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -4155,7 +3663,7 @@ function bindActions() {
     if (event.key !== 'Escape') return;
     if (event.defaultPrevented) return;
     event.preventDefault();
-    handleEscapeToHub();
+    handleEscapeUiReset();
   });
   document.addEventListener('click', (event) => {
     if (!els.weatherWidget || !els.weatherPopover) return;
@@ -4165,8 +3673,18 @@ function bindActions() {
   });
 
   els.saveSettings.addEventListener('click', () => saveSettings().catch(console.error));
-  els.testTranslateApiDeepl.addEventListener('click', () => testTranslateApi('deepl').catch(console.error));
-  els.testTranslateApiLibre.addEventListener('click', () => testTranslateApi('libre').catch(console.error));
+  els.testTranslateApiDeepl.addEventListener('click', () => {
+    runWithBusyButton(els.testTranslateApiDeepl, () => testTranslateApi('deepl'), {
+      text: 'Проверка...',
+      title: 'Проверка DeepL API',
+    }).catch(console.error);
+  });
+  els.testTranslateApiLibre.addEventListener('click', () => {
+    runWithBusyButton(els.testTranslateApiLibre, () => testTranslateApi('libre'), {
+      text: 'Проверка...',
+      title: 'Проверка LibreTranslate API',
+    }).catch(console.error);
+  });
   bindPasswordToggle(els.deeplApiKey, els.toggleDeeplApiKey);
   bindPasswordToggle(els.libreTranslateApiKey, els.toggleLibreTranslateApiKey);
   bindPasswordToggle(els.aiApiKey, els.toggleAiApiKey);
@@ -4245,7 +3763,12 @@ function bindActions() {
     closeChatPicker();
     setStatus(`Цель отправки: ${account.name} / ${chatName}`);
   });
-  els.createSchedule.addEventListener('click', () => createScheduledMessage().catch(console.error));
+  els.createSchedule.addEventListener('click', () => {
+    runWithBusyButton(els.createSchedule, () => createScheduledMessage(), {
+      text: 'Планирую...',
+      title: 'Создание отложенной отправки',
+    }).catch(console.error);
+  });
   templateController?.bind();
 }
 
@@ -4257,7 +3780,7 @@ async function init() {
   }
   if (typeof window.waDeck.onHostEscape === 'function') {
     window.waDeck.onHostEscape(() => {
-      handleEscapeToHub();
+      handleEscapeUiReset();
     });
   }
 

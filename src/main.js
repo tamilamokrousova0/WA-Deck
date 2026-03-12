@@ -776,6 +776,7 @@ function buildBootstrap() {
     runtime: {
       electron: process.versions.electron,
       chrome: process.versions.chrome,
+      platform: process.platform,
       waUserAgent: WA_USER_AGENT,
     },
   };
