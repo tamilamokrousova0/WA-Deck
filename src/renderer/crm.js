@@ -200,7 +200,6 @@
 
     state.crmTarget.filePath = String(response.filePath || target.filePath || '');
     els.crmMeta.textContent = `Файл: ${state.crmTarget.filePath || '—'}`;
-    setCrmEditable(false);
     setStatus('CRM: сохранено');
   }
 

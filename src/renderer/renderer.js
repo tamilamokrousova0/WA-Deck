@@ -455,76 +455,10 @@ async function reorderAccountsByDrag(sourceAccountId, targetAccountId) {
   }
 }
 
-function getAccountGroupPrefix(name) {
-  const match = String(name || '').match(/^([A-Za-zА-Яа-я0-9]+)/);
-  return match ? match[1] : '';
-}
-
 function renderAccounts() {
   els.accountsList.innerHTML = '';
 
-  // Группировка аккаунтов по префиксу
-  const groups = [];
-  const groupMap = new Map();
   for (const account of state.accounts) {
-    const prefix = getAccountGroupPrefix(account.name);
-    if (!groupMap.has(prefix)) {
-      const group = { prefix, accounts: [] };
-      groupMap.set(prefix, group);
-      groups.push(group);
-    }
-    groupMap.get(prefix).accounts.push(account);
-  }
-
-  const needGroups = groups.length > 1;
-
-  for (const group of groups) {
-    let groupContainer = els.accountsList;
-    let groupItemsContainer = els.accountsList;
-
-    if (needGroups) {
-      groupContainer = document.createElement('div');
-      groupContainer.className = 'sidebar-group';
-      groupContainer.dataset.groupPrefix = group.prefix;
-      if (state.collapsedGroups && state.collapsedGroups.has(group.prefix)) {
-        groupContainer.classList.add('collapsed');
-      }
-
-      const header = document.createElement('div');
-      header.className = 'sidebar-group-header';
-      const chevron = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      chevron.setAttribute('class', 'sidebar-group-chevron');
-      chevron.setAttribute('viewBox', '0 0 24 24');
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.setAttribute('d', 'M6 10l6 6 6-6');
-      path.setAttribute('fill', 'none');
-      path.setAttribute('stroke', 'currentColor');
-      path.setAttribute('stroke-width', '2.5');
-      path.setAttribute('stroke-linecap', 'round');
-      path.setAttribute('stroke-linejoin', 'round');
-      chevron.appendChild(path);
-      const label = document.createElement('span');
-      label.textContent = group.prefix + ' (' + group.accounts.length + ')';
-      header.append(chevron, label);
-      header.addEventListener('click', () => {
-        if (!state.collapsedGroups) state.collapsedGroups = new Set();
-        if (groupContainer.classList.contains('collapsed')) {
-          groupContainer.classList.remove('collapsed');
-          state.collapsedGroups.delete(group.prefix);
-        } else {
-          groupContainer.classList.add('collapsed');
-          state.collapsedGroups.add(group.prefix);
-        }
-        updateSidebarScrollControls();
-      });
-
-      groupItemsContainer = document.createElement('div');
-      groupItemsContainer.className = 'sidebar-group-items';
-      groupContainer.append(header, groupItemsContainer);
-      els.accountsList.appendChild(groupContainer);
-    }
-
-  for (const account of group.accounts) {
     const card = document.createElement('div');
     card.className = `account-item ${state.activeAccountId === account.id ? 'active' : ''} ${account.frozen ? 'frozen' : ''}`;
     card.dataset.accountId = account.id;
@@ -660,9 +594,8 @@ function renderAccounts() {
     });
 
     card.append(remove, chip, name);
-    groupItemsContainer.appendChild(card);
+    els.accountsList.appendChild(card);
   }
-  } // end groups loop
 
   updateActiveAccountDisplay();
   updateSidebarScrollControls();

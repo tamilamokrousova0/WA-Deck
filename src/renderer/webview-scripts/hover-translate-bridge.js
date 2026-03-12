@@ -37,7 +37,7 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
           overflow: auto;
           border: 1px solid rgba(70, 120, 180, 0.72);
           border-radius: 14px;
-          background: linear-gradient(180deg, rgba(8, 22, 39, 0.56), rgba(6, 18, 31, 0.6));
+          background: linear-gradient(180deg, rgba(8, 22, 39, 0.42), rgba(6, 18, 31, 0.46));
           color: #eff6ff;
           box-shadow: 0 18px 32px rgba(0,0,0,0.42);
           padding: 10px 12px 12px;
@@ -144,24 +144,16 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
       setCopyState(isError ? '' : text || '');
       popover.classList.toggle('waDeck-hover-translate-error', Boolean(isError));
       popover.classList.remove('hidden');
-      const popoverWidth = Math.min(332, Math.max(248, Math.round(window.innerWidth * 0.22)));
+      const popoverWidth = Math.min(332, Math.max(248, Math.round(window.innerWidth * 0.28)));
       popover.style.width = popoverWidth + 'px';
-      const popoverHeight = Math.max(100, popover.offsetHeight || 180);
-      const minTop = 86;
-      const maxTop = Math.max(minTop, window.innerHeight - popoverHeight - 18);
-      const preferredTop = Math.max(minTop, Math.min(rect.top - 12, maxTop));
-      const previousTop = Number(popover.dataset.lastTop || preferredTop);
-      const delta = preferredTop - previousTop;
-      const limitedTop = previousTop + Math.max(-48, Math.min(48, delta));
-      const nextTop = Math.max(minTop, Math.min(limitedTop, maxTop));
-      let left = rect.right + 24;
-      if (left + popoverWidth > window.innerWidth - 14) {
-        left = Math.max(14, rect.left - popoverWidth - 18);
-      }
-      left = Math.max(14, Math.min(left, window.innerWidth - popoverWidth - 14));
+      const popoverHeight = Math.max(80, popover.offsetHeight || 140);
+      // Поверх сообщения: центрируем по горизонтали и вертикали
+      let left = rect.left + (rect.width - popoverWidth) / 2;
+      left = Math.max(10, Math.min(left, window.innerWidth - popoverWidth - 10));
+      let top = rect.top + (rect.height - popoverHeight) / 2;
+      top = Math.max(10, Math.min(top, window.innerHeight - popoverHeight - 10));
       popover.style.left = left + 'px';
-      popover.style.top = nextTop + 'px';
-      popover.dataset.lastTop = String(nextTop);
+      popover.style.top = top + 'px';
     };
 
     const hidePopover = () => {
@@ -173,10 +165,10 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
     const setButtonPosition = (row) => {
       const rect = row.getBoundingClientRect();
       button.style.display = 'block';
-      const top = Math.max(10, rect.top + 6);
-      const left = Math.min(window.innerWidth - 108, rect.right + 10);
+      const top = Math.max(10, rect.top + 4);
+      const left = Math.max(10, rect.right - button.offsetWidth - 6);
       button.style.top = top + 'px';
-      button.style.left = Math.max(10, left) + 'px';
+      button.style.left = left + 'px';
     };
 
     const activateRow = (row) => {
