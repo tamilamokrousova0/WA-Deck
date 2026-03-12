@@ -421,6 +421,20 @@
       </div>
     </div>
 
+    <div id="confirm-modal" class="modal hidden">
+      <div class="modal-card modal-card-confirm">
+        <div class="modal-head">
+          <h3 id="confirm-title">Подтверждение</h3>
+        </div>
+        <p id="confirm-message" class="confirm-message"></p>
+        <div class="row confirm-actions">
+          <button id="confirm-cancel" class="btn">Отмена</button>
+          <button id="confirm-ok" class="btn btn-danger">Удалить</button>
+        </div>
+      </div>
+    </div>
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
     <script src="templates.js"></script>
     <script src="webview-scripts/bridge.js"></script>
     <script src="webview-scripts/collect-chats.js"></script>
@@ -439,18 +453,5 @@
     <script src="translate.js"></script>
     <script src="schedule.js"></script>
     <script src="renderer.js"></script>
-    <div id="confirm-modal" class="modal hidden">
-      <div class="modal-card modal-card-confirm">
-        <div class="modal-head">
-          <h3 id="confirm-title">Подтверждение</h3>
-        </div>
-        <p id="confirm-message" class="confirm-message"></p>
-        <div class="row confirm-actions">
-          <button id="confirm-cancel" class="btn">Отмена</button>
-          <button id="confirm-ok" class="btn btn-danger">Удалить</button>
-        </div>
-      </div>
-    </div>
-    <div id="toast-container" class="toast-container" aria-live="polite"></div>
   </body>
 </html>
