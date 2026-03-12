@@ -32,28 +32,30 @@
           <div class="toolbar-left">
             <button id="refresh-active" class="btn btn-icon btn-toolbar-icon btn-refresh" title="Обновить вкладку (F5)">
               <svg class="icon icon-refresh" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
+                <path d="M21 12a9 9 0 1 1-2.2-5.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <path d="M21 3v6h-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
             <button id="freeze-active" class="btn btn-icon btn-toolbar-icon" title="Заморозить/разморозить активный WhatsApp">
               <svg class="icon icon-snow" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M12 2v20M4.5 6.5L19.5 17.5M19.5 6.5L4.5 17.5M6 12h12"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                />
+                <path d="M12 2v20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M17.2 7l-10.4 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M6.8 7l10.4 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <circle cx="12" cy="5" r="1" fill="currentColor"/>
+                <circle cx="12" cy="19" r="1" fill="currentColor"/>
+                <circle cx="6.1" cy="8.6" r="0.8" fill="currentColor"/>
+                <circle cx="17.9" cy="15.4" r="0.8" fill="currentColor"/>
+                <circle cx="17.9" cy="8.6" r="0.8" fill="currentColor"/>
+                <circle cx="6.1" cy="15.4" r="0.8" fill="currentColor"/>
               </svg>
             </button>
-            <button id="open-crm-modal" class="btn">CRM</button>
+            <button id="open-crm-modal" class="btn btn-icon btn-toolbar-icon btn-crm" title="CRM">
+              <svg class="icon icon-crm" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle cx="9" cy="7" r="4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
           </div>
           <div id="weather-widget" class="weather-widget">
             <button id="weather-toggle" class="weather-toggle" title="Погода">
@@ -80,16 +82,12 @@
               <span class="unread-icon">●</span>
               <span id="active-unread-count">0</span>
             </div>
+            <div id="unread-popover" class="unread-popover hidden"></div>
             <div id="status" class="status">Инициализация...</div>
-            <button id="toggle-panel" class="btn btn-icon btn-toolbar-icon" title="Настройки">
+            <button id="toggle-panel" class="btn btn-icon btn-toolbar-icon btn-settings" title="Настройки">
               <svg class="icon icon-gear" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Zm7.3-3.2c0-.4 0-.8-.1-1.2l2-1.5-2-3.4-2.4 1a7.4 7.4 0 0 0-2-1.2l-.4-2.5h-4l-.4 2.5a7.4 7.4 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.5c-.1.4-.1.8-.1 1.2s0 .8.1 1.2l-2 1.5 2 3.4 2.4-1a7.4 7.4 0 0 0 2 1.2l.4 2.5h4l.4-2.5a7.4 7.4 0 0 0 2-1.2l2.4 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2Z"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.7"
-                  stroke-linejoin="round"
-                />
+                <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1.08 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.84 1 1.51 1.08H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1.08Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
           </div>
@@ -452,6 +450,7 @@
     <script src="webview-scripts/hover-translate-apply.js"></script>
     <script src="webview-scripts/hover-translate-lang.js"></script>
     <script src="webview-scripts/unread-count.js"></script>
+    <script src="webview-scripts/unread-details.js"></script>
     <script src="webview-scripts/active-chat-contact.js"></script>
     <script src="webview-scripts/crm-chat-boundary.js"></script>
     <script src="webview-scripts/insert-text.js"></script>

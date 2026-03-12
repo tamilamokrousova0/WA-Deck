@@ -112,7 +112,7 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
     if (!popover) {
       popover = document.createElement('div');
       popover.className = 'waDeck-hover-translate-popover hidden';
-      popover.innerHTML = '<div class="waDeck-hover-translate-head"><div class="waDeck-hover-translate-meta"></div><div class="waDeck-hover-translate-actions"><button class="waDeck-hover-translate-copy" type="button" disabled>\u041a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c</button><button class="waDeck-hover-translate-close" type="button">\u2715</button></div></div><div class="waDeck-hover-translate-text"></div>';
+      popover.innerHTML = '<div class="waDeck-hover-translate-head"><div class="waDeck-hover-translate-meta"></div><div class="waDeck-hover-translate-actions"><button class="waDeck-hover-translate-close" type="button">\u2715</button></div></div><div class="waDeck-hover-translate-text"></div>';
       document.body.appendChild(popover);
     }
 
