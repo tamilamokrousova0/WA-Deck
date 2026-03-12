@@ -99,6 +99,7 @@
             <div id="hub-overlay" class="hub-overlay">
               <div class="hub-title">WA Deck</div>
               <div class="hub-subtitle">Хаб режим. Выберите WhatsApp слева.</div>
+              <div id="hub-dashboard" class="hub-dashboard"></div>
             </div>
           </div>
         </section>
@@ -406,10 +407,11 @@
           О нём
           <textarea id="crm-about" rows="5" placeholder="Краткая информация о контакте" readonly></textarea>
         </label>
-        <label>
-          Моя информация
-          <textarea id="crm-my-info" rows="5" placeholder="Что важно помнить мне" readonly></textarea>
-        </label>
+        <div class="crm-note-header">
+          <span>Моя информация</span>
+          <button id="crm-add-note" class="btn btn-small" title="Добавить запись с датой">+ Запись</button>
+        </div>
+        <textarea id="crm-my-info" rows="5" placeholder="Что важно помнить мне" readonly></textarea>
         <div class="row">
           <button id="crm-edit" class="btn hidden">Изменить</button>
           <button id="crm-save" class="btn btn-primary">Сохранить</button>

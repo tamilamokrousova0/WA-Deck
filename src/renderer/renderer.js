@@ -165,6 +165,7 @@ const els = {
   crmCopy: document.getElementById('crm-copy'),
   crmClose: document.getElementById('crm-close'),
   crmMeta: document.getElementById('crm-meta'),
+  crmAddNote: document.getElementById('crm-add-note'),
 };
 
 let templateController = null;
@@ -281,6 +282,7 @@ function setHubVisibility(visible) {
   els.webviews.classList.toggle('hub-mode', Boolean(visible));
   els.hubScreen.classList.toggle('hidden', !visible);
   els.hubScreen.setAttribute('aria-hidden', visible ? 'false' : 'true');
+  if (visible) updateHubDashboard();
 }
 
 function playFrogMoneyBurst() {
@@ -434,7 +436,7 @@ function renderAccounts() {
     const card = document.createElement('div');
     card.className = `account-item ${state.activeAccountId === account.id ? 'active' : ''} ${account.frozen ? 'frozen' : ''}`;
     card.dataset.accountId = account.id;
-    card.title = account.name;
+    // tooltip вместо title (добавляется ниже)
     card.draggable = state.accounts.length > 1;
     card.addEventListener('click', () => setActiveAccount(account.id));
     card.addEventListener('dragstart', (event) => {
@@ -487,7 +489,7 @@ function renderAccounts() {
     } else {
       chip.textContent = account.name.slice(0, 2).toUpperCase();
     }
-    chip.title = `${account.name}: двойной клик для управления, перетаскивание для сортировки`;
+    // chip title убран — используется кастомный tooltip
     chip.addEventListener('dblclick', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -497,8 +499,6 @@ function renderAccounts() {
     const name = document.createElement('div');
     name.className = 'account-name';
     name.textContent = account.name;
-    name.title = account.name;
-
     const remove = document.createElement('button');
     remove.className = 'account-remove';
     remove.title = `Удалить ${account.name}`;
@@ -545,6 +545,28 @@ function renderAccounts() {
     }
     card.appendChild(statusDot);
 
+    // Кастомный tooltip
+    const tooltip = document.createElement('div');
+    tooltip.className = 'account-tooltip';
+    let tooltipStatus = '';
+    if (account.frozen) {
+      tooltipStatus = 'Заморожен ❄';
+    } else {
+      const wv = state.webviews.get(account.id);
+      if (!wv) tooltipStatus = 'Не подключён';
+      else if (wv.dataset?.waReady === '1') tooltipStatus = 'Подключён';
+      else tooltipStatus = 'Загрузка…';
+    }
+    tooltip.textContent = account.name + ' — ' + tooltipStatus;
+    card.appendChild(tooltip);
+
+    // Контекстное меню (правый клик)
+    card.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showAccountContextMenu(e, account);
+    });
+
     card.append(remove, chip, name);
     els.accountsList.appendChild(card);
   }
@@ -572,6 +594,148 @@ function scrollAccountsList(direction) {
     behavior: 'smooth',
   });
   window.setTimeout(updateSidebarScrollControls, 220);
+}
+
+// ── Контекстное меню аккаунта ──
+function showAccountContextMenu(event, account) {
+  closeAccountContextMenu();
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.id = 'account-context-menu';
+
+  const items = [
+    { label: 'Обновить', action: () => { setActiveAccount(account.id); requestAnimationFrame(() => refreshActiveWebview()); } },
+    { label: account.frozen ? 'Разморозить' : 'Заморозить', action: () => { setAccountFrozenState(account.id, !account.frozen).catch(console.error); } },
+    { divider: true },
+    { label: 'CRM', action: () => { setActiveAccount(account.id); requestAnimationFrame(() => { if (window.WaDeckCrmModule) window.WaDeckCrmModule.openCrmModal(); }); } },
+    { label: 'Управление', action: () => openAccountMenu(account.id) },
+    { divider: true },
+    { label: 'Удалить', danger: true, action: () => removeAccount(account.id).catch(console.error) },
+  ];
+
+  for (const item of items) {
+    if (item.divider) {
+      const div = document.createElement('div');
+      div.className = 'context-menu-divider';
+      menu.appendChild(div);
+      continue;
+    }
+    const el = document.createElement('div');
+    el.className = 'context-menu-item' + (item.danger ? ' danger' : '');
+    el.textContent = item.label;
+    el.addEventListener('click', () => {
+      closeAccountContextMenu();
+      item.action();
+    });
+    menu.appendChild(el);
+  }
+
+  // Позиционирование у курсора
+  document.body.appendChild(menu);
+  let x = event.clientX;
+  let y = event.clientY;
+  const rect = menu.getBoundingClientRect();
+  if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 4;
+  if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 4;
+  menu.style.left = Math.max(0, x) + 'px';
+  menu.style.top = Math.max(0, y) + 'px';
+
+  // Закрытие
+  const closeOnClick = (e) => {
+    if (!menu.contains(e.target)) closeAccountContextMenu();
+  };
+  const closeOnEsc = (e) => {
+    if (e.key === 'Escape') closeAccountContextMenu();
+  };
+  setTimeout(() => {
+    document.addEventListener('click', closeOnClick, { capture: true });
+    document.addEventListener('keydown', closeOnEsc);
+  }, 0);
+  menu._cleanup = () => {
+    document.removeEventListener('click', closeOnClick, { capture: true });
+    document.removeEventListener('keydown', closeOnEsc);
+  };
+}
+
+function closeAccountContextMenu() {
+  const existing = document.getElementById('account-context-menu');
+  if (existing) {
+    if (existing._cleanup) existing._cleanup();
+    existing.remove();
+  }
+}
+
+// ── Hub Dashboard ──
+async function updateHubDashboard() {
+  const container = document.getElementById('hub-dashboard');
+  if (!container) return;
+  container.innerHTML = '';
+
+  // Строки аккаунтов
+  for (const account of state.accounts) {
+    const row = document.createElement('div');
+    row.className = 'hub-stat-row';
+
+    const dot = document.createElement('div');
+    dot.className = 'hub-stat-dot';
+    dot.style.background = account.color;
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'hub-stat-name';
+    nameEl.textContent = account.name;
+
+    const unread = Number(state.unreadByAccount.get(account.id) || 0);
+    const badgeEl = document.createElement('div');
+    badgeEl.className = 'hub-stat-badge';
+    badgeEl.textContent = unread > 0 ? (unread > 99 ? '99+' : String(unread)) : '';
+
+    let statusText = '';
+    if (account.frozen) {
+      statusText = '❄ заморожен';
+    } else {
+      const wv = state.webviews.get(account.id);
+      if (!wv) statusText = 'не загружен';
+      else if (wv.dataset?.waReady === '1') statusText = '● онлайн';
+      else statusText = '◌ загрузка';
+    }
+    const statusEl = document.createElement('div');
+    statusEl.className = 'hub-stat-status';
+    statusEl.textContent = statusText;
+
+    row.append(dot, nameEl, badgeEl, statusEl);
+    row.style.cursor = 'pointer';
+    row.addEventListener('click', () => setActiveAccount(account.id));
+    container.appendChild(row);
+  }
+
+  // Pending scheduled
+  try {
+    const res = await window.waDeck.listScheduled({ limit: 50 });
+    const pending = Array.isArray(res?.items) ? res.items.filter((i) => i.status === 'pending') : [];
+    if (pending.length > 0) {
+      const info = document.createElement('div');
+      info.className = 'hub-pending-info';
+      info.textContent = '\u23F0 Запланированных сообщений: ' + pending.length;
+      container.appendChild(info);
+    }
+  } catch { /* ignore */ }
+
+  // Кнопки
+  const actions = document.createElement('div');
+  actions.className = 'hub-actions';
+
+  const settingsBtn = document.createElement('button');
+  settingsBtn.className = 'btn';
+  settingsBtn.textContent = '⚙ Настройки';
+  settingsBtn.addEventListener('click', () => { if (state.panelHidden) openSettingsPanel(); else closeSettingsPanel(); });
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'btn';
+  addBtn.textContent = '+ Аккаунт';
+  addBtn.addEventListener('click', () => addAccount());
+
+  actions.append(settingsBtn, addBtn);
+  container.appendChild(actions);
 }
 
 function ensureWebview(account) {
@@ -1308,6 +1472,7 @@ function bindActions() {
   els.crmSave.addEventListener('click', () => WaDeckCrmModule.saveCrmCard().catch(console.error));
   els.crmCopy.addEventListener('click', () => WaDeckCrmModule.copyCrmCard().catch(console.error));
   els.crmClose.addEventListener('click', WaDeckCrmModule.closeCrmModal);
+  if (els.crmAddNote) els.crmAddNote.addEventListener('click', WaDeckCrmModule.addCrmNote);
   window.addEventListener('resize', () => {
     if (!els.crmModal.classList.contains('hidden')) {
       WaDeckCrmModule.updateCrmModalPosition().catch(() => {});

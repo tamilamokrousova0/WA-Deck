@@ -208,6 +208,24 @@
     setStatus('CRM: карточка скопирована');
   }
 
+  function addCrmNote() {
+    const el = els.crmMyInfo;
+    if (!el || el.readOnly) {
+      setCrmEditable(true);
+    }
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const yyyy = now.getFullYear();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mi = String(now.getMinutes()).padStart(2, '0');
+    const stamp = '[' + dd + '.' + mm + '.' + yyyy + ' ' + hh + ':' + mi + '] ';
+    const prev = el.value ? '\n' + el.value : '';
+    el.value = stamp + prev;
+    el.focus();
+    el.setSelectionRange(stamp.length, stamp.length);
+  }
+
   window.WaDeckCrmModule = {
     init,
     setCrmEditable,
@@ -216,6 +234,7 @@
     toggleCrmEdit,
     saveCrmCard,
     copyCrmCard,
+    addCrmNote,
     updateCrmModalPosition,
   };
 })();

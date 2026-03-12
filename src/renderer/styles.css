@@ -1565,3 +1565,153 @@ html[data-theme='light'] .modal-card {
     opacity: 1;
   }
 }
+
+/* ── Tooltip на аккаунтах ── */
+.account-tooltip {
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--text);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 50;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.account-item {
+  position: relative;
+}
+
+.account-item:hover .account-tooltip {
+  opacity: 1;
+}
+
+/* ── Контекстное меню ── */
+.context-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 170px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  animation: toastIn 0.12s ease;
+}
+
+.context-menu-item {
+  padding: 7px 14px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text);
+  transition: background 0.1s ease;
+  user-select: none;
+}
+
+.context-menu-item:hover {
+  background: var(--line);
+}
+
+.context-menu-item.danger {
+  color: #ff4f7c;
+}
+
+.context-menu-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 0;
+}
+
+/* ── Hub Dashboard ── */
+.hub-dashboard {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  max-width: 400px;
+  text-align: left;
+}
+
+.hub-stat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: #b6cae5;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.hub-stat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.hub-stat-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hub-stat-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--green);
+}
+
+.hub-stat-status {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.hub-pending-info {
+  text-align: center;
+  font-size: 11px;
+  color: #8ea8c8;
+  margin-top: 2px;
+}
+
+.hub-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.hub-actions .btn {
+  font-size: 11px;
+  padding: 4px 12px;
+}
+
+/* ── CRM note header ── */
+.crm-note-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.crm-note-header span {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.btn-small {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 5px;
+}

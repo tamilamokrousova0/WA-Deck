@@ -177,6 +177,18 @@
       card.append(top, meta, text);
 
       if (item.status === 'pending' || item.status === 'failed' || item.status === 'processing') {
+        const btnRow = document.createElement('div');
+        btnRow.className = 'row';
+        btnRow.style.gap = '6px';
+
+        if (item.status === 'pending' || item.status === 'failed') {
+          const edit = document.createElement('button');
+          edit.className = 'btn';
+          edit.textContent = 'Изменить';
+          edit.addEventListener('click', () => editScheduledItem(item));
+          btnRow.appendChild(edit);
+        }
+
         const cancel = document.createElement('button');
         cancel.className = 'btn';
         cancel.textContent = 'Отменить';
@@ -189,7 +201,8 @@
           await renderScheduled();
           setStatus('Отложенная отправка отменена');
         });
-        card.appendChild(cancel);
+        btnRow.appendChild(cancel);
+        card.appendChild(btnRow);
       }
 
       if (item.errorText) {
@@ -220,6 +233,43 @@
   function clearAttachments() {
     state.attachmentsDraft = [];
     renderAttachmentsDraft();
+  }
+
+  function localDateTimeFromISO(isoString) {
+    const d = new Date(isoString);
+    if (Number.isNaN(d.getTime())) return '';
+    const pad = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+      'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+
+  async function editScheduledItem(item) {
+    const account = accountById(item.accountId);
+    state.scheduleTarget.accountId = item.accountId;
+    state.scheduleTarget.accountName = account?.name || item.accountId;
+    state.scheduleTarget.chatName = item.chatName;
+    renderScheduleTarget();
+
+    els.scheduleText.value = item.text || '';
+    els.scheduleAt.value = localDateTimeFromISO(item.sendAt);
+    state.attachmentsDraft = Array.isArray(item.attachments) ? item.attachments.map((a) => ({ ...a })) : [];
+    renderAttachmentsDraft();
+
+    // Отменить старое сообщение
+    const res = await window.waDeck.cancelScheduled(item.id);
+    if (!res?.ok) {
+      setStatus('Не удалось отменить старое сообщение для редактирования');
+      return;
+    }
+    await renderScheduled();
+
+    // Открыть секцию и дать фокус
+    const detailsCard = document.getElementById('schedule-settings-card');
+    if (detailsCard && !detailsCard.open) {
+      detailsCard.open = true;
+    }
+    els.scheduleText.focus();
+    setStatus('Редактирование: измените и нажмите «Запланировать»');
   }
 
   async function createScheduledMessage() {
