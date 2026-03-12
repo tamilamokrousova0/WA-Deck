@@ -19,16 +19,19 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
         .waDeck-hover-translate-btn {
           position: fixed;
           z-index: 2147483643;
-          border: 1px solid rgba(70, 120, 180, 0.75);
-          border-radius: 999px;
-          background: linear-gradient(180deg, rgba(14, 33, 57, 0.97), rgba(8, 22, 40, 0.98));
-          color: #e9f3ff;
-          font: 700 12px/1 "Segoe UI", sans-serif;
-          padding: 6px 11px;
-          box-shadow: 0 8px 22px rgba(0,0,0,0.34);
+          border: 1px solid rgba(70, 120, 180, 0.6);
+          border-radius: 8px;
+          background: rgba(14, 33, 57, 0.92);
+          color: #c8ddff;
+          font: 600 10px/1 "Segoe UI", sans-serif;
+          padding: 4px 7px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
           cursor: pointer;
+          opacity: 0.7;
+          transition: opacity 0.15s;
         }
-        .waDeck-hover-translate-btn.is-loading { opacity: 0.78; cursor: progress; }
+        .waDeck-hover-translate-btn:hover { opacity: 1; }
+        .waDeck-hover-translate-btn.is-loading { opacity: 0.5; cursor: progress; }
         .waDeck-hover-translate-popover {
           position: fixed;
           z-index: 2147483642;
@@ -37,7 +40,7 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
           overflow: auto;
           border: 1px solid rgba(70, 120, 180, 0.72);
           border-radius: 14px;
-          background: linear-gradient(180deg, rgba(8, 22, 39, 0.42), rgba(6, 18, 31, 0.46));
+          background: linear-gradient(180deg, rgba(8, 22, 39, 0.82), rgba(6, 18, 31, 0.88));
           color: #eff6ff;
           box-shadow: 0 18px 32px rgba(0,0,0,0.42);
           padding: 10px 12px 12px;
@@ -100,7 +103,7 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
     if (!button) {
       button = document.createElement('button');
       button.className = 'waDeck-hover-translate-btn';
-      button.textContent = '\u041f\u0435\u0440\u0435\u0432\u0435\u0441\u0442\u0438';
+      button.textContent = '\u{1F310}';
       button.style.display = 'none';
       document.body.appendChild(button);
     }
@@ -144,14 +147,17 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
       setCopyState(isError ? '' : text || '');
       popover.classList.toggle('waDeck-hover-translate-error', Boolean(isError));
       popover.classList.remove('hidden');
-      const popoverWidth = Math.min(332, Math.max(248, Math.round(window.innerWidth * 0.28)));
+      const popoverWidth = Math.min(360, Math.max(260, Math.round(rect.width * 0.9)));
       popover.style.width = popoverWidth + 'px';
-      const popoverHeight = Math.max(80, popover.offsetHeight || 140);
-      // Поверх сообщения: центрируем по горизонтали и вертикали
+      const popoverHeight = Math.max(60, popover.offsetHeight || 100);
+      // Под сообщением, выровнено по горизонтали
       let left = rect.left + (rect.width - popoverWidth) / 2;
-      left = Math.max(10, Math.min(left, window.innerWidth - popoverWidth - 10));
-      let top = rect.top + (rect.height - popoverHeight) / 2;
-      top = Math.max(10, Math.min(top, window.innerHeight - popoverHeight - 10));
+      left = Math.max(8, Math.min(left, window.innerWidth - popoverWidth - 8));
+      let top = rect.bottom + 6;
+      // Если не влезает снизу — показать сверху
+      if (top + popoverHeight > window.innerHeight - 10) {
+        top = Math.max(8, rect.top - popoverHeight - 6);
+      }
       popover.style.left = left + 'px';
       popover.style.top = top + 'px';
     };
@@ -165,8 +171,8 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
     const setButtonPosition = (row) => {
       const rect = row.getBoundingClientRect();
       button.style.display = 'block';
-      const top = Math.max(10, rect.top + 4);
-      const left = Math.max(10, rect.right - button.offsetWidth - 6);
+      const top = Math.max(4, rect.top - 2);
+      const left = Math.min(window.innerWidth - 36, rect.right + 4);
       button.style.top = top + 'px';
       button.style.left = left + 'px';
     };
