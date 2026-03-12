@@ -102,7 +102,9 @@
         if (!isWebviewReady(webview)) return;
         let count = 0;
         try {
-          count = Number(await safeExecuteInWebview(webview, collectUnreadCountScript(), true) || 0) || 0;
+          const raw = await safeExecuteInWebview(webview, collectUnreadCountScript(), true);
+          count = Number(raw || 0) || 0;
+          if (count > 0) console.log('[unread]', account.name, '→', count, '(raw:', raw, ')');
         } catch {
           count = Number(state.unreadByAccount.get(account.id) || 0);
         }

@@ -1235,6 +1235,8 @@ textarea[readonly] {
   display: grid;
   place-items: center;
   z-index: 40;
+  overflow-y: auto;
+  padding: 24px 0;
 }
 
 .modal.hidden {
@@ -1243,6 +1245,8 @@ textarea[readonly] {
 
 .modal-card {
   width: min(560px, 92vw);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
   border: 1px solid #2b4563;
   border-radius: 16px;
   background: linear-gradient(180deg, #16263b 0%, #111d2f 100%);
