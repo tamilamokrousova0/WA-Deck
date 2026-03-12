@@ -23,8 +23,8 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
           border-radius: 8px;
           background: rgba(14, 33, 57, 0.92);
           color: #c8ddff;
-          font: 600 10px/1 "Segoe UI", sans-serif;
-          padding: 4px 7px;
+          font: 600 11px/1 "Segoe UI", sans-serif;
+          padding: 5px 8px;
           box-shadow: 0 4px 12px rgba(0,0,0,0.3);
           cursor: pointer;
           opacity: 0.7;

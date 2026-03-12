@@ -137,6 +137,10 @@ const els = {
   accountMenuReset: document.getElementById('account-menu-reset'),
   accountMenuIcon: document.getElementById('account-menu-icon'),
   accountMenuCancel: document.getElementById('account-menu-cancel'),
+  accountMenuChip: document.getElementById('account-menu-chip'),
+  accountMenuStatus: document.getElementById('account-menu-status'),
+  accountMenuFreeze: document.getElementById('account-menu-freeze'),
+  accountMenuDelete: document.getElementById('account-menu-delete'),
 
   translateModal: document.getElementById('translate-modal'),
   translateSourceLang: document.getElementById('translate-source-lang'),
@@ -1013,11 +1017,47 @@ function openAccountMenu(accountId) {
 
   state.accountMenuAccountId = account.id;
   state.accountMenuDraftIconPath = String(account.iconPath || '').trim();
-  els.accountMenuTitle.textContent = `Управление: ${account.name}`;
+  els.accountMenuTitle.textContent = account.name;
   els.accountMenuName.value = account.name;
-  if (els.accountMenuIcon) {
-    els.accountMenuIcon.textContent = state.accountMenuDraftIconPath ? 'Поменять иконку (выбрана)' : 'Поменять иконку';
+
+  // Preview chip
+  if (els.accountMenuChip) {
+    els.accountMenuChip.innerHTML = '';
+    els.accountMenuChip.style.background = account.color || 'var(--accent)';
+    if (account.iconUrl) {
+      const img = document.createElement('img');
+      img.src = account.iconUrl;
+      img.alt = account.name;
+      els.accountMenuChip.appendChild(img);
+    } else {
+      els.accountMenuChip.textContent = account.name.slice(0, 2).toUpperCase();
+    }
   }
+
+  // Status line
+  if (els.accountMenuStatus) {
+    let statusText = '';
+    if (account.frozen) {
+      statusText = '❄ Заморожен';
+    } else {
+      const wv = state.webviews.get(account.id);
+      if (!wv) statusText = '○ Не подключён';
+      else if (wv.dataset?.waReady === '1') statusText = '● Подключён';
+      else statusText = '◌ Загрузка…';
+    }
+    els.accountMenuStatus.textContent = statusText;
+  }
+
+  // Freeze button text
+  if (els.accountMenuFreeze) {
+    els.accountMenuFreeze.textContent = account.frozen ? '▶ Разморозить' : '❄ Заморозить';
+  }
+
+  // Icon button
+  if (els.accountMenuIcon) {
+    els.accountMenuIcon.textContent = state.accountMenuDraftIconPath ? '🖼 Иконка ✓' : '🖼 Иконка';
+  }
+
   els.accountMenuModal.classList.remove('hidden');
 }
 
@@ -1105,7 +1145,7 @@ async function resetAccountFromMenu() {
   state.accountMenuDraftIconPath = '';
   els.accountMenuName.value = defaultName;
   if (els.accountMenuIcon) {
-    els.accountMenuIcon.textContent = 'Поменять иконку';
+    els.accountMenuIcon.textContent = '🖼 Иконка';
   }
 
   if (state.scheduleTarget.accountId === accountId) {
@@ -1127,7 +1167,7 @@ async function changeAccountIconFromMenu() {
   if (!picked || picked.canceled || !picked.path) return;
   state.accountMenuDraftIconPath = String(picked.path || '').trim();
   if (els.accountMenuIcon) {
-    els.accountMenuIcon.textContent = state.accountMenuDraftIconPath ? 'Поменять иконку (выбрана)' : 'Поменять иконку';
+    els.accountMenuIcon.textContent = state.accountMenuDraftIconPath ? '🖼 Иконка ✓' : '🖼 Иконка';
   }
   setStatus(`Иконка выбрана: ${account.name}. Нажмите «Сохранить»`);
 }
@@ -1529,6 +1569,18 @@ function bindActions() {
   els.accountMenuReset?.addEventListener('click', () => resetAccountFromMenu().catch(console.error));
   els.accountMenuIcon?.addEventListener('click', () => changeAccountIconFromMenu().catch(console.error));
   els.accountMenuCancel.addEventListener('click', closeAccountMenu);
+  els.accountMenuFreeze?.addEventListener('click', () => {
+    const id = state.accountMenuAccountId;
+    const account = accountById(id);
+    if (!account) return;
+    setAccountFrozenState(id, !account.frozen, { reopenMenu: true }).catch(console.error);
+  });
+  els.accountMenuDelete?.addEventListener('click', () => {
+    const id = state.accountMenuAccountId;
+    if (!id) return;
+    closeAccountMenu();
+    removeAccount(id).catch(console.error);
+  });
   els.pickerApply.addEventListener('click', () => {
     const accountId = String(els.pickerAccount.value || '').trim();
     const chatName = String(els.pickerChat.value || '').trim();

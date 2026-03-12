@@ -300,15 +300,24 @@
           <h3 id="account-menu-title">Управление аккаунтом</h3>
           <button id="account-menu-cancel" class="btn btn-icon modal-close-btn" title="Закрыть">✕</button>
         </div>
+        <div class="account-menu-preview">
+          <div id="account-menu-chip" class="account-menu-chip"></div>
+          <div id="account-menu-status" class="account-menu-status"></div>
+        </div>
         <label>
-          Название WhatsApp
+          Название
           <input id="account-menu-name" type="text" placeholder="WP_1" maxlength="60" />
         </label>
         <div class="row">
+          <button id="account-menu-icon" class="btn">🖼 Иконка</button>
           <button id="account-menu-save" class="btn btn-primary">Сохранить</button>
-          <button id="account-menu-reset" class="btn">Сбросить</button>
-          <button id="account-menu-icon" class="btn">Поменять иконку</button>
         </div>
+        <div class="account-menu-divider"></div>
+        <div class="row">
+          <button id="account-menu-freeze" class="btn">❄ Заморозить</button>
+          <button id="account-menu-reset" class="btn">↺ Сбросить</button>
+        </div>
+        <button id="account-menu-delete" class="btn btn-danger full">Удалить аккаунт</button>
       </div>
     </div>
 
