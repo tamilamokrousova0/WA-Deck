@@ -85,7 +85,6 @@ const els = {
   activeAccountDisplay: document.getElementById('active-account-display'),
   activeUnread: document.getElementById('active-unread'),
   activeUnreadCount: document.getElementById('active-unread-count'),
-  unreadPopover: document.getElementById('unread-popover'),
   togglePanel: document.getElementById('toggle-panel'),
   panel: document.getElementById('panel'),
   closePanel: document.getElementById('close-panel'),
@@ -719,19 +718,6 @@ async function updateHubDashboard() {
     const badgeEl = document.createElement('div');
     badgeEl.className = 'hub-stat-badge';
     badgeEl.textContent = unread > 0 ? (unread > 99 ? '99+' : String(unread)) : '';
-    if (unread > 0 && !account.frozen) {
-      badgeEl.style.cursor = 'help';
-      badgeEl.addEventListener('mouseenter', async () => {
-        const wv = state.webviews.get(account.id);
-        if (!wv) return;
-        try {
-          const details = await wv.executeJavaScript(collectUnreadDetailsScript(), true);
-          if (Array.isArray(details) && details.length) {
-            badgeEl.title = details.map((d) => d.chatName + (d.count > 1 ? ' (' + d.count + ')' : '') + (d.lastMsg ? ': ' + d.lastMsg : '')).join('\n');
-          }
-        } catch { /* ignore */ }
-      }, { once: true });
-    }
 
     let statusText = '';
     if (account.frozen) {
@@ -780,74 +766,6 @@ async function updateHubDashboard() {
 
   actions.append(settingsBtn, addBtn);
   container.appendChild(actions);
-}
-
-// ── Unread popover ──
-let _unreadPopoverTimer = null;
-async function showUnreadPopover() {
-  if (!els.unreadPopover) return;
-  els.unreadPopover.innerHTML = '';
-  els.unreadPopover.classList.remove('hidden');
-
-  const allDetails = [];
-  for (const account of state.accounts) {
-    if (account.frozen) continue;
-    const wv = state.webviews.get(account.id);
-    if (!wv) continue;
-    try {
-      const details = await wv.executeJavaScript(collectUnreadDetailsScript(), true);
-      if (Array.isArray(details) && details.length) {
-        allDetails.push({ account, details });
-      }
-    } catch { /* ignore */ }
-  }
-
-  els.unreadPopover.innerHTML = '';
-  if (!allDetails.length) {
-    const empty = document.createElement('div');
-    empty.className = 'unread-popover-empty';
-    empty.textContent = 'Нет непрочитанных сообщений';
-    els.unreadPopover.appendChild(empty);
-    return;
-  }
-
-  for (const { account, details } of allDetails) {
-    if (allDetails.length > 1) {
-      const header = document.createElement('div');
-      header.className = 'unread-popover-account';
-      header.textContent = account.name;
-      els.unreadPopover.appendChild(header);
-    }
-    for (const item of details) {
-      const row = document.createElement('div');
-      row.className = 'unread-popover-item';
-      row.addEventListener('click', () => {
-        setActiveAccount(account.id);
-        hideUnreadPopover();
-      });
-      const chatLine = document.createElement('div');
-      chatLine.className = 'unread-popover-chat';
-      const nameSpan = document.createElement('span');
-      nameSpan.textContent = item.chatName;
-      const countSpan = document.createElement('span');
-      countSpan.className = 'unread-popover-count';
-      countSpan.textContent = item.count > 0 ? String(item.count) : '';
-      chatLine.append(nameSpan, countSpan);
-      row.appendChild(chatLine);
-      if (item.lastMsg) {
-        const msgLine = document.createElement('div');
-        msgLine.className = 'unread-popover-msg';
-        msgLine.textContent = item.lastMsg;
-        row.appendChild(msgLine);
-      }
-      els.unreadPopover.appendChild(row);
-    }
-  }
-}
-
-function hideUnreadPopover() {
-  if (els.unreadPopover) els.unreadPopover.classList.add('hidden');
-  if (_unreadPopoverTimer) { clearTimeout(_unreadPopoverTimer); _unreadPopoverTimer = null; }
 }
 
 function ensureWebview(account) {
@@ -914,6 +832,10 @@ function ensureWebview(account) {
       .catch((e) => console.warn('[bridge]', e));
 
     webview.executeJavaScript(hoverTranslateBridgeScript(state.translateTargetLang), true).catch((e) => console.warn('[hover-bridge]', e));
+
+    // Обновить сайдбар и хаб при готовности webview (убирает жёлтый статус и «загрузка»)
+    renderAccounts();
+    updateHubDashboard();
   };
 
   webview.addEventListener('dom-ready', bindDomHelpers);
@@ -1626,23 +1548,6 @@ function bindActions() {
   if (els.crmAddNote) els.crmAddNote.addEventListener('click', WaDeckCrmModule.addCrmNote);
   WaDeckCrmModule.bindCrmAutoResize();
   // Confirm модал
-  // Unread popover hover
-  els.activeUnread?.addEventListener('mouseenter', () => {
-    if (_unreadPopoverTimer) clearTimeout(_unreadPopoverTimer);
-    showUnreadPopover().catch(console.error);
-  });
-  els.activeUnread?.addEventListener('mouseleave', () => {
-    _unreadPopoverTimer = setTimeout(() => {
-      if (!els.unreadPopover?.matches(':hover')) hideUnreadPopover();
-    }, 200);
-  });
-  els.unreadPopover?.addEventListener('mouseleave', () => {
-    _unreadPopoverTimer = setTimeout(hideUnreadPopover, 200);
-  });
-  els.unreadPopover?.addEventListener('mouseenter', () => {
-    if (_unreadPopoverTimer) { clearTimeout(_unreadPopoverTimer); _unreadPopoverTimer = null; }
-  });
-
   els.confirmOk.addEventListener('click', () => closeConfirm(true));
   els.confirmCancel.addEventListener('click', () => closeConfirm(false));
   els.confirmModal.addEventListener('click', (e) => { if (e.target === els.confirmModal) closeConfirm(false); });
