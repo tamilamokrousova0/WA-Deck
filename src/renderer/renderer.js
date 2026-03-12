@@ -220,13 +220,16 @@ function resetPasswordFieldVisibility(inputEl, toggleBtn) {
 }
 
 function setStatus(text) {
-  els.status.textContent = text;
-  els.status.title = text;
-  if (els.panelStatus) {
-    els.panelStatus.textContent = text;
-    els.panelStatus.title = text;
+  const safeText = String(text || '');
+  if (els.status) {
+    els.status.textContent = safeText;
+    els.status.title = safeText;
   }
-  const lower = String(text || '').toLowerCase();
+  if (els.panelStatus) {
+    els.panelStatus.textContent = safeText;
+    els.panelStatus.title = safeText;
+  }
+  const lower = safeText.toLowerCase();
   if (lower.includes('сохранен') || lower.includes('скопирован') || lower.includes('удален') || lower.includes('разморожен')) {
     showToast(text, 'success');
   } else if (lower.includes('ошибка') || lower.includes('не удалось') || lower.includes('неверн')) {
@@ -252,17 +255,22 @@ function showToast(text, type, duration) {
 // ── Confirm модал ──
 let _confirmResolve = null;
 function showConfirm(title, message, okText) {
+  // Resolve any pending confirm as false to prevent promise leaks
+  if (_confirmResolve) {
+    _confirmResolve(false);
+    _confirmResolve = null;
+  }
   return new Promise(function (resolve) {
     _confirmResolve = resolve;
-    els.confirmTitle.textContent = title || 'Подтверждение';
-    els.confirmMessage.textContent = message || '';
-    els.confirmOk.textContent = okText || 'OK';
-    els.confirmModal.classList.remove('hidden');
+    if (els.confirmTitle) els.confirmTitle.textContent = title || 'Подтверждение';
+    if (els.confirmMessage) els.confirmMessage.textContent = message || '';
+    if (els.confirmOk) els.confirmOk.textContent = okText || 'OK';
+    if (els.confirmModal) els.confirmModal.classList.remove('hidden');
   });
 }
 
 function closeConfirm(result) {
-  els.confirmModal.classList.add('hidden');
+  if (els.confirmModal) els.confirmModal.classList.add('hidden');
   if (_confirmResolve) {
     _confirmResolve(Boolean(result));
     _confirmResolve = null;
@@ -782,15 +790,18 @@ function ensureWebview(account) {
   webview.setAttribute('webpreferences', 'contextIsolation=yes');
   webview.dataset.waReady = '0';
 
+  const accountId = account.id;
+  const currentAccount = () => accountById(accountId) || account;
+
   webview.addEventListener('did-start-loading', () => {
     webview.dataset.waReady = '0';
-    if (account.id === state.activeAccountId) {
-      setStatus(`${account.name}: загрузка...`);
+    if (accountId === state.activeAccountId) {
+      setStatus(`${currentAccount().name}: загрузка...`);
     }
   });
 
   webview.addEventListener('did-finish-load', () => {
-    if (account.id === state.activeAccountId) {
+    if (accountId === state.activeAccountId) {
       if (state.startupHubVisible) {
         state.startupHubVisible = false;
         if (state.startupHubTimeoutId) {
@@ -800,13 +811,13 @@ function ensureWebview(account) {
       }
       showWebviewLoading(false);
       refreshWebviewVisibility();
-      setStatus(`${account.name}: готово`);
+      setStatus(`${currentAccount().name}: готово`);
     }
   });
 
   webview.addEventListener('did-fail-load', () => {
     webview.dataset.waReady = '0';
-    if (account.id === state.activeAccountId) {
+    if (accountId === state.activeAccountId) {
       showWebviewLoading(false);
       if (state.startupHubVisible) {
         state.startupHubVisible = false;
@@ -818,9 +829,10 @@ function ensureWebview(account) {
   webview.addEventListener('page-title-updated', (event) => {
     const title = String(event?.title || '');
     const count = WaDeckUnreadModule.parseUnreadFromTitle(title);
-    WaDeckUnreadModule.setUnreadCount(account.id, count);
+    WaDeckUnreadModule.setUnreadCount(accountId, count);
   });
 
+  let _bindDomTimer = null;
   const bindDomHelpers = () => {
     webview.dataset.waReady = '1';
     if (typeof webview.setUserAgent === 'function' && state.runtime?.waUserAgent) {
@@ -833,9 +845,13 @@ function ensureWebview(account) {
 
     webview.executeJavaScript(hoverTranslateBridgeScript(state.translateTargetLang), true).catch((e) => console.warn('[hover-bridge]', e));
 
-    // Обновить сайдбар и хаб при готовности webview (убирает жёлтый статус и «загрузка»)
-    renderAccounts();
-    updateHubDashboard();
+    // Debounced UI update — prevents excessive re-renders on SPA navigation
+    if (_bindDomTimer) clearTimeout(_bindDomTimer);
+    _bindDomTimer = setTimeout(() => {
+      _bindDomTimer = null;
+      renderAccounts();
+      updateHubDashboard();
+    }, 300);
   };
 
   webview.addEventListener('dom-ready', bindDomHelpers);

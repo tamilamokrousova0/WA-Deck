@@ -463,11 +463,6 @@ body {
   100% { transform: rotate(90deg); }
 }
 
-.icon-gear { }
-.icon-refresh { }
-.icon-snow { }
-.icon-crm { }
-
 .active-account-display {
   position: absolute;
   left: 50%;
@@ -1660,7 +1655,7 @@ html[data-theme='light'] .modal-card {
   border-radius: 14px;
   display: grid;
   place-items: center;
-  font: 700 18px/1 var(--font);
+  font: 700 18px/1 'Avenir Next', 'Segoe UI', sans-serif;
   color: #fff;
   flex-shrink: 0;
   overflow: hidden;
@@ -1748,7 +1743,7 @@ html[data-theme='light'] .modal-card {
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.15s ease;
-  z-index: 50;
+  z-index: 15;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 

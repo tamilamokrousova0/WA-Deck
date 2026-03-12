@@ -12,12 +12,12 @@
   function setCrmEditable(editable) {
     const on = Boolean(editable);
     state.crmEditable = on;
-    els.crmFullName.readOnly = !on;
-    els.crmCountryCity.readOnly = !on;
-    els.crmAbout.readOnly = !on;
-    els.crmMyInfo.readOnly = !on;
-    els.crmSave.disabled = !on;
-    els.crmEdit.textContent = on ? 'Отмена' : 'Изменить';
+    if (els.crmFullName) els.crmFullName.readOnly = !on;
+    if (els.crmCountryCity) els.crmCountryCity.readOnly = !on;
+    if (els.crmAbout) els.crmAbout.readOnly = !on;
+    if (els.crmMyInfo) els.crmMyInfo.readOnly = !on;
+    if (els.crmSave) els.crmSave.disabled = !on;
+    if (els.crmEdit) els.crmEdit.textContent = on ? 'Отмена' : 'Изменить';
   }
 
   function crmFormPayload() {
@@ -97,7 +97,7 @@
       accountId: account.id,
       accountName: account.name,
       contactName,
-    });
+    }).catch(() => null);
     if (!response?.ok) {
       setStatus(`CRM: ${response?.error || 'load_failed'}`);
       return;

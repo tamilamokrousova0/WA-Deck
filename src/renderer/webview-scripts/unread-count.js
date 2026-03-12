@@ -23,7 +23,7 @@ function collectUnreadCountScript() {
        This is the MOST reliable source for mark-as-unread detection,
        because WhatsApp itself counts them and shows in the filter. */
     if (!total) {
-      const allEls = document.querySelectorAll('button, [role="button"], [role="tab"], [role="option"], span, div');
+      const allEls = document.querySelectorAll('header button, header [role="button"], [role="tab"], [data-tab], #app button, .two > div:first-child button');
       for (const el of allEls) {
         if (el.children.length > 2) continue;
         const t = String(el.textContent || '').trim();

@@ -64,19 +64,6 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
           gap: 6px;
           align-items: center;
         }
-        .waDeck-hover-translate-copy {
-          border: 1px solid rgba(79, 121, 172, 0.82);
-          background: rgba(10, 23, 40, 0.9);
-          color: #dfeeff;
-          border-radius: 10px;
-          padding: 7px 10px;
-          cursor: pointer;
-          font: 700 11px/1 "Segoe UI", sans-serif;
-        }
-        .waDeck-hover-translate-copy:disabled {
-          opacity: 0.45;
-          cursor: default;
-        }
         .waDeck-hover-translate-close {
           border: 1px solid rgba(79, 121, 172, 0.82);
           background: rgba(10, 23, 40, 0.9);
@@ -117,19 +104,10 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
     }
 
     const metaNode = popover.querySelector('.waDeck-hover-translate-meta');
-    const copyNode = popover.querySelector('.waDeck-hover-translate-copy');
     const textNode = popover.querySelector('.waDeck-hover-translate-text');
     const closeNode = popover.querySelector('.waDeck-hover-translate-close');
     let activeRow = null;
     let hoverHideTimer = null;
-    let lastTranslatedText = '';
-
-    const setCopyState = (text) => {
-      lastTranslatedText = String(text || '');
-      if (copyNode) {
-        copyNode.disabled = !lastTranslatedText.trim();
-      }
-    };
 
     const ensureRowId = (row) => {
       if (!row) return '';
@@ -144,7 +122,6 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
       const rect = row.getBoundingClientRect();
       metaNode.textContent = meta || '\u041f\u0435\u0440\u0435\u0432\u043e\u0434';
       textNode.textContent = text || '';
-      setCopyState(isError ? '' : text || '');
       popover.classList.toggle('waDeck-hover-translate-error', Boolean(isError));
       popover.classList.remove('hidden');
       const popoverWidth = Math.min(360, Math.max(260, Math.round(rect.width * 0.9)));
@@ -165,7 +142,6 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
     const hidePopover = () => {
       popover.classList.add('hidden');
       button.classList.remove('is-loading');
-      setCopyState('');
     };
 
     const setButtonPosition = (row) => {
@@ -234,13 +210,6 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
       event.preventDefault();
       event.stopPropagation();
       hidePopover();
-    });
-
-    copyNode?.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (!lastTranslatedText.trim()) return;
-      console.log('__WADECK_HOVER_TRANSLATE__' + JSON.stringify({ type: 'copy', text: lastTranslatedText }));
     });
 
     window.__waDeckApplyHoverTranslation = (payload) => {

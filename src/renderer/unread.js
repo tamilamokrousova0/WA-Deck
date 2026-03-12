@@ -35,6 +35,7 @@
   }
 
   function updateActiveUnreadIndicator() {
+    if (!els.activeUnread || !els.activeUnreadCount) return;
     let total = 0;
     for (const count of state.unreadByAccount.values()) {
       total += Math.max(0, Number(count) || 0);

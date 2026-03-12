@@ -396,7 +396,7 @@
     const chatNameLower = chatName.toLowerCase();
     const matchResult = await query(`(() => {
       const normalize = (v) => String(v || '').replace(/\\u200e|\\u200f/g, '').replace(/\\u00a0/g, ' ').replace(/\\s+/g, ' ').trim();
-      const query = normalize('${chatName.replace(/'/g, "\\'")}').toLowerCase();
+      const query = normalize(${JSON.stringify(chatName)}).toLowerCase();
       const items = Array.from(document.querySelectorAll('#pane-side [role="row"], #side [role="row"]'));
       let exact = null;
       let partial = null;
