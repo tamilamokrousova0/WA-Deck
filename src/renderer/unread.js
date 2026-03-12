@@ -78,11 +78,7 @@
     if (!safeId) return;
     const safeCount = Math.max(0, Number(count) || 0);
     const prev = Number(state.unreadByAccount.get(safeId) || 0);
-    if (prev === safeCount) {
-      updateActiveUnreadIndicator();
-      scheduleDockBadgeSync();
-      return;
-    }
+    if (prev === safeCount) return;
     state.unreadByAccount.set(safeId, safeCount);
     if (!patchAccountUnreadBadge(safeId)) {
       renderAccounts();
@@ -95,13 +91,13 @@
     if (state.unreadPollBusy) return;
     state.unreadPollBusy = true;
     try {
-      for (const account of state.accounts) {
+      const tasks = state.accounts.map(async (account) => {
         if (account.frozen) {
           setUnreadCount(account.id, 0);
-          continue;
+          return;
         }
         const webview = state.webviews.get(account.id);
-        if (!isWebviewReady(webview)) continue;
+        if (!isWebviewReady(webview)) return;
         let count = 0;
         try {
           count = Number(await safeExecuteInWebview(webview, collectUnreadCountScript(), true) || 0) || 0;
@@ -109,7 +105,8 @@
           count = Number(state.unreadByAccount.get(account.id) || 0);
         }
         setUnreadCount(account.id, count);
-      }
+      });
+      await Promise.allSettled(tasks);
     } finally {
       state.unreadPollBusy = false;
     }
