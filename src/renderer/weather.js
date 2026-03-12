@@ -214,7 +214,7 @@
       state.weatherRefreshTimer = null;
     }
     state.weatherRefreshTimer = setInterval(() => {
-      refreshWeather().catch(() => {});
+      refreshWeather().catch((e) => console.warn('[weather]', e));
     }, REFRESH_INTERVAL_MS);
   }
 

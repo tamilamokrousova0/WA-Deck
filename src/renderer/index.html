@@ -53,7 +53,6 @@
                 />
               </svg>
             </button>
-            <button id="open-ai-modal" class="btn" hidden>AI помощник</button>
             <button id="open-crm-modal" class="btn">CRM</button>
           </div>
           <div id="weather-widget" class="weather-widget">
@@ -381,50 +380,6 @@
       </div>
     </div>
 
-    <div id="ai-modal" class="modal hidden">
-      <div class="modal-card modal-card-wide">
-        <div class="modal-head">
-          <h3>AI помощник</h3>
-          <button id="close-ai-modal" class="btn btn-icon modal-close-btn" title="Закрыть">✕</button>
-        </div>
-        <label>
-          Сообщение для ответа
-          <textarea id="ai-input" rows="6" placeholder="Выделите сообщение в чате и нажмите «Взять выделенный текст»"></textarea>
-        </label>
-
-        <div class="ai-mode-grid">
-          <button id="ai-mode-short" class="btn ai-mode-btn" type="button" data-ai-mode="short">Коротко</button>
-          <button id="ai-mode-warm" class="btn ai-mode-btn is-active" type="button" data-ai-mode="warm">Тепло</button>
-          <button id="ai-mode-business" class="btn ai-mode-btn" type="button" data-ai-mode="business">Деловой</button>
-          <button id="ai-mode-flirt" class="btn ai-mode-btn" type="button" data-ai-mode="flirt">Флирт</button>
-        </div>
-
-        <div class="row ai-advanced-row">
-          <label class="ai-inline-label">
-            Контекст (входящих)
-            <input id="ai-context-count" type="number" min="0" max="10" step="1" value="3" />
-          </label>
-          <label class="ai-checkbox-label">
-            <input id="ai-reply-source-lang" type="checkbox" checked />
-            Ответ на языке собеседника
-          </label>
-        </div>
-
-        <div class="row">
-          <button id="fill-ai-selected-text" class="btn">Взять выделенный текст</button>
-          <button id="do-ai-reply" class="btn btn-primary">Сгенерировать ответ</button>
-          <button id="copy-ai-reply" class="btn">Копировать ответ</button>
-          <button id="insert-ai-reply" class="btn">Вставить в чат</button>
-          <button id="clear-ai" class="btn">Очистить</button>
-        </div>
-
-        <label>
-          Вариант ответа
-          <textarea id="ai-output" rows="6" readonly placeholder="Здесь появится вариант ответа"></textarea>
-        </label>
-      </div>
-    </div>
-
     <div id="crm-modal" class="modal hidden">
       <div class="modal-card modal-card-wide">
         <div class="modal-head">
@@ -460,14 +415,6 @@
       </div>
     </div>
 
-    <div id="ai-internal-controls" hidden>
-      <input id="ai-api-key" type="password" />
-      <button id="toggle-ai-api-key" type="button" aria-hidden="true"></button>
-      <select id="ai-model"></select>
-      <button id="refresh-ai-models" type="button"></button>
-      <textarea id="ai-role-prompt"></textarea>
-    </div>
-
     <script src="templates.js"></script>
     <script src="webview-scripts/bridge.js"></script>
     <script src="webview-scripts/collect-chats.js"></script>
@@ -478,14 +425,12 @@
     <script src="webview-scripts/unread-count.js"></script>
     <script src="webview-scripts/active-chat-contact.js"></script>
     <script src="webview-scripts/crm-chat-boundary.js"></script>
-    <script src="webview-scripts/recent-messages.js"></script>
     <script src="webview-scripts/insert-text.js"></script>
     <script src="weather.js"></script>
     <script src="auto-update.js"></script>
     <script src="unread.js"></script>
     <script src="crm.js"></script>
     <script src="translate.js"></script>
-    <script src="ai.js"></script>
     <script src="schedule.js"></script>
     <script src="renderer.js"></script>
   </body>

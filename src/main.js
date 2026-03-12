@@ -13,10 +13,6 @@ const FALLBACK_CHROME_VERSION = '136.0.0.0';
 const APP_ICON_PNG_PATH = path.join(__dirname, '..', 'assets', 'icon', 'wadeck-icon-512.png');
 const DEEPL_FREE_API_URL = 'https://api-free.deepl.com/v2/translate';
 const LIBRETRANSLATE_DEFAULT_URL = 'https://libretranslate.com/translate';
-const AIMLAPI_CHAT_COMPLETIONS_URL = 'https://api.aimlapi.com/v1/chat/completions';
-const AIMLAPI_MODELS_URL = 'https://api.aimlapi.com/models';
-const DEFAULT_AI_MODEL = 'google/gemma-3-4b-it';
-const AIML_MODELS_CACHE_TTL_MS = 10 * 60 * 1000;
 const RELEASES_LATEST_URL = 'https://github.com/tamilamokrousova0/WA-Deck/releases/latest';
 
 const DEFAULT_SETTINGS = {
@@ -27,10 +23,6 @@ const DEFAULT_SETTINGS = {
   libreTranslateUrl: LIBRETRANSLATE_DEFAULT_URL,
   weatherCity: 'Moscow',
   weatherUnit: 'celsius',
-  aiApiKey: '',
-  aiModel: DEFAULT_AI_MODEL,
-  aiRolePrompt:
-    'Ты помощник в переписке WhatsApp. Пиши короткий, естественный и вежливый вариант ответа по контексту сообщения. Без лишних объяснений.',
   lastSeenReleaseNotesVersion: '',
 };
 
@@ -63,10 +55,6 @@ const state = {
 };
 
 let mainWindow;
-let aiModelsCache = {
-  at: 0,
-  models: [],
-};
 let lastUpdateProgressPercent = -1;
 let autoUpdaterConfigured = false;
 let macDeveloperIdSignatureCache = null;
@@ -224,9 +212,6 @@ function sanitizeStore(raw) {
   clean.settings.deeplApiKey = String(clean.settings.deeplApiKey || '').trim();
   clean.settings.libreTranslateApiKey = String(clean.settings.libreTranslateApiKey || '').trim();
   clean.settings.libreTranslateUrl = normalizeLibreTranslateUrl(clean.settings.libreTranslateUrl);
-  clean.settings.aiApiKey = String(clean.settings.aiApiKey || '').trim();
-  clean.settings.aiModel = String(clean.settings.aiModel || DEFAULT_AI_MODEL).trim() || DEFAULT_AI_MODEL;
-  clean.settings.aiRolePrompt = String(clean.settings.aiRolePrompt || DEFAULT_SETTINGS.aiRolePrompt).trim();
   clean.settings.lastSeenReleaseNotesVersion = String(
     clean.settings.lastSeenReleaseNotesVersion || DEFAULT_SETTINGS.lastSeenReleaseNotesVersion,
   ).trim();
@@ -801,7 +786,12 @@ function guessMime(filePath) {
   return 'application/octet-stream';
 }
 
+const MAX_ATTACHMENT_SIZE = 100 * 1024 * 1024; // 100 MB
 async function loadAttachmentPayload(filePath) {
+  const stat = await fs.stat(filePath);
+  if (stat.size > MAX_ATTACHMENT_SIZE) {
+    throw new Error(`file_too_large: ${path.basename(filePath)} (${Math.round(stat.size / 1024 / 1024)} MB > 100 MB)`);
+  }
   const buff = await fs.readFile(filePath);
   return {
     path: filePath,
@@ -1133,183 +1123,6 @@ async function translateByProvider(provider, text, sourceLang = 'AUTO', targetLa
     return translateViaLibreTranslate(text, sourceLang, targetLang);
   }
   return translateViaDeepL(text, sourceLang, targetLang);
-}
-
-async function generateAiReply(messageText, rolePrompt = '', model = '', options = {}) {
-  const apiKey = String(state.store.settings.aiApiKey || '').trim();
-  if (!apiKey) {
-    return { ok: false, errorCode: 'ai_api_key_required', error: 'ai_api_key_required' };
-  }
-
-  const text = String(messageText || '').trim();
-  if (!text) {
-    return { ok: false, errorCode: 'ai_message_required', error: 'ai_message_required' };
-  }
-
-  const role = String(rolePrompt || state.store.settings.aiRolePrompt || DEFAULT_SETTINGS.aiRolePrompt).trim();
-  const selectedModel = String(model || state.store.settings.aiModel || DEFAULT_AI_MODEL).trim();
-  if (!selectedModel) {
-    return { ok: false, errorCode: 'ai_model_required', error: 'ai_model_required' };
-  }
-  const mode = ['short', 'warm', 'business', 'flirt'].includes(String(options?.mode || ''))
-    ? String(options.mode)
-    : 'warm';
-  const contextMessages = Array.isArray(options?.contextMessages)
-    ? options.contextMessages.map((line) => String(line || '').trim()).filter(Boolean).slice(-10)
-    : [];
-  const replyInSourceLang = options?.replyInSourceLang !== false;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30000);
-
-  try {
-    const modePromptMap = {
-      short: 'Стиль ответа: очень коротко, 1-2 предложения, по сути.',
-      warm: 'Стиль ответа: теплый, поддерживающий, естественный.',
-      business: 'Стиль ответа: деловой, четкий, без лишних эмоций.',
-      flirt: 'Стиль ответа: легкий флирт, уважительно, без пошлости.',
-    };
-    const contextBlock = contextMessages.length
-      ? ['КОНТЕКСТ (последние входящие сообщения):', ...contextMessages.map((line, idx) => `${idx + 1}. ${line}`), ''].join('\n')
-      : 'КОНТЕКСТ: нет\n';
-
-    const userPrompt = [
-      'Ты помощник для ответа в чате WhatsApp.',
-      'Строго следуй роли ниже и отвечай только на основе сообщения.',
-      'Не выдумывай факты и детали, которых нет в сообщении и контексте.',
-      replyInSourceLang
-        ? 'Отвечай на языке собеседника из исходного сообщения.'
-        : 'Отвечай на русском языке.',
-      modePromptMap[mode],
-      'Если контекста недостаточно, верни один короткий уточняющий вопрос.',
-      'Верни только текст ответа, без пояснений и без кавычек.',
-      '',
-      `РОЛЬ:\n${role}`,
-      '',
-      contextBlock,
-      'СООБЩЕНИЕ ДЛЯ ОТВЕТА:',
-      '<<<BEGIN_MESSAGE>>>',
-      text,
-      '<<<END_MESSAGE>>>',
-    ].join('\n');
-
-    const response = await fetch(AIMLAPI_CHAT_COMPLETIONS_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: selectedModel,
-        temperature: 0.2,
-        max_tokens: 512,
-        messages: [
-          {
-            role: 'user',
-            content: userPrompt,
-          },
-        ],
-      }),
-      signal: controller.signal,
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const apiErr =
-        String(data?.error?.code || '').trim() ||
-        String(data?.error?.message || '').trim() ||
-        `HTTP_${response.status}`;
-      if (response.status === 401 || /invalid_api_key/i.test(apiErr)) {
-        return { ok: false, errorCode: 'ai_api_key_invalid', error: apiErr };
-      }
-      if (response.status === 429) {
-        return { ok: false, errorCode: 'ai_rate_limited', error: apiErr };
-      }
-      if (response.status === 400) {
-        return { ok: false, errorCode: 'ai_bad_request', error: apiErr };
-      }
-      if (response.status >= 500) {
-        return { ok: false, errorCode: 'ai_server_error', error: apiErr };
-      }
-      return { ok: false, errorCode: 'ai_api_request_failed', error: apiErr };
-    }
-
-    const reply = String(data?.choices?.[0]?.message?.content || '').trim();
-    if (!reply) {
-      return { ok: false, errorCode: 'ai_empty_response', error: 'ai_empty_response' };
-    }
-
-    return {
-      ok: true,
-      replyText: reply,
-      model: String(data?.model || selectedModel),
-    };
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      return { ok: false, errorCode: 'ai_timeout', error: 'ai_timeout' };
-    }
-    return { ok: false, errorCode: 'ai_network_error', error: String(error?.message || error) };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function listAimlChatModels(force = false) {
-  const now = Date.now();
-  if (!force && aiModelsCache.models.length && now - aiModelsCache.at < AIML_MODELS_CACHE_TTL_MS) {
-    return { ok: true, models: aiModelsCache.models };
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
-
-  try {
-    const apiKey = String(state.store.settings.aiApiKey || '').trim();
-    const headers = {};
-    if (apiKey) {
-      headers.Authorization = `Bearer ${apiKey}`;
-    }
-
-    const response = await fetch(AIMLAPI_MODELS_URL, {
-      method: 'GET',
-      headers,
-      signal: controller.signal,
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      return { ok: false, errorCode: 'aiml_models_http_error', error: String(data?.error || `HTTP_${response.status}`) };
-    }
-
-    const rawList = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
-    const models = rawList
-      .filter((row) => String(row?.type || '').toLowerCase() === 'chat-completion')
-      .filter((row) => {
-        const hasEndpoint = Array.isArray(row?.endpoints) && row.endpoints.includes('/v1/chat/completions');
-        const hasFeature = Array.isArray(row?.features) && row.features.includes('openai/chat-completion');
-        return hasEndpoint || hasFeature;
-      })
-      .map((row) => String(row?.id || '').trim())
-      .filter(Boolean)
-      .sort((a, b) => a.localeCompare(b));
-
-    if (!models.length) {
-      return { ok: false, errorCode: 'aiml_models_empty', error: 'Модели не найдены' };
-    }
-
-    aiModelsCache = {
-      at: now,
-      models,
-    };
-
-    return { ok: true, models };
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      return { ok: false, errorCode: 'aiml_models_timeout', error: 'Запрос списка моделей превысил время ожидания' };
-    }
-    return { ok: false, errorCode: 'aiml_models_fetch_failed', error: String(error?.message || error) };
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 function addSingleInstanceGuard() {
@@ -1701,6 +1514,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('pick-account-icon', async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Выберите иконку WhatsApp',
       properties: ['openFile'],
@@ -1728,9 +1542,6 @@ function registerIpc() {
       libreTranslateUrl: normalizeLibreTranslateUrl(payload?.libreTranslateUrl ?? current.libreTranslateUrl),
       weatherCity: String(payload?.weatherCity ?? current.weatherCity ?? DEFAULT_SETTINGS.weatherCity).trim() || DEFAULT_SETTINGS.weatherCity,
       weatherUnit: normalizeWeatherUnit(payload?.weatherUnit ?? current.weatherUnit ?? DEFAULT_SETTINGS.weatherUnit),
-      aiApiKey: String(payload?.aiApiKey ?? current.aiApiKey ?? '').trim(),
-      aiModel: String(payload?.aiModel ?? current.aiModel ?? DEFAULT_AI_MODEL).trim() || DEFAULT_AI_MODEL,
-      aiRolePrompt: String(payload?.aiRolePrompt ?? current.aiRolePrompt ?? DEFAULT_SETTINGS.aiRolePrompt).trim(),
       lastSeenReleaseNotesVersion: String(
         payload?.lastSeenReleaseNotesVersion ?? current.lastSeenReleaseNotesVersion ?? DEFAULT_SETTINGS.lastSeenReleaseNotesVersion,
       ).trim(),
@@ -1763,25 +1574,12 @@ function registerIpc() {
     };
   });
 
-  ipcMain.handle('generate-ai-reply', async (_event, payload) => {
-    return generateAiReply(payload?.messageText, payload?.rolePrompt, payload?.model, {
-      mode: payload?.mode,
-      contextMessages: payload?.contextMessages,
-      replyInSourceLang: payload?.replyInSourceLang,
-    });
-  });
-
   ipcMain.handle('crm-load-contact', async (_event, payload) => {
     return loadCrmContact(payload?.accountId, payload?.accountName, payload?.contactName);
   });
 
   ipcMain.handle('crm-save-contact', async (_event, payload) => {
     return saveCrmContact(payload || {});
-  });
-
-  ipcMain.handle('list-ai-models', async (_event, payload) => {
-    const force = Boolean(payload?.force);
-    return listAimlChatModels(force);
   });
 
   ipcMain.handle('list-templates', async () => {
@@ -1797,6 +1595,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('pick-attachments', async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, files: [] };
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Выберите вложения',
       properties: ['openFile', 'multiSelections'],

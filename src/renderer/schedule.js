@@ -515,10 +515,10 @@
     }
 
     state.scheduleRunnerTimer = setInterval(() => {
-      processDueSchedules().catch(() => {});
+      processDueSchedules().catch((e) => console.warn('[schedule]', e));
     }, 15000);
 
-    setTimeout(() => processDueSchedules().catch(() => {}), 5000);
+    setTimeout(() => processDueSchedules().catch((e) => console.warn('[schedule]', e)), 5000);
   }
 
   window.WaDeckScheduleModule = {

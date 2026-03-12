@@ -21,11 +21,6 @@ const state = {
   autoUpdateUnsubscribe: null,
   translateTargetLang: 'RU',
   translateSourceLang: 'AUTO',
-  aiModel: 'google/gemma-3-4b-it',
-  aiMode: 'warm',
-  aiContextCount: 3,
-  aiReplySourceLang: true,
-  aiRolePrompt: '',
   accountMenuAccountId: '',
   accountMenuDraftIconPath: '',
   draggedAccountId: '',
@@ -74,7 +69,6 @@ const els = {
   status: document.getElementById('status'),
   refreshActive: document.getElementById('refresh-active'),
   freezeActive: document.getElementById('freeze-active'),
-  openAiModal: document.getElementById('open-ai-modal'),
   openCrmModal: document.getElementById('open-crm-modal'),
   weatherWidget: document.getElementById('weather-widget'),
   weatherToggle: document.getElementById('weather-toggle'),
@@ -107,11 +101,6 @@ const els = {
   saveSettings: document.getElementById('save-settings'),
   testTranslateApiDeepl: document.getElementById('test-translate-api-deepl'),
   testTranslateApiLibre: document.getElementById('test-translate-api-libre'),
-  aiApiKey: document.getElementById('ai-api-key'),
-  toggleAiApiKey: document.getElementById('toggle-ai-api-key'),
-  aiModel: document.getElementById('ai-model'),
-  refreshAiModels: document.getElementById('refresh-ai-models'),
-  aiRolePrompt: document.getElementById('ai-role-prompt'),
   templateSelect: document.getElementById('template-select'),
   templateSearch: document.getElementById('template-search'),
   templateSearchRow: document.getElementById('template-search-row'),
@@ -164,22 +153,6 @@ const els = {
   releaseNotesVersion: document.getElementById('release-notes-version'),
   releaseNotesList: document.getElementById('release-notes-list'),
   closeReleaseNotes: document.getElementById('close-release-notes'),
-
-  aiModal: document.getElementById('ai-modal'),
-  aiInput: document.getElementById('ai-input'),
-  aiOutput: document.getElementById('ai-output'),
-  aiModeShort: document.getElementById('ai-mode-short'),
-  aiModeWarm: document.getElementById('ai-mode-warm'),
-  aiModeBusiness: document.getElementById('ai-mode-business'),
-  aiModeFlirt: document.getElementById('ai-mode-flirt'),
-  aiContextCount: document.getElementById('ai-context-count'),
-  aiReplySourceLang: document.getElementById('ai-reply-source-lang'),
-  fillAiSelectedText: document.getElementById('fill-ai-selected-text'),
-  doAiReply: document.getElementById('do-ai-reply'),
-  copyAiReply: document.getElementById('copy-ai-reply'),
-  insertAiReply: document.getElementById('insert-ai-reply'),
-  clearAi: document.getElementById('clear-ai'),
-  closeAiModal: document.getElementById('close-ai-modal'),
 
   crmModal: document.getElementById('crm-modal'),
   crmContactName: document.getElementById('crm-contact-name'),
@@ -610,9 +583,9 @@ function ensureWebview(account) {
 
     webview
       .executeJavaScript(bridgeScript(), true)
-      .catch(() => {});
+      .catch((e) => console.warn('[bridge]', e));
 
-    webview.executeJavaScript(hoverTranslateBridgeScript(state.translateTargetLang), true).catch(() => {});
+    webview.executeJavaScript(hoverTranslateBridgeScript(state.translateTargetLang), true).catch((e) => console.warn('[hover-bridge]', e));
   };
 
   webview.addEventListener('dom-ready', bindDomHelpers);
@@ -665,14 +638,23 @@ function handleEscapeUiReset() {
   closeSettingsPanel();
   WaDeckTranslateModule.closeTranslateModal();
   if (els.releaseNotesModal && !els.releaseNotesModal.classList.contains('hidden')) {
-    WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(() => {});
+    WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(console.error);
   }
-  WaDeckAiModule.closeAiModal();
   WaDeckCrmModule.closeCrmModal();
   closeAccountMenu();
 }
 
+let _switchingAccount = false;
 function setActiveAccount(accountId) {
+  if (_switchingAccount) return;
+  _switchingAccount = true;
+  try {
+    _setActiveAccountInner(accountId);
+  } finally {
+    _switchingAccount = false;
+  }
+}
+function _setActiveAccountInner(accountId) {
   const nextId = String(accountId || '').trim();
   state.activeAccountId = nextId;
   if (nextId && state.startupHubVisible) {
@@ -714,11 +696,8 @@ function applySettingsToForm() {
   els.deeplApiKey.value = state.settings.deeplApiKey || '';
   els.libreTranslateUrl.value = state.settings.libreTranslateUrl || 'https://libretranslate.com/translate';
   els.libreTranslateApiKey.value = state.settings.libreTranslateApiKey || '';
-  els.aiApiKey.value = state.settings.aiApiKey || '';
-  els.aiRolePrompt.value = state.settings.aiRolePrompt || '';
   resetPasswordFieldVisibility(els.deeplApiKey, els.toggleDeeplApiKey);
   resetPasswordFieldVisibility(els.libreTranslateApiKey, els.toggleLibreTranslateApiKey);
-  resetPasswordFieldVisibility(els.aiApiKey, els.toggleAiApiKey);
   if (els.weatherCityInput) {
     els.weatherCityInput.value = state.settings.weatherCity;
   }
@@ -985,9 +964,6 @@ async function saveSettings() {
     libreTranslateApiKey: els.libreTranslateApiKey.value.trim(),
     weatherCity: WaDeckWeatherModule.normalizeWeatherCity(state.settings?.weatherCity),
     weatherUnit: WaDeckWeatherModule.normalizeWeatherUnit(state.settings?.weatherUnit),
-    aiApiKey: els.aiApiKey.value.trim(),
-    aiModel: String(els.aiModel.value || state.aiModel || '').trim(),
-    aiRolePrompt: String(els.aiRolePrompt.value || '').trim(),
     lastSeenReleaseNotesVersion: String(state.settings?.lastSeenReleaseNotesVersion || '').trim(),
   };
 
@@ -998,10 +974,7 @@ async function saveSettings() {
     }
     state.settings = saved;
     state.settings.uiTheme = normalizeTheme(state.settings.uiTheme);
-    state.aiModel = state.settings.aiModel || state.aiModel || 'google/gemma-3-4b-it';
-    state.aiRolePrompt = state.settings.aiRolePrompt || '';
     applySettingsToForm();
-    WaDeckAiModule.renderAiModels([state.aiModel]);
     setStatus('Настройки сохранены');
   } catch (error) {
     setStatus(`Не удалось сохранить настройки: ${String(error?.message || error || 'error')}`);
@@ -1148,7 +1121,6 @@ function bindActions() {
   els.refreshActive.addEventListener('click', refreshActiveWebview);
   els.freezeActive?.addEventListener('click', () => toggleActiveFreeze().catch(console.error));
   els.openTranslateModal?.addEventListener('click', WaDeckTranslateModule.openTranslateModal);
-  els.openAiModal?.addEventListener('click', WaDeckAiModule.openAiModal);
   els.openCrmModal.addEventListener('click', () => WaDeckCrmModule.openCrmModal().catch(console.error));
 
   els.togglePanel.addEventListener('click', () => {
@@ -1203,8 +1175,6 @@ function bindActions() {
   });
   bindPasswordToggle(els.deeplApiKey, els.toggleDeeplApiKey);
   bindPasswordToggle(els.libreTranslateApiKey, els.toggleLibreTranslateApiKey);
-  bindPasswordToggle(els.aiApiKey, els.toggleAiApiKey);
-  els.refreshAiModels.addEventListener('click', () => WaDeckAiModule.refreshAiModels(true).catch(console.error));
   els.fillSelectedText.addEventListener('click', () => WaDeckTranslateModule.fillTranslateInputFromSelection().catch(console.error));
   els.doTranslate.addEventListener('click', () => WaDeckTranslateModule.doModalTranslate().catch(console.error));
   els.copyTranslate.addEventListener('click', () => WaDeckTranslateModule.copyTranslateOutput().catch(console.error));
@@ -1214,36 +1184,16 @@ function bindActions() {
   });
   els.closeTranslateModal.addEventListener('click', WaDeckTranslateModule.closeTranslateModal);
   els.closeReleaseNotes?.addEventListener('click', () => WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(console.error));
-  els.fillAiSelectedText.addEventListener('click', () => WaDeckAiModule.fillAiInputFromSelection().catch(console.error));
-  els.aiModeShort.addEventListener('click', () => WaDeckAiModule.setAiMode('short'));
-  els.aiModeWarm.addEventListener('click', () => WaDeckAiModule.setAiMode('warm'));
-  els.aiModeBusiness.addEventListener('click', () => WaDeckAiModule.setAiMode('business'));
-  els.aiModeFlirt.addEventListener('click', () => WaDeckAiModule.setAiMode('flirt'));
-  els.aiContextCount.addEventListener('change', () => {
-    const count = WaDeckAiModule.normalizeAiContextCount(els.aiContextCount.value);
-    state.aiContextCount = count;
-    els.aiContextCount.value = String(count);
-  });
-  els.aiReplySourceLang.addEventListener('change', () => {
-    state.aiReplySourceLang = Boolean(els.aiReplySourceLang.checked);
-  });
-  els.doAiReply.addEventListener('click', () => WaDeckAiModule.doAiReply().catch(console.error));
-  els.copyAiReply.addEventListener('click', () => WaDeckAiModule.copyAiReply().catch(console.error));
-  els.insertAiReply.addEventListener('click', () => WaDeckAiModule.insertAiReplyIntoActiveChat().catch(console.error));
-  els.clearAi.addEventListener('click', () => {
-    els.aiInput.value = '';
-    els.aiOutput.value = '';
-  });
-  els.closeAiModal.addEventListener('click', WaDeckAiModule.closeAiModal);
   els.crmEdit.addEventListener('click', WaDeckCrmModule.toggleCrmEdit);
   els.crmSave.addEventListener('click', () => WaDeckCrmModule.saveCrmCard().catch(console.error));
   els.crmCopy.addEventListener('click', () => WaDeckCrmModule.copyCrmCard().catch(console.error));
   els.crmClose.addEventListener('click', WaDeckCrmModule.closeCrmModal);
   window.addEventListener('resize', () => {
-    if (els.crmModal.classList.contains('hidden')) return;
-    WaDeckCrmModule.updateCrmModalPosition().catch(() => {});
+    if (!els.crmModal.classList.contains('hidden')) {
+      WaDeckCrmModule.updateCrmModalPosition().catch(() => {});
+    }
+    updateSidebarScrollControls();
   });
-  window.addEventListener('resize', updateSidebarScrollControls);
   els.translateTargetLang.addEventListener('change', () => {
     state.translateTargetLang = WaDeckTranslateModule.normalizeTranslateTargetLang(els.translateTargetLang.value || 'RU');
     WaDeckTranslateModule.syncHoverTranslateTargetLang();
@@ -1294,8 +1244,7 @@ async function init() {
   WaDeckAutoUpdateModule.init(moduleCtx);
   WaDeckUnreadModule.init({ ...moduleCtx, renderAccounts, isWebviewReady, safeExecuteInWebview });
   WaDeckCrmModule.init({ ...moduleCtx, activeAccount, selectedWebview });
-  WaDeckAiModule.init({ ...moduleCtx, runWithBusyButton, selectedWebview, insertTextIntoActiveChat });
-  WaDeckTranslateModule.init({ ...moduleCtx, runWithBusyButton, safeExecuteInWebview, getSelectedTextFromActiveWebview: WaDeckAiModule.getSelectedTextFromActiveWebview });
+  WaDeckTranslateModule.init({ ...moduleCtx, runWithBusyButton, safeExecuteInWebview, selectedWebview });
   WaDeckScheduleModule.init({ ...moduleCtx, trimMapSize, runWithBusyButton, accountById, ensureWebview, isWebviewReady, sendWebviewInput, delay, formatDateTime, nextSendAtLocal });
 
   if (typeof window.waDeck.onAutoUpdateStatus === 'function' && !state.autoUpdateUnsubscribe) {
@@ -1319,13 +1268,8 @@ async function init() {
     libreTranslateUrl: String(boot.settings?.libreTranslateUrl || 'https://libretranslate.com/translate'),
     weatherCity: WaDeckWeatherModule.normalizeWeatherCity(boot.settings?.weatherCity || 'Moscow'),
     weatherUnit: WaDeckWeatherModule.normalizeWeatherUnit(boot.settings?.weatherUnit || 'celsius'),
-    aiApiKey: String(boot.settings?.aiApiKey || ''),
-    aiModel: String(boot.settings?.aiModel || 'google/gemma-3-4b-it'),
-    aiRolePrompt: String(boot.settings?.aiRolePrompt || ''),
     lastSeenReleaseNotesVersion: String(boot.settings?.lastSeenReleaseNotesVersion || ''),
   };
-  state.aiModel = state.settings.aiModel || 'google/gemma-3-4b-it';
-  state.aiRolePrompt = state.settings.aiRolePrompt || '';
   state.templates = Array.isArray(boot.templates) ? boot.templates.map((tpl) => ({ ...tpl })) : [];
   state.runtime = boot.runtime || {};
   state.runtime.appVersion = String(boot.appVersion || state.runtime.appVersion || '').trim();
@@ -1344,15 +1288,12 @@ async function init() {
   setActiveAccount('');
   updatePanelVisibility();
   applySettingsToForm();
-  WaDeckAiModule.renderAiModels([state.aiModel]);
   WaDeckScheduleModule.renderAttachmentsDraft();
   WaDeckScheduleModule.renderScheduleTarget();
   els.translateTargetLang.value = state.translateTargetLang;
   els.translateSourceLang.value = state.translateSourceLang;
   els.translateInput.value = '';
   els.translateOutput.value = '';
-  els.aiInput.value = '';
-  els.aiOutput.value = '';
   els.crmContactName.value = '';
   els.crmFullName.value = '';
   els.crmCountryCity.value = '';
@@ -1360,10 +1301,6 @@ async function init() {
   els.crmMyInfo.value = '';
   els.crmMeta.textContent = 'Файл: —';
   WaDeckCrmModule.setCrmEditable(false);
-  els.aiContextCount.value = String(state.aiContextCount);
-  els.aiReplySourceLang.checked = Boolean(state.aiReplySourceLang);
-  WaDeckAiModule.renderAiModeButtons();
-
   if (window.WaDeckTemplatesModule?.createTemplateController) {
     templateController = window.WaDeckTemplatesModule.createTemplateController({
       state,
@@ -1379,12 +1316,11 @@ async function init() {
 
   bindActions();
   WaDeckWeatherModule.startWeatherRefreshLoop();
-  WaDeckWeatherModule.refreshWeather().catch(() => {});
-  await WaDeckAiModule.refreshAiModels(false).catch(() => {});
+  WaDeckWeatherModule.refreshWeather().catch((e) => console.warn('[weather]', e));
   WaDeckScheduleModule.startScheduleRunner();
   WaDeckUnreadModule.startUnreadPolling();
   WaDeckUnreadModule.scheduleDockBadgeSync();
-  WaDeckAutoUpdateModule.maybeShowReleaseNotes().catch(() => {});
+  WaDeckAutoUpdateModule.maybeShowReleaseNotes().catch(console.error);
 
   setStatus(
     `Готово. Аккаунтов: ${state.accounts.length}, Electron ${state.runtime.electron || '?'}, Chromium ${state.runtime.chrome || '?'}`,

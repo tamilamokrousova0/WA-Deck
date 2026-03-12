@@ -1,6 +1,5 @@
 (function setupTranslateModule() {
-  let state, els, setStatus, runWithBusyButton, safeExecuteInWebview;
-  let getSelectedTextFromActiveWebview;
+  let state, els, setStatus, runWithBusyButton, safeExecuteInWebview, selectedWebview;
 
   function init(ctx) {
     state = ctx.state;
@@ -8,7 +7,17 @@
     setStatus = ctx.setStatus;
     runWithBusyButton = ctx.runWithBusyButton;
     safeExecuteInWebview = ctx.safeExecuteInWebview;
-    getSelectedTextFromActiveWebview = ctx.getSelectedTextFromActiveWebview;
+    selectedWebview = ctx.selectedWebview;
+  }
+
+  async function getSelectedTextFromActiveWebview() {
+    const webview = selectedWebview();
+    if (!webview) return '';
+    try {
+      return String(await webview.executeJavaScript(selectedTextScript(), true) || '').trim();
+    } catch {
+      return '';
+    }
   }
 
   function normalizeTranslateTargetLang(value) {
@@ -69,7 +78,7 @@
   function syncHoverTranslateTargetLang() {
     const targetLang = normalizeTranslateTargetLang(state.translateTargetLang || 'RU');
     for (const webview of state.webviews.values()) {
-      safeExecuteInWebview(webview, setHoverTranslateTargetLangScript(targetLang), true).catch(() => {});
+      safeExecuteInWebview(webview, setHoverTranslateTargetLangScript(targetLang), true).catch((e) => console.warn('[hover-lang]', e));
     }
   }
 

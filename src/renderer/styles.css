@@ -1052,49 +1052,6 @@ textarea[readonly] {
   flex: 1 1 150px;
 }
 
-.ai-mode-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.ai-mode-btn {
-  font-size: 11px;
-  padding: 7px 10px;
-}
-
-.ai-mode-btn.is-active {
-  border-color: #37c57e;
-  background: linear-gradient(180deg, #2dc37a 0%, #23995f 100%);
-  color: #042216;
-}
-
-.ai-advanced-row {
-  align-items: end;
-}
-
-.ai-inline-label {
-  min-width: 170px;
-}
-
-.ai-inline-label input {
-  width: 110px;
-}
-
-.ai-checkbox-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: #c2d4ee;
-  font-size: 12px;
-  line-height: 1.2;
-}
-
-.ai-checkbox-label input {
-  width: 14px;
-  height: 14px;
-}
-
 .grow {
   flex: 1 1 0;
 }
