@@ -58,6 +58,7 @@ const HOVER_TRANSLATE_LANG_OPTIONS = [
   { value: 'PT-PT', label: 'Португальский' },
   { value: 'TR', label: 'Турецкий' },
 ];
+window._waDeckLangOptions = HOVER_TRANSLATE_LANG_OPTIONS;
 
 const els = {
   appRoot: document.getElementById('app-root'),
@@ -194,91 +195,6 @@ const els = {
 };
 
 let templateController = null;
-const WEATHER_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
-const WEATHER_GEO_CACHE_LIMIT = 24;
-const CHAT_PICKER_CACHE_LIMIT = 24;
-const RELEASE_NOTES = {
-  '0.1.13': [
-    'Скрыта системная полоса прокрутки в левой панели WhatsApp-аккаунтов.',
-    'Добавлены стрелки вверх и вниз для прокрутки списка аккаунтов без перекрытия иконок.',
-  ],
-  '0.1.12': [
-    'Упрощён hover-перевод: убран выбор языка из popover.',
-    'Окно hover-перевода перенесено в фиксированную левую зону чата и сделано полупрозрачным.',
-    'Вертикальное положение hover-перевода сглажено, чтобы окно не прыгало резко между сообщениями.',
-  ],
-  '0.1.11': [
-    'Исправлено растягивание карточек WhatsApp в левой панели при малом количестве аккаунтов.',
-    'Карточки аккаунтов теперь всегда держат компактную высоту по содержимому.',
-  ],
-  '0.1.10': [
-    'Исправлен запуск приложения: webview больше не получает executeJavaScript до dom-ready.',
-    'Восстановлена корректная инициализация кнопок и виджетов после старта.',
-  ],
-  '0.1.9': [
-    'Исправлен hover-перевод сообщений: удалены дубли текста и хвосты со временем.',
-    'Для hover-перевода добавлен выбор языка прямо в popover сообщения.',
-    'В hover-перевод добавлена кнопка копирования результата.',
-  ],
-  '0.1.8': [
-    'Усилено извлечение текста: DOM + emoji alt + data-pre-plain-text + fallback через выделение строки.',
-    'Исправлен скролл списка WhatsApp в левой панели при большом количестве аккаунтов.',
-    'Модальные окна больше не закрываются по клику в пустое место — только через крестик.',
-    'Убрана функция экспорта чатов из интерфейса.',
-  ],
-  '0.1.7': [
-    'Добавлен hover-перевод сообщений через выбранный API-переводчик.',
-    'Добавлено правое меню в WhatsApp Web для копирования текста, ссылок и изображений.',
-    'Добавлено окно «Что нового» после обновления приложения.',
-  ],
-  '0.1.6': [
-    'Добавлен хаб-экран при запуске и переход по Esc.',
-    'Добавлено свободное перетаскивание WhatsApp в левой панели.',
-    'Улучшены погодный виджет и отображение непрочитанных сообщений.',
-  ],
-  '0.1.5': [
-    'Исправлена логика выбора чата для отложенной отправки.',
-    'Улучшен интерфейс панели и настройки обновления.',
-  ],
-};
-
-function normalizeWeatherUnit(value) {
-  return String(value || '').toLowerCase() === 'fahrenheit' ? 'fahrenheit' : 'celsius';
-}
-
-function normalizeWeatherCity(value) {
-  return String(value || '').trim() || 'Moscow';
-}
-
-function weatherUnitSuffix(unit) {
-  return normalizeWeatherUnit(unit) === 'fahrenheit' ? '°F' : '°C';
-}
-
-function weatherCodeToIcon(code, isDay = 1) {
-  const value = Number(code);
-  const daytime = Number(isDay) === 1;
-  if (value === 0) return daytime ? '☀️' : '🌙';
-  if ([1, 2].includes(value)) return daytime ? '🌤️' : '☁️';
-  if (value === 3) return '☁️';
-  if ([45, 48].includes(value)) return '🌫️';
-  if ([51, 53, 55, 56, 57, 80, 81, 82].includes(value)) return '🌧️';
-  if ([61, 63, 65, 66, 67].includes(value)) return '🌦️';
-  if ([71, 73, 75, 77, 85, 86].includes(value)) return '🌨️';
-  if ([95, 96, 99].includes(value)) return '⛈️';
-  return '🌡️';
-}
-
-function weatherCodeToRu(code) {
-  const value = Number(code);
-  if (value === 0) return 'Ясно';
-  if ([1, 2].includes(value)) return 'Переменная облачность';
-  if (value === 3) return 'Облачно';
-  if ([45, 48].includes(value)) return 'Туман';
-  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(value)) return 'Дождь';
-  if ([71, 73, 75, 77, 85, 86].includes(value)) return 'Снег';
-  if ([95, 96, 99].includes(value)) return 'Гроза';
-  return 'Погода';
-}
 
 function normalizeTheme(value) {
   return String(value || '').toLowerCase() === 'light' ? 'light' : 'dark';
@@ -293,10 +209,6 @@ function applyTheme(theme) {
   }
 }
 
-function getSelectedTranslateProvider() {
-  return els.translateProviderLibre?.checked ? 'libre' : 'deepl';
-}
-
 function platformPasteModifier() {
   const runtimePlatform = String(state.runtime?.platform || '').toLowerCase();
   if (runtimePlatform) {
@@ -304,22 +216,6 @@ function platformPasteModifier() {
   }
   const browserPlatform = String(navigator.platform || '').toLowerCase();
   return browserPlatform.includes('mac') ? 'meta' : 'control';
-}
-
-function normalizeTranslateTargetLang(value) {
-  const raw = String(value || '').trim().toUpperCase();
-  const matched = HOVER_TRANSLATE_LANG_OPTIONS.find((option) => option.value.toUpperCase() === raw);
-  return matched?.value || 'RU';
-}
-
-function setSelectedTranslateProvider(provider) {
-  const safe = String(provider || '').toLowerCase() === 'libre' ? 'libre' : 'deepl';
-  if (els.translateProviderDeepl) {
-    els.translateProviderDeepl.checked = safe === 'deepl';
-  }
-  if (els.translateProviderLibre) {
-    els.translateProviderLibre.checked = safe === 'libre';
-  }
 }
 
 function bindPasswordToggle(inputEl, toggleBtn, visibleTitle = 'Скрыть ключ', hiddenTitle = 'Показать ключ') {
@@ -393,293 +289,6 @@ function setHubVisibility(visible) {
   els.hubScreen.setAttribute('aria-hidden', visible ? 'false' : 'true');
 }
 
-function renderWeatherSummary({ city, icon, temperature, unit, loading }) {
-  if (!els.weatherCity || !els.weatherIcon || !els.weatherTemp || !els.weatherUnit) return;
-  const safeCity = normalizeWeatherCity(city || state.settings?.weatherCity);
-  const safeUnit = normalizeWeatherUnit(unit || state.settings?.weatherUnit);
-  els.weatherCity.textContent = safeCity;
-  els.weatherIcon.textContent = icon || '🌙';
-  els.weatherTemp.textContent = typeof temperature === 'number' ? `${Math.round(temperature)}${weatherUnitSuffix(safeUnit)}` : `--${weatherUnitSuffix(safeUnit)}`;
-  els.weatherUnit.textContent = safeUnit === 'fahrenheit' ? '°F' : '°C';
-  els.weatherToggle?.classList.toggle('is-loading', Boolean(loading));
-}
-
-function setWeatherMeta(text) {
-  if (!els.weatherMeta) return;
-  els.weatherMeta.textContent = String(text || '').trim() || 'Погода не загружена';
-  els.weatherMeta.title = els.weatherMeta.textContent;
-}
-
-function closeWeatherPopover() {
-  if (!els.weatherPopover) return;
-  els.weatherPopover.classList.add('hidden');
-}
-
-function toggleWeatherPopover() {
-  if (!els.weatherPopover || !els.weatherCityInput) return;
-  const hidden = els.weatherPopover.classList.contains('hidden');
-  if (hidden) {
-    els.weatherCityInput.value = normalizeWeatherCity(state.settings?.weatherCity);
-    els.weatherPopover.classList.remove('hidden');
-    setTimeout(() => {
-      els.weatherCityInput?.focus();
-      els.weatherCityInput?.select();
-    }, 0);
-    return;
-  }
-  closeWeatherPopover();
-}
-
-async function fetchJsonWithTimeout(url, timeoutMs = 9000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/json',
-      },
-    });
-    if (!response.ok) {
-      throw new Error(`http_${response.status}`);
-    }
-    return await response.json();
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function resolveWeatherCoords(city) {
-  const safeCity = normalizeWeatherCity(city);
-  const cacheKey = safeCity.toLowerCase();
-  if (state.weatherGeoCache.has(cacheKey)) {
-    return state.weatherGeoCache.get(cacheKey);
-  }
-  const geocodeUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(safeCity)}&count=1&language=ru&format=json`;
-  const payload = await fetchJsonWithTimeout(geocodeUrl, 9000);
-  const row = Array.isArray(payload?.results) ? payload.results[0] : null;
-  if (!row) {
-    throw new Error('city_not_found');
-  }
-  const coords = {
-    city: String(row.name || safeCity),
-    latitude: Number(row.latitude),
-    longitude: Number(row.longitude),
-  };
-  state.weatherGeoCache.set(cacheKey, coords);
-  trimMapSize(state.weatherGeoCache, WEATHER_GEO_CACHE_LIMIT);
-  return coords;
-}
-
-async function refreshWeather(forceCity = '') {
-  const city = normalizeWeatherCity(forceCity || state.settings?.weatherCity);
-  const unit = normalizeWeatherUnit(state.settings?.weatherUnit);
-  renderWeatherSummary({ city, unit, loading: true });
-  setWeatherMeta('Обновляю погоду...');
-
-  try {
-    const coords = await resolveWeatherCoords(city);
-    const forecastUrl =
-      `https://api.open-meteo.com/v1/forecast?latitude=${coords.latitude}` +
-      `&longitude=${coords.longitude}` +
-      '&current=temperature_2m,weather_code,is_day' +
-      '&timezone=auto' +
-      `&temperature_unit=${unit}`;
-    const payload = await fetchJsonWithTimeout(forecastUrl, 9000);
-    const current = payload?.current || {};
-    const weatherCode = Number(current.weather_code);
-    const temperature = Number(current.temperature_2m);
-    const isDay = Number(current.is_day || 0);
-    const icon = weatherCodeToIcon(weatherCode, isDay);
-    const weatherText = weatherCodeToRu(weatherCode);
-
-    renderWeatherSummary({
-      city: coords.city,
-      icon,
-      temperature,
-      unit,
-      loading: false,
-    });
-    const hhmm = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    setWeatherMeta(`${weatherText} • обновлено ${hhmm}`);
-  } catch (error) {
-    renderWeatherSummary({ city, unit, loading: false });
-    if (String(error?.message || '').includes('city_not_found')) {
-      setWeatherMeta('Город не найден');
-    } else {
-      setWeatherMeta('Не удалось получить погоду');
-    }
-  }
-}
-
-async function saveWeatherSettings() {
-  const draftCity = normalizeWeatherCity(els.weatherCityInput?.value || state.settings?.weatherCity);
-  const draftUnit = normalizeWeatherUnit(state.settings?.weatherUnit);
-  const nextSettings = await window.waDeck.saveSettings({
-    weatherCity: draftCity,
-    weatherUnit: draftUnit,
-  });
-  state.settings = {
-    ...(state.settings || {}),
-    ...(nextSettings || {}),
-  };
-  renderWeatherSummary({
-    city: state.settings.weatherCity,
-    unit: state.settings.weatherUnit,
-    loading: false,
-  });
-  closeWeatherPopover();
-  await refreshWeather(state.settings.weatherCity);
-}
-
-async function toggleWeatherUnit() {
-  const nextUnit = normalizeWeatherUnit(state.settings?.weatherUnit) === 'celsius' ? 'fahrenheit' : 'celsius';
-  state.settings.weatherUnit = nextUnit;
-  renderWeatherSummary({
-    city: state.settings.weatherCity,
-    unit: nextUnit,
-    loading: false,
-  });
-  const nextSettings = await window.waDeck.saveSettings({
-    weatherUnit: nextUnit,
-    weatherCity: normalizeWeatherCity(state.settings?.weatherCity),
-  });
-  state.settings = {
-    ...(state.settings || {}),
-    ...(nextSettings || {}),
-  };
-  await refreshWeather(state.settings.weatherCity);
-}
-
-function startWeatherRefreshLoop() {
-  if (state.weatherRefreshTimer) {
-    clearInterval(state.weatherRefreshTimer);
-    state.weatherRefreshTimer = null;
-  }
-  state.weatherRefreshTimer = setInterval(() => {
-    refreshWeather().catch(() => {});
-  }, WEATHER_REFRESH_INTERVAL_MS);
-}
-
-function handleAutoUpdateStatus(payload = {}) {
-  const status = String(payload?.status || '').trim();
-  const message = String(payload?.message || '').trim() || 'временно недоступно';
-  const version = String(payload?.version || '').trim();
-  const percent = Number(payload?.percent || 0);
-
-  if (status === 'disabled') {
-    setStatus('Обновление доступно только в собранной версии');
-    return;
-  }
-  if (status === 'checking') {
-    setStatus('Обновление: проверка...');
-    return;
-  }
-  if (status === 'available') {
-    setStatus(`Обновление: доступна версия ${version || 'новая'}`);
-    return;
-  }
-  if (status === 'downloading') {
-    setStatus(`Обновление: загрузка ${Math.max(0, Math.min(100, percent))}%`);
-    return;
-  }
-  if (status === 'downloaded') {
-    setStatus(`Обновление ${version || ''} загружено`);
-    if (version && RELEASE_NOTES[version]) {
-      els.releaseNotesTitle.textContent = 'Что нового в обновлении';
-      els.releaseNotesVersion.textContent = `Версия ${version}`;
-      renderReleaseNotes([version]);
-      els.releaseNotesModal.classList.remove('hidden');
-    }
-    return;
-  }
-  if (status === 'not-available') {
-    setStatus(`Обновление: ${message}`);
-    return;
-  }
-  if (status === 'error') {
-    setStatus(`Обновление: ${message}`);
-  }
-}
-
-function compareVersions(a, b) {
-  const pa = String(a || '')
-    .replace(/^v/i, '')
-    .split('.')
-    .map((part) => Number(part) || 0);
-  const pb = String(b || '')
-    .replace(/^v/i, '')
-    .split('.')
-    .map((part) => Number(part) || 0);
-  const len = Math.max(pa.length, pb.length);
-  for (let i = 0; i < len; i += 1) {
-    const diff = (pa[i] || 0) - (pb[i] || 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
-
-function renderReleaseNotes(versions = []) {
-  if (!els.releaseNotesList) return;
-  els.releaseNotesList.innerHTML = '';
-  for (const version of versions) {
-    const card = document.createElement('div');
-    card.className = 'release-notes-version-block';
-
-    const title = document.createElement('div');
-    title.className = 'release-notes-version-title';
-    title.textContent = `Версия ${version}`;
-
-    const list = document.createElement('ul');
-    for (const line of RELEASE_NOTES[version] || []) {
-      const item = document.createElement('li');
-      item.textContent = line;
-      list.appendChild(item);
-    }
-
-    card.append(title, list);
-    els.releaseNotesList.appendChild(card);
-  }
-}
-
-async function markReleaseNotesSeen(version) {
-  const safeVersion = String(version || '').trim();
-  if (!safeVersion) return;
-  const next = await window.waDeck.saveSettings({
-    lastSeenReleaseNotesVersion: safeVersion,
-  });
-  state.settings = {
-    ...(state.settings || {}),
-    ...(next || {}),
-  };
-}
-
-async function maybeShowReleaseNotes() {
-  const currentVersion = String(state.runtime?.appVersion || '').trim();
-  const lastSeen = String(state.settings?.lastSeenReleaseNotesVersion || '').trim();
-  if (!currentVersion || compareVersions(currentVersion, lastSeen) <= 0) return;
-
-  const versions = Object.keys(RELEASE_NOTES)
-    .filter((version) => compareVersions(version, lastSeen || '0.0.0') > 0 && compareVersions(version, currentVersion) <= 0)
-    .sort(compareVersions)
-    .reverse();
-  if (!versions.length) {
-    await markReleaseNotesSeen(currentVersion);
-    return;
-  }
-
-  els.releaseNotesTitle.textContent = 'Что нового';
-  els.releaseNotesVersion.textContent = `Обновление до версии ${currentVersion}`;
-  renderReleaseNotes(versions);
-  els.releaseNotesModal.classList.remove('hidden');
-}
-
-async function closeReleaseNotesModal() {
-  els.releaseNotesModal.classList.add('hidden');
-  await markReleaseNotesSeen(String(state.runtime?.appVersion || '').trim());
-}
-
 function playFrogMoneyBurst() {
   if (!els.brandFrog || !els.brandMoneyBurst) return;
   els.brandFrog.classList.remove('is-burst');
@@ -712,168 +321,6 @@ function playFrogMoneyBurst() {
   setTimeout(() => {
     els.brandFrog?.classList.remove('is-burst');
   }, 720);
-}
-
-async function requestManualUpdate() {
-  if (!window.waDeck?.checkForUpdates) {
-    setStatus('Обновление недоступно');
-    return;
-  }
-  els.manualUpdate?.classList.add('is-loading');
-  const response = await window.waDeck.checkForUpdates({ source: 'manual_button' });
-  if (response?.ok) {
-    setStatus('Обновление: запрос отправлен');
-  } else if (response?.error === 'not_packaged') {
-    setStatus('Обновление доступно только в .dmg/.exe сборке');
-  } else if (response?.error === 'mac_signature_required') {
-    setStatus('Для macOS: обновление вручную через GitHub Releases');
-  } else if (response?.error) {
-    setStatus(`Обновление: ${response.error}`);
-  }
-  setTimeout(() => {
-    els.manualUpdate?.classList.remove('is-loading');
-  }, 520);
-}
-
-function scheduleDockBadgeSync() {
-  if (state.dockBadgeTimer) {
-    return;
-  }
-
-  state.dockBadgeTimer = setTimeout(async () => {
-    state.dockBadgeTimer = null;
-    const total = state.accounts.reduce((acc, account) => {
-      const count = Number(state.unreadByAccount.get(account.id) || 0);
-      return acc + Math.max(0, count);
-    }, 0);
-
-    const result = await window.waDeck.setDockBadge({ count: total }).catch(() => null);
-    if (!result?.ok) {
-      // keep silent in UI, but allow next attempts
-      return;
-    }
-  }, 250);
-}
-
-function parseUnreadFromTitle(title) {
-  const match = String(title || '').match(/\((\d+)\)/);
-  if (!match) return 0;
-  return Number(match[1] || 0) || 0;
-}
-
-function updateActiveUnreadIndicator() {
-  const activeId = state.activeAccountId;
-  const count = activeId ? Number(state.unreadByAccount.get(activeId) || 0) : 0;
-  if (count > 0) {
-    els.activeUnread.classList.remove('hidden');
-    els.activeUnreadCount.textContent = count > 99 ? '99+' : String(count);
-  } else {
-    els.activeUnread.classList.add('hidden');
-    els.activeUnreadCount.textContent = '0';
-  }
-}
-
-function setUnreadCount(accountId, count) {
-  const safeId = String(accountId || '');
-  if (!safeId) return;
-  const safeCount = Math.max(0, Number(count) || 0);
-  const prev = Number(state.unreadByAccount.get(safeId) || 0);
-  if (prev === safeCount) {
-    updateActiveUnreadIndicator();
-    scheduleDockBadgeSync();
-    return;
-  }
-  state.unreadByAccount.set(safeId, safeCount);
-  if (!patchAccountUnreadBadge(safeId)) {
-    renderAccounts();
-  }
-  updateActiveUnreadIndicator();
-  scheduleDockBadgeSync();
-}
-
-function findAccountCard(accountId) {
-  const safeId = String(accountId || '').trim();
-  if (!safeId || !els.accountsList) return null;
-  return Array.from(els.accountsList.children || []).find((node) => node.dataset?.accountId === safeId) || null;
-}
-
-function patchAccountUnreadBadge(accountId) {
-  const card = findAccountCard(accountId);
-  if (!card) return false;
-
-  const unread = Number(state.unreadByAccount.get(accountId) || 0);
-  let badge = card.querySelector('.account-unread');
-
-  if (unread > 0) {
-    if (!badge) {
-      badge = document.createElement('div');
-      badge.className = 'account-unread';
-      card.appendChild(badge);
-    }
-    badge.textContent = unread > 99 ? '99+' : String(unread);
-  } else if (badge) {
-    badge.remove();
-  }
-
-  return true;
-}
-
-function mapTranslateError(response) {
-  const code = String(response?.errorCode || response?.error || '').trim();
-  const raw = String(response?.error || '').trim();
-
-  if (code === 'deepl_api_key_required') return 'Укажите DeepL API Key в настройках';
-  if (code === 'deepl_api_key_invalid') return 'Неверный DeepL API Key';
-  if (code === 'deepl_quota_exceeded') return 'Превышена квота DeepL API';
-  if (code === 'deepl_rate_limited') return 'Слишком много запросов к DeepL API';
-  if (code === 'deepl_server_error') return 'Сервер DeepL временно недоступен';
-  if (code === 'deepl_api_timeout') return 'DeepL API не ответил вовремя (timeout)';
-  if (code === 'deepl_api_network_error') return `Сетевая ошибка: ${raw || 'нет соединения'}`;
-  if (code === 'deepl_api_request_failed') return `Ошибка DeepL API: ${raw || 'request failed'}`;
-  if (code === 'libre_api_key_invalid') return 'Неверный LibreTranslate API Key';
-  if (code === 'libre_rate_limited') return 'Слишком много запросов к LibreTranslate';
-  if (code === 'libre_bad_request') return `Некорректный запрос к LibreTranslate: ${raw || 'проверьте параметры'}`;
-  if (code === 'libre_server_error') return 'Сервер LibreTranslate временно недоступен';
-  if (code === 'libre_api_timeout') return 'LibreTranslate API не ответил вовремя (timeout)';
-  if (code === 'libre_api_network_error') return `Сетевая ошибка LibreTranslate: ${raw || 'нет соединения'}`;
-  if (code === 'libre_api_request_failed') return `Ошибка LibreTranslate API: ${raw || 'request failed'}`;
-  if (code === 'empty_translation') return 'API вернул пустой перевод';
-  if (code === 'text_required') return 'Нет текста для перевода';
-
-  if (raw) return raw;
-  return 'Ошибка перевода';
-}
-
-function mapAiError(response) {
-  const code = String(response?.errorCode || response?.error || '').trim();
-  const raw = String(response?.error || '').trim();
-
-  if (code === 'ai_api_key_required') return 'Укажите API key для AI в настройках';
-  if (code === 'ai_api_key_invalid') return 'Неверный API key для AI';
-  if (code === 'ai_message_required') return 'Нет текста сообщения для генерации';
-  if (code === 'ai_model_required') return 'Укажите модель AI в настройках';
-  if (code === 'ai_bad_request') return `Некорректный запрос к AI API: ${raw || 'проверьте модель и параметры'}`;
-  if (code === 'ai_rate_limited') return 'Лимит запросов AI превышен';
-  if (code === 'ai_server_error') return 'Сервер AI временно недоступен';
-  if (code === 'ai_timeout') return 'AI не ответил вовремя';
-  if (code === 'ai_network_error') return `Сетевая ошибка AI: ${raw || 'нет соединения'}`;
-  if (code === 'ai_empty_response') return 'AI вернул пустой ответ';
-
-  if (raw) return raw;
-  return 'Ошибка AI';
-}
-
-function mapAiModelsError(response) {
-  const code = String(response?.errorCode || response?.error || '').trim();
-  const raw = String(response?.error || '').trim();
-
-  if (code === 'aiml_models_timeout') return 'Не удалось загрузить список моделей: таймаут';
-  if (code === 'aiml_models_empty') return 'AIMLAPI не вернул доступные chat-модели';
-  if (code === 'aiml_models_http_error') return `Ошибка AIMLAPI при загрузке моделей: ${raw || 'HTTP error'}`;
-  if (code === 'aiml_models_fetch_failed') return `Сетевая ошибка загрузки моделей: ${raw || 'нет соединения'}`;
-
-  if (raw) return raw;
-  return 'Не удалось загрузить список моделей';
 }
 
 function formatDateTime(iso) {
@@ -1151,8 +598,8 @@ function ensureWebview(account) {
 
   webview.addEventListener('page-title-updated', (event) => {
     const title = String(event?.title || '');
-    const count = parseUnreadFromTitle(title);
-    setUnreadCount(account.id, count);
+    const count = WaDeckUnreadModule.parseUnreadFromTitle(title);
+    WaDeckUnreadModule.setUnreadCount(account.id, count);
   });
 
   const bindDomHelpers = () => {
@@ -1162,229 +609,7 @@ function ensureWebview(account) {
     }
 
     webview
-      .executeJavaScript(
-        `(() => {
-          if (window.__waDeckBridgeBound) return true;
-          window.__waDeckBridgeBound = true;
-          window.__waDeckLastClickedText = '';
-
-          const normalize = (value) =>
-            String(value || '')
-              .replace(/\\u200e|\\u200f/g, '')
-              .replace(/\\u00a0/g, ' ')
-              .replace(/\\r/g, '')
-              .replace(/[ \\t]+\\n/g, '\\n')
-              .replace(/\\n[ \\t]+/g, '\\n')
-              .replace(/[ \\t]{2,}/g, ' ')
-              .trim();
-
-          const extractTextFromNode = (node) => {
-            if (!node) return '';
-            if (node.nodeType === Node.TEXT_NODE) {
-              return node.nodeValue || '';
-            }
-            if (node.nodeType !== Node.ELEMENT_NODE) {
-              return '';
-            }
-
-            const element = node;
-            const tag = String(element.tagName || '').toUpperCase();
-
-            if (tag === 'BR') return '\\n';
-            if (tag === 'IMG') {
-              const alt = normalize(element.getAttribute('alt') || '');
-              const looksLikeEmoji = /[\p{Extended_Pictographic}\u2600-\u27BF]/u.test(alt);
-              const hasLetters = /[A-Za-zА-Яа-я]/u.test(alt);
-              return looksLikeEmoji || (!hasLetters && alt.length <= 4) ? alt : '';
-            }
-            if (tag === 'SPAN' && element.getAttribute('data-icon') === 'reaction') {
-              return '';
-            }
-
-            let out = '';
-            for (const child of Array.from(element.childNodes || [])) {
-              out += extractTextFromNode(child);
-            }
-            return out;
-          };
-
-          const selectNodeText = (node) => {
-            if (!node) return '';
-            const selection = window.getSelection();
-            if (!selection) return '';
-            const saved = [];
-            for (let i = 0; i < selection.rangeCount; i += 1) {
-              saved.push(selection.getRangeAt(i).cloneRange());
-            }
-            let text = '';
-            try {
-              const range = document.createRange();
-              range.selectNodeContents(node);
-              selection.removeAllRanges();
-              selection.addRange(range);
-              text = selection.toString() || '';
-            } catch {
-              text = '';
-            } finally {
-              selection.removeAllRanges();
-              for (const range of saved) {
-                try {
-                  selection.addRange(range);
-                } catch {
-                  // ignore restore failures
-                }
-              }
-            }
-            return text;
-          };
-
-          const extractMessageFromRow = (row) => {
-            if (!row) return '';
-            const stripWhatsappPrefix = (line) =>
-              String(line || '')
-                .replace(/^\\[\\d{1,2}:\\d{2}(?:,\\s*[^\\]]+)?\\]\\s*[^:]{1,80}:\\s*/u, '')
-                .replace(/^\\d{1,2}:\\d{2}\\s*[-–—]\\s*[^:]{1,80}:\\s*/u, '');
-            const stripTrailingMeta = (line) =>
-              String(line || '')
-                .replace(/[ \\t]+(?:\\d{1,2}:\\d{2}(?::\\d{2})?)$/u, '')
-                .replace(/[ \\t]+(?:вчера|сегодня)$/iu, '')
-                .trim();
-            const dedupeLines = (lines) => {
-              const seen = new Set();
-              const out = [];
-              for (const line of lines) {
-                const normalizedLine = normalize(line);
-                if (!normalizedLine) continue;
-                if (seen.has(normalizedLine)) continue;
-                seen.add(normalizedLine);
-                out.push(normalizedLine);
-              }
-              return out;
-            };
-            const collapseRepeatedText = (value) => {
-              const text = normalize(value);
-              if (!text) return '';
-              const lines = dedupeLines(
-                text
-                  .split('\\n')
-                  .map((line) => stripTrailingMeta(stripWhatsappPrefix(line)))
-                  .filter(Boolean),
-              );
-              const joined = normalize(lines.join('\\n'));
-              if (!joined) return '';
-
-              for (let parts = 2; parts <= 6; parts += 1) {
-                if (joined.length % parts !== 0) continue;
-                const chunkLength = joined.length / parts;
-                if (chunkLength < 8) continue;
-                const chunk = joined.slice(0, chunkLength);
-                if (chunk.repeat(parts) === joined) {
-                  return normalize(chunk);
-                }
-              }
-              return joined;
-            };
-            const cleanupMeta = (value) => {
-              if (!value) return '';
-              const lines = String(value)
-                .split('\\n')
-                .map((line) => normalize(stripTrailingMeta(stripWhatsappPrefix(line))))
-                .filter(Boolean)
-                .filter((line) => !/^\\d{1,2}:\\d{2}$/.test(line))
-                .filter((line) => !/^\\d{1,2}:\\d{2}:\\d{2}$/.test(line))
-                .filter((line) => !/^\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}$/.test(line));
-              return collapseRepeatedText(lines.join('\\n'));
-            };
-            const prefixInfo = (() => {
-              const raw = String(row.getAttribute('data-pre-plain-text') || '').trim();
-              const match = raw.match(/^\\[(.+?)\\]\\s*([^:]+):\\s*$/u);
-              return {
-                raw,
-                timestamp: normalize(match?.[1] || ''),
-                author: normalize(match?.[2] || ''),
-              };
-            })();
-
-            const containerCandidates = [
-              ...Array.from(row.querySelectorAll('[data-testid=\"msg-text\"]')),
-              ...Array.from(row.querySelectorAll('[data-testid=\"media-caption\"], [data-testid=\"caption\"]')),
-            ];
-            const candidates = [
-              ...containerCandidates,
-              ...Array.from(
-                row.querySelectorAll(
-                  'span.selectable-text.copyable-text, span.selectable-text, div.selectable-text.copyable-text'
-                ),
-              ),
-            ];
-
-            const primaryTexts = [];
-            const uniqueTexts = [];
-            const pushPrimaryText = (value) => {
-              const text = cleanupMeta(value);
-              if (!text) return;
-              if (primaryTexts.includes(text)) return;
-              primaryTexts.push(text);
-            };
-            const pushUniqueText = (value) => {
-              const text = cleanupMeta(value);
-              if (!text) return;
-              if (uniqueTexts.includes(text)) return;
-              uniqueTexts.push(text);
-            };
-
-            let best = '';
-            for (const candidate of containerCandidates) {
-              const text = extractTextFromNode(candidate);
-              pushPrimaryText(text);
-              pushUniqueText(text);
-            }
-            for (const candidate of candidates) {
-              pushUniqueText(extractTextFromNode(candidate));
-            }
-
-            if (primaryTexts.length) {
-              primaryTexts.sort((a, b) => a.length - b.length);
-              best = primaryTexts[0];
-            } else if (uniqueTexts.length) {
-              uniqueTexts.sort((a, b) => a.length - b.length);
-              best = uniqueTexts[0];
-            }
-
-            if (!best) {
-              const clone = row.cloneNode(true);
-              const metaNodes = clone.querySelectorAll(
-                '[data-testid=\"msg-meta\"], [data-testid=\"msg-time\"], time, [aria-label*=\"Delivered\"], [aria-label*=\"Read\"], [aria-label*=\"Отправ\"], [aria-label*=\"Прочит\"], [aria-label*=\"opened\"], [aria-label*=\"Просмотр\"], [aria-label*=\"Open\"], [data-testid=\"media-viewer-caption\"]'
-              );
-              metaNodes.forEach((node) => node.remove());
-              best = cleanupMeta(extractTextFromNode(clone));
-            }
-
-            if (!best) {
-              best = cleanupMeta(selectNodeText(row));
-            }
-
-            if (!best && prefixInfo.raw) {
-              best = cleanupMeta(prefixInfo.raw);
-            }
-
-            return best;
-          };
-
-          window.__waDeckNormalizeText = normalize;
-          window.__waDeckExtractMessageFromRow = extractMessageFromRow;
-
-          document.addEventListener('click', (event) => {
-            const row = event.target && event.target.closest ? event.target.closest('[data-pre-plain-text]') : null;
-            if (!row) return;
-            const text = extractMessageFromRow(row);
-            if (text) window.__waDeckLastClickedText = text;
-          }, true);
-
-          return true;
-        })();`,
-        true,
-      )
+      .executeJavaScript(bridgeScript(), true)
       .catch(() => {});
 
     webview.executeJavaScript(hoverTranslateBridgeScript(state.translateTargetLang), true).catch(() => {});
@@ -1395,7 +620,7 @@ function ensureWebview(account) {
   webview.addEventListener('console-message', (event) => {
     const message = String(event?.message || '');
     if (!message.startsWith('__WADECK_HOVER_TRANSLATE__')) return;
-    handleHoverTranslateMessage(account.id, message).catch(console.error);
+    WaDeckTranslateModule.handleHoverTranslateMessage(account.id, message).catch(console.error);
   });
 
   state.webviews.set(account.id, webview);
@@ -1435,15 +660,15 @@ function openHubMode() {
 }
 
 function handleEscapeUiReset() {
-  closeWeatherPopover();
-  closeChatPicker();
+  WaDeckWeatherModule.closeWeatherPopover();
+  WaDeckScheduleModule.closeChatPicker();
   closeSettingsPanel();
-  closeTranslateModal();
+  WaDeckTranslateModule.closeTranslateModal();
   if (els.releaseNotesModal && !els.releaseNotesModal.classList.contains('hidden')) {
-    closeReleaseNotesModal().catch(() => {});
+    WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(() => {});
   }
-  closeAiModal();
-  closeCrmModal();
+  WaDeckAiModule.closeAiModal();
+  WaDeckCrmModule.closeCrmModal();
   closeAccountMenu();
 }
 
@@ -1459,7 +684,7 @@ function setActiveAccount(accountId) {
   renderAccounts();
   updateActiveAccountDisplay();
   updateFreezeButtonState();
-  updateActiveUnreadIndicator();
+  WaDeckUnreadModule.updateActiveUnreadIndicator();
   refreshWebviewVisibility();
   const account = activeAccount();
   if (account) {
@@ -1471,21 +696,21 @@ function setActiveAccount(accountId) {
     if (!state.scheduleTarget.accountId) {
       state.scheduleTarget.accountId = account.id;
       state.scheduleTarget.accountName = account.name;
-      renderScheduleTarget();
+      WaDeckScheduleModule.renderScheduleTarget();
     }
   } else {
     setStatus('Нет активного аккаунта');
   }
-  scheduleDockBadgeSync();
-  renderScheduled().catch(console.error);
+  WaDeckUnreadModule.scheduleDockBadgeSync();
+  WaDeckScheduleModule.renderScheduled().catch(console.error);
 }
 
 function applySettingsToForm() {
   state.settings.uiTheme = normalizeTheme(state.settings.uiTheme);
-  state.settings.weatherCity = normalizeWeatherCity(state.settings.weatherCity);
-  state.settings.weatherUnit = normalizeWeatherUnit(state.settings.weatherUnit);
+  state.settings.weatherCity = WaDeckWeatherModule.normalizeWeatherCity(state.settings.weatherCity);
+  state.settings.weatherUnit = WaDeckWeatherModule.normalizeWeatherUnit(state.settings.weatherUnit);
   applyTheme(state.settings.uiTheme);
-  setSelectedTranslateProvider(state.settings.translateProvider || 'deepl');
+  WaDeckTranslateModule.setSelectedTranslateProvider(state.settings.translateProvider || 'deepl');
   els.deeplApiKey.value = state.settings.deeplApiKey || '';
   els.libreTranslateUrl.value = state.settings.libreTranslateUrl || 'https://libretranslate.com/translate';
   els.libreTranslateApiKey.value = state.settings.libreTranslateApiKey || '';
@@ -1497,56 +722,12 @@ function applySettingsToForm() {
   if (els.weatherCityInput) {
     els.weatherCityInput.value = state.settings.weatherCity;
   }
-  renderWeatherSummary({
+  WaDeckWeatherModule.renderWeatherSummary({
     city: state.settings.weatherCity,
     unit: state.settings.weatherUnit,
     loading: false,
   });
-  syncHoverTranslateTargetLang();
-}
-
-function renderAiModels(models = []) {
-  const current = String(state.settings?.aiModel || state.aiModel || 'google/gemma-3-4b-it').trim();
-  const uniq = Array.from(
-    new Set(['google/gemma-3-4b-it', ...models.map((row) => String(row || '').trim()).filter(Boolean)]),
-  );
-
-  els.aiModel.innerHTML = '';
-  for (const model of uniq) {
-    const option = document.createElement('option');
-    option.value = model;
-    option.textContent = model;
-    els.aiModel.appendChild(option);
-  }
-
-  if (uniq.includes(current)) {
-    els.aiModel.value = current;
-  } else {
-    els.aiModel.value = uniq[0] || 'google/gemma-3-4b-it';
-  }
-
-  state.aiModel = els.aiModel.value;
-}
-
-async function refreshAiModels(force = false) {
-  const keyExists = Boolean(String(els.aiApiKey.value || state.settings?.aiApiKey || '').trim());
-  if (!keyExists && !force) {
-    renderAiModels([]);
-    return;
-  }
-
-  const response = await window.waDeck.listAiModels({ force: Boolean(force) });
-  if (!response?.ok) {
-    renderAiModels([]);
-    if (force || keyExists) {
-      setStatus(mapAiModelsError(response));
-    }
-    return;
-  }
-
-  const models = Array.isArray(response.models) ? response.models : [];
-  renderAiModels(models);
-  setStatus(`Моделей AI загружено: ${models.length}`);
+  WaDeckTranslateModule.syncHoverTranslateTargetLang();
 }
 
 function updatePanelVisibility() {
@@ -1559,7 +740,7 @@ function openSettingsPanel() {
   updatePanelVisibility();
   if (!els.crmModal.classList.contains('hidden')) {
     setTimeout(() => {
-      updateCrmModalPosition().catch(() => {});
+      WaDeckCrmModule.updateCrmModalPosition().catch(() => {});
     }, 40);
   }
 }
@@ -1569,162 +750,9 @@ function closeSettingsPanel() {
   updatePanelVisibility();
   if (!els.crmModal.classList.contains('hidden')) {
     setTimeout(() => {
-      updateCrmModalPosition().catch(() => {});
+      WaDeckCrmModule.updateCrmModalPosition().catch(() => {});
     }, 40);
   }
-}
-
-function renderScheduleTarget() {
-  if (!state.scheduleTarget.accountId || !state.scheduleTarget.chatName) {
-    els.scheduleTarget.value = '';
-    return;
-  }
-  els.scheduleTarget.value = `${state.scheduleTarget.accountName} / ${state.scheduleTarget.chatName}`;
-}
-
-function collectChatsFromSidebarScript() {
-  return `(async () => {
-    const normalize = (value) => String(value || '').replace(/\\u200e/g, '').replace(/\\s+/g, ' ').trim();
-    const looksLikeTime = (value) => /^\\d{1,2}:\\d{2}$/.test(value) || /^\\d{1,2}\\.\\d{1,2}\\.\\d{2,4}$/.test(value);
-    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    const pane = document.querySelector('#pane-side');
-    if (!pane) return [];
-
-      const takeTitles = () => {
-        const set = new Set();
-        const items = Array.from(
-          document.querySelectorAll('#pane-side [role="listitem"], #pane-side [data-testid="cell-frame-container"], #pane-side [aria-selected]')
-        );
-        for (const item of items) {
-          const byTitle = Array.from(
-            item.querySelectorAll(
-              '[data-testid="cell-frame-title"] span[title], [data-testid="cell-frame-title"] div[title], [data-testid="conversation-list-item-title"] span[title]',
-            ),
-          )
-            .map((node) => normalize(node.getAttribute('title') || ''))
-            .find((text) => text && !looksLikeTime(text));
-          if (byTitle) {
-            set.add(byTitle);
-            continue;
-          }
-          const byGenericTitle = Array.from(item.querySelectorAll('span[title], div[title]'))
-            .map((node) => normalize(node.getAttribute('title') || ''))
-            .find((text) => text && !looksLikeTime(text));
-          if (byGenericTitle) {
-            set.add(byGenericTitle);
-            continue;
-          }
-          const lines = String(item.innerText || '')
-            .split('\\n')
-            .map((line) => normalize(line))
-            .filter((line) => line && !looksLikeTime(line));
-        if (lines[0]) set.add(lines[0]);
-      }
-      return set;
-    };
-
-    const out = new Set();
-    pane.scrollTop = 0;
-    await sleep(120);
-
-    let idle = 0;
-    for (let round = 0; round < 40 && idle < 3; round += 1) {
-      for (const title of takeTitles()) out.add(title);
-      const prev = pane.scrollTop;
-      pane.scrollTop += Math.max(120, Math.floor(pane.clientHeight * 0.82));
-      await sleep(110);
-      if (pane.scrollTop === prev) idle += 1;
-      else idle = 0;
-    }
-
-    pane.scrollTop = 0;
-    await sleep(60);
-    for (const title of takeTitles()) out.add(title);
-
-    return Array.from(out).sort((a, b) => a.localeCompare(b));
-  })();`;
-}
-
-async function fetchChatsForAccount(accountId, force = false) {
-  const safeAccountId = String(accountId || '').trim();
-  if (!safeAccountId) return [];
-
-  const cached = state.chatPickerCache.get(safeAccountId);
-  if (!force && cached && Date.now() - cached.at < 30000) {
-    return cached.chats;
-  }
-
-  const webview = state.webviews.get(safeAccountId);
-  if (!webview) return [];
-
-  let chats = [];
-  try {
-    chats = await webview.executeJavaScript(collectChatsFromSidebarScript(), true);
-  } catch {
-    chats = [];
-  }
-
-  const normalized = Array.isArray(chats)
-    ? chats.map((chat) => String(chat || '').trim()).filter(Boolean)
-    : [];
-
-  state.chatPickerCache.set(safeAccountId, { at: Date.now(), chats: normalized });
-  trimMapSize(state.chatPickerCache, CHAT_PICKER_CACHE_LIMIT);
-  return normalized;
-}
-
-async function refreshPickerChats(force = false) {
-  const accountId = String(els.pickerAccount.value || '').trim();
-  const account = accountById(accountId);
-  if (account?.frozen) {
-    els.pickerChat.innerHTML = '';
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = 'Аккаунт заморожен — сначала разморозьте его';
-    els.pickerChat.appendChild(option);
-    return;
-  }
-  const chats = await fetchChatsForAccount(accountId, force);
-
-  els.pickerChat.innerHTML = '';
-  if (!chats.length) {
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = 'Чаты не найдены (откройте WhatsApp и дождитесь загрузки)';
-    els.pickerChat.appendChild(option);
-    return;
-  }
-
-  for (const chat of chats) {
-    const option = document.createElement('option');
-    option.value = chat;
-    option.textContent = chat;
-    els.pickerChat.appendChild(option);
-  }
-}
-
-async function openChatPicker() {
-  els.pickerAccount.innerHTML = '';
-  for (const account of state.accounts) {
-    const option = document.createElement('option');
-    option.value = account.id;
-    option.textContent = account.frozen ? `${account.name} (заморожен)` : account.name;
-    els.pickerAccount.appendChild(option);
-  }
-
-  const preferred = state.scheduleTarget.accountId || state.activeAccountId || state.accounts[0]?.id || '';
-  els.pickerAccount.value = preferred;
-
-  await refreshPickerChats(true);
-  if (state.scheduleTarget.accountId === preferred && state.scheduleTarget.chatName) {
-    els.pickerChat.value = state.scheduleTarget.chatName;
-  }
-
-  els.chatPickerModal.classList.remove('hidden');
-}
-
-function closeChatPicker() {
-  els.chatPickerModal.classList.add('hidden');
 }
 
 function openAccountMenu(accountId) {
@@ -1793,7 +821,7 @@ async function saveAccountFromMenu() {
 
   if (state.scheduleTarget.accountId === accountId) {
     state.scheduleTarget.accountName = String(currentAccount.name || nextName);
-    renderScheduleTarget();
+    WaDeckScheduleModule.renderScheduleTarget();
   }
   renderAccounts();
   setStatus(changed ? `Сохранено: ${currentAccount.name || nextName}` : 'Изменений нет');
@@ -1830,7 +858,7 @@ async function resetAccountFromMenu() {
 
   if (state.scheduleTarget.accountId === accountId) {
     state.scheduleTarget.accountName = defaultName;
-    renderScheduleTarget();
+    WaDeckScheduleModule.renderScheduleTarget();
   }
 
   renderAccounts();
@@ -1871,7 +899,7 @@ async function setAccountFrozenState(accountId, nextFrozen, options = {}) {
     }
     state.webviews.delete(accountId);
     state.chatPickerCache.delete(accountId);
-    setUnreadCount(accountId, 0);
+    WaDeckUnreadModule.setUnreadCount(accountId, 0);
     if (state.activeAccountId === accountId) {
       refreshWebviewVisibility();
     }
@@ -1900,471 +928,6 @@ async function toggleActiveFreeze() {
     return;
   }
   await setAccountFrozenState(account.id, !Boolean(account.frozen), { reopenMenu: false });
-}
-
-function selectedTextScript() {
-  return `(() => {
-    const normalize = typeof window.__waDeckNormalizeText === 'function'
-      ? window.__waDeckNormalizeText
-      : ((value) => String(value || '')
-          .replace(/\\u200e|\\u200f/g, '')
-          .replace(/\\u00a0/g, ' ')
-          .replace(/\\r/g, '')
-          .replace(/[ \\t]+\\n/g, '\\n')
-          .replace(/\\n[ \\t]+/g, '\\n')
-          .replace(/[ \\t]{2,}/g, ' ')
-          .trim());
-    const stripWhatsappPrefix = (line) =>
-      String(line || '')
-        .replace(/^\\[\\d{1,2}:\\d{2}(?:,\\s*[^\\]]+)?\\]\\s*[^:]{1,80}:\\s*/u, '')
-        .replace(/^\\d{1,2}:\\d{2}\\s*[-–—]\\s*[^:]{1,80}:\\s*/u, '');
-    const cleanupMeta = (value) => {
-      if (!value) return '';
-      const lines = String(value)
-        .split('\\n')
-        .map((line) => normalize(stripWhatsappPrefix(line)))
-        .filter(Boolean)
-        .filter((line) => !/^\\d{1,2}:\\d{2}$/.test(line))
-        .filter((line) => !/^\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}$/.test(line));
-      return normalize(lines.join('\\n'));
-    };
-
-    const selection = window.getSelection();
-    const selected = cleanupMeta(selection?.toString() || '');
-    const findRow = (node) => (node && node.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement)?.closest?.('[data-pre-plain-text]') || null;
-
-    if (selection && selected) {
-      const anchorRow = findRow(selection.anchorNode);
-      const focusRow = findRow(selection.focusNode);
-      if (anchorRow && anchorRow === focusRow && typeof window.__waDeckExtractMessageFromRow === 'function') {
-        const full = cleanupMeta(window.__waDeckExtractMessageFromRow(anchorRow) || '');
-        if (full) return full;
-      }
-      return selected;
-    }
-
-    const lastClicked = cleanupMeta(window.__waDeckLastClickedText || '');
-    return lastClicked || '';
-  })();`;
-}
-
-function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
-  const safeDefaultTarget = normalizeTranslateTargetLang(defaultTargetLang);
-  return `(() => {
-    if (window.__waDeckHoverTranslateBound) return true;
-    window.__waDeckHoverTranslateBound = true;
-    window.__waDeckHoverTranslateTargetLang = '${safeDefaultTarget}';
-
-    const normalize = typeof window.__waDeckNormalizeText === 'function'
-      ? window.__waDeckNormalizeText
-      : ((value) => String(value || '').replace(/\\u200e|\\u200f/g, '').replace(/\\u00a0/g, ' ').replace(/\\s+/g, ' ').trim());
-    const extractMessage = typeof window.__waDeckExtractMessageFromRow === 'function'
-      ? window.__waDeckExtractMessageFromRow
-      : ((row) => normalize(row?.innerText || ''));
-
-    if (!document.getElementById('waDeckHoverTranslateStyle')) {
-      const style = document.createElement('style');
-      style.id = 'waDeckHoverTranslateStyle';
-      style.textContent = \`
-        .waDeck-hover-translate-btn {
-          position: fixed;
-          z-index: 2147483643;
-          border: 1px solid rgba(70, 120, 180, 0.75);
-          border-radius: 999px;
-          background: linear-gradient(180deg, rgba(14, 33, 57, 0.97), rgba(8, 22, 40, 0.98));
-          color: #e9f3ff;
-          font: 700 12px/1 "Segoe UI", sans-serif;
-          padding: 6px 11px;
-          box-shadow: 0 8px 22px rgba(0,0,0,0.34);
-          cursor: pointer;
-        }
-        .waDeck-hover-translate-btn.is-loading { opacity: 0.78; cursor: progress; }
-        .waDeck-hover-translate-popover {
-          position: fixed;
-          z-index: 2147483642;
-          width: min(332px, calc(100vw - 28px));
-          max-height: calc(100vh - 36px);
-          overflow: auto;
-          border: 1px solid rgba(70, 120, 180, 0.72);
-          border-radius: 14px;
-          background: linear-gradient(180deg, rgba(8, 22, 39, 0.56), rgba(6, 18, 31, 0.6));
-          color: #eff6ff;
-          box-shadow: 0 18px 32px rgba(0,0,0,0.42);
-          padding: 10px 12px 12px;
-          backdrop-filter: blur(18px) saturate(120%);
-          -webkit-backdrop-filter: blur(18px) saturate(120%);
-        }
-        .waDeck-hover-translate-popover.hidden { display: none; }
-        .waDeck-hover-translate-head {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-          margin-bottom: 6px;
-        }
-        .waDeck-hover-translate-meta {
-          font: 600 11px/1.25 "Segoe UI", sans-serif;
-          color: #94b7dd;
-        }
-        .waDeck-hover-translate-actions {
-          display: inline-flex;
-          gap: 6px;
-          align-items: center;
-        }
-        .waDeck-hover-translate-copy {
-          border: 1px solid rgba(79, 121, 172, 0.82);
-          background: rgba(10, 23, 40, 0.9);
-          color: #dfeeff;
-          border-radius: 10px;
-          padding: 7px 10px;
-          cursor: pointer;
-          font: 700 11px/1 "Segoe UI", sans-serif;
-        }
-        .waDeck-hover-translate-copy:disabled {
-          opacity: 0.45;
-          cursor: default;
-        }
-        .waDeck-hover-translate-close {
-          border: 1px solid rgba(79, 121, 172, 0.82);
-          background: rgba(10, 23, 40, 0.9);
-          color: #dfeeff;
-          border-radius: 999px;
-          width: 22px;
-          height: 22px;
-          display: inline-grid;
-          place-items: center;
-          cursor: pointer;
-          font: 700 12px/1 "Segoe UI", sans-serif;
-        }
-        .waDeck-hover-translate-text {
-          font: 500 13px/1.45 "Segoe UI", sans-serif;
-          white-space: pre-wrap;
-          word-break: break-word;
-        }
-        .waDeck-hover-translate-error .waDeck-hover-translate-text { color: #ffb8c7; }
-      \`;
-      document.head.appendChild(style);
-    }
-
-    let button = document.querySelector('.waDeck-hover-translate-btn');
-    if (!button) {
-      button = document.createElement('button');
-      button.className = 'waDeck-hover-translate-btn';
-      button.textContent = 'Перевести';
-      button.style.display = 'none';
-      document.body.appendChild(button);
-    }
-
-    let popover = document.querySelector('.waDeck-hover-translate-popover');
-    if (!popover) {
-      popover = document.createElement('div');
-      popover.className = 'waDeck-hover-translate-popover hidden';
-      popover.innerHTML = '<div class="waDeck-hover-translate-head"><div class="waDeck-hover-translate-meta"></div><div class="waDeck-hover-translate-actions"><button class="waDeck-hover-translate-copy" type="button" disabled>Копировать</button><button class="waDeck-hover-translate-close" type="button">✕</button></div></div><div class="waDeck-hover-translate-text"></div>';
-      document.body.appendChild(popover);
-    }
-
-    const metaNode = popover.querySelector('.waDeck-hover-translate-meta');
-    const copyNode = popover.querySelector('.waDeck-hover-translate-copy');
-    const textNode = popover.querySelector('.waDeck-hover-translate-text');
-    const closeNode = popover.querySelector('.waDeck-hover-translate-close');
-    let activeRow = null;
-    let hoverHideTimer = null;
-    let lastTranslatedText = '';
-
-    const setCopyState = (text) => {
-      lastTranslatedText = String(text || '');
-      if (copyNode) {
-        copyNode.disabled = !lastTranslatedText.trim();
-      }
-    };
-
-    const ensureRowId = (row) => {
-      if (!row) return '';
-      if (!row.dataset.waDeckRowId) {
-        row.dataset.waDeckRowId = 'msg_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
-      }
-      return row.dataset.waDeckRowId;
-    };
-
-    const showPopover = (row, text, meta, isError = false) => {
-      if (!row) return;
-      const rect = row.getBoundingClientRect();
-      metaNode.textContent = meta || 'Перевод';
-      textNode.textContent = text || '';
-      setCopyState(isError ? '' : text || '');
-      popover.classList.toggle('waDeck-hover-translate-error', Boolean(isError));
-      popover.classList.remove('hidden');
-      const popoverWidth = Math.min(332, Math.max(248, Math.round(window.innerWidth * 0.22)));
-      popover.style.width = popoverWidth + 'px';
-      const popoverHeight = Math.max(100, popover.offsetHeight || 180);
-      const minTop = 86;
-      const maxTop = Math.max(minTop, window.innerHeight - popoverHeight - 18);
-      const preferredTop = Math.max(minTop, Math.min(rect.top - 12, maxTop));
-      const previousTop = Number(popover.dataset.lastTop || preferredTop);
-      const delta = preferredTop - previousTop;
-      const limitedTop = previousTop + Math.max(-48, Math.min(48, delta));
-      const nextTop = Math.max(minTop, Math.min(limitedTop, maxTop));
-      let left = rect.right + 24;
-      if (left + popoverWidth > window.innerWidth - 14) {
-        left = Math.max(14, rect.left - popoverWidth - 18);
-      }
-      left = Math.max(14, Math.min(left, window.innerWidth - popoverWidth - 14));
-      popover.style.left = left + 'px';
-      popover.style.top = nextTop + 'px';
-      popover.dataset.lastTop = String(nextTop);
-    };
-
-    const hidePopover = () => {
-      popover.classList.add('hidden');
-      button.classList.remove('is-loading');
-      setCopyState('');
-    };
-
-    const setButtonPosition = (row) => {
-      const rect = row.getBoundingClientRect();
-      button.style.display = 'block';
-      const top = Math.max(10, rect.top + 6);
-      const left = Math.min(window.innerWidth - 108, rect.right + 10);
-      button.style.top = top + 'px';
-      button.style.left = Math.max(10, left) + 'px';
-    };
-
-    const activateRow = (row) => {
-      activeRow = row;
-      if (!row) {
-        button.style.display = 'none';
-        button.classList.remove('is-loading');
-        popover.classList.add('hidden');
-        return;
-      }
-      ensureRowId(row);
-      setButtonPosition(row);
-    };
-
-    const findMessageRow = (target) => {
-      const row = target && target.closest ? target.closest('[data-pre-plain-text]') : null;
-      return row && row.closest('#main') ? row : null;
-    };
-
-    document.addEventListener('mousemove', (event) => {
-      if (hoverHideTimer) {
-        clearTimeout(hoverHideTimer);
-        hoverHideTimer = null;
-      }
-      const row = findMessageRow(event.target);
-      if (row) {
-        activateRow(row);
-        return;
-      }
-      if (button.contains(event.target) || popover.contains(event.target)) return;
-      hoverHideTimer = setTimeout(() => {
-        if (!button.matches(':hover') && !popover.matches(':hover')) {
-          activateRow(null);
-        }
-      }, 120);
-    }, true);
-
-    document.addEventListener('scroll', () => {
-      if (activeRow) setButtonPosition(activeRow);
-    }, true);
-
-    button.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (!activeRow) return;
-      const rowId = ensureRowId(activeRow);
-      const text = normalize(extractMessage(activeRow) || '');
-      if (!text) return;
-      const requestId = rowId + '_' + Date.now().toString(36);
-      const targetLang = window.__waDeckHoverTranslateTargetLang || '${safeDefaultTarget}';
-      button.classList.add('is-loading');
-      showPopover(activeRow, 'Перевод...', 'Запрос к API', false);
-      console.log('__WADECK_HOVER_TRANSLATE__' + JSON.stringify({ type: 'translate', requestId, rowId, text, targetLang }));
-    }, true);
-
-    closeNode?.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      hidePopover();
-    });
-
-    copyNode?.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (!lastTranslatedText.trim()) return;
-      console.log('__WADECK_HOVER_TRANSLATE__' + JSON.stringify({ type: 'copy', text: lastTranslatedText }));
-    });
-
-    window.__waDeckApplyHoverTranslation = (payload) => {
-      const rowId = String(payload?.rowId || '');
-      const row = rowId ? document.querySelector('[data-wa-deck-row-id="' + CSS.escape(rowId) + '"]') : null;
-      if (!row) {
-        button.classList.remove('is-loading');
-        return false;
-      }
-      const targetLang = String(payload?.targetLang || '').trim();
-      if (targetLang) {
-        window.__waDeckHoverTranslateTargetLang = targetLang;
-      }
-      showPopover(row, String(payload?.text || ''), String(payload?.meta || 'Перевод'), Boolean(payload?.isError));
-      button.classList.remove('is-loading');
-      if (activeRow === row) setButtonPosition(row);
-      return true;
-    };
-
-    return true;
-  })();`;
-}
-
-function applyHoverTranslationResultScript(payload = {}) {
-  const encoded = encodeBase64Utf8(JSON.stringify(payload || {}));
-  return `(() => {
-    try {
-      const binary = atob('${encoded}');
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-      const payload = JSON.parse(new TextDecoder().decode(bytes));
-      if (typeof window.__waDeckApplyHoverTranslation !== 'function') return false;
-      return window.__waDeckApplyHoverTranslation(payload);
-    } catch {
-      return false;
-    }
-  })();`;
-}
-
-function setHoverTranslateTargetLangScript(targetLang) {
-  const safeTarget = normalizeTranslateTargetLang(targetLang);
-  return `(() => {
-    try {
-      window.__waDeckHoverTranslateTargetLang = '${safeTarget}';
-      const selectNode = document.querySelector('.waDeck-hover-translate-select');
-      if (selectNode) selectNode.value = '${safeTarget}';
-      return true;
-    } catch {
-      return false;
-    }
-  })();`;
-}
-
-function syncHoverTranslateTargetLang() {
-  const targetLang = normalizeTranslateTargetLang(state.translateTargetLang || 'RU');
-  for (const webview of state.webviews.values()) {
-    safeExecuteInWebview(webview, setHoverTranslateTargetLangScript(targetLang), true).catch(() => {});
-  }
-}
-
-async function handleHoverTranslateMessage(accountId, message) {
-  if (!message.startsWith('__WADECK_HOVER_TRANSLATE__')) return false;
-  const webview = state.webviews.get(accountId);
-  if (!webview) return true;
-
-  let payload = null;
-  try {
-    payload = JSON.parse(message.slice('__WADECK_HOVER_TRANSLATE__'.length));
-  } catch {
-    return true;
-  }
-  const requestId = String(payload?.requestId || '').trim();
-  const type = String(payload?.type || 'translate').trim().toLowerCase();
-  if (type === 'copy') {
-    const translatedText = String(payload?.text || '').trim();
-    if (!translatedText) return true;
-    await window.waDeck.setClipboardText(translatedText);
-    setStatus('Перевод скопирован');
-    return true;
-  }
-  const rowId = String(payload?.rowId || '').trim();
-  const text = String(payload?.text || '').trim();
-  const targetLang = normalizeTranslateTargetLang(payload?.targetLang || state.translateTargetLang || 'RU');
-  if (!requestId || !rowId || !text) return true;
-  if (state.hoverTranslatePending.has(requestId)) return true;
-  state.hoverTranslatePending.add(requestId);
-
-  try {
-    state.translateTargetLang = targetLang;
-    if (els.translateTargetLang) {
-      els.translateTargetLang.value = targetLang;
-    }
-    const result = await translateTextAndRender(text, 'hover', 'AUTO', targetLang);
-    const provider = String(state.settings?.translateProvider || 'deepl').toLowerCase();
-    const providerLabel = provider === 'libre' ? 'LibreTranslate' : 'DeepL';
-    const responsePayload = result?.ok
-      ? {
-          rowId,
-          text: String(result.response?.translatedText || ''),
-          meta: `${providerLabel} • ${String(result.response?.detectedSourceLanguage || 'auto').toUpperCase()} → ${String(
-            result.response?.targetLanguage || targetLang,
-          ).toUpperCase()}`,
-          targetLang,
-          isError: false,
-        }
-      : {
-          rowId,
-          text: mapTranslateError(result?.response || {}),
-          meta: 'Ошибка перевода',
-          targetLang,
-          isError: true,
-        };
-    await webview.executeJavaScript(applyHoverTranslationResultScript(responsePayload), true).catch(() => {});
-  } finally {
-    state.hoverTranslatePending.delete(requestId);
-  }
-  return true;
-}
-
-function collectUnreadCountScript() {
-  return `(() => {
-    const badges = Array.from(document.querySelectorAll('#pane-side [aria-label*="непрочит"], #pane-side [aria-label*="unread"], #pane-side [data-testid="icon-unread-count"]'));
-    let total = 0;
-    for (const badge of badges) {
-      const text = String(badge.textContent || badge.getAttribute('aria-label') || '').trim();
-      const match = text.match(/(\d+)/);
-      if (match) total += Number(match[1] || 0) || 0;
-    }
-
-    if (!total) {
-      const title = String(document.title || '');
-      const t = title.match(/\\((\\d+)\\)/);
-      if (t) total = Number(t[1] || 0) || 0;
-    }
-
-    return total;
-  })();`;
-}
-
-async function pollUnreadCounts() {
-  if (state.unreadPollBusy) return;
-  state.unreadPollBusy = true;
-  try {
-  for (const account of state.accounts) {
-    if (account.frozen) {
-      setUnreadCount(account.id, 0);
-      continue;
-    }
-    const webview = state.webviews.get(account.id);
-    if (!isWebviewReady(webview)) continue;
-    let count = 0;
-    try {
-      count = Number(await safeExecuteInWebview(webview, collectUnreadCountScript(), true) || 0) || 0;
-    } catch {
-      count = Number(state.unreadByAccount.get(account.id) || 0);
-    }
-    setUnreadCount(account.id, count);
-  }
-  } finally {
-    state.unreadPollBusy = false;
-  }
-}
-
-function startUnreadPolling() {
-  if (state.unreadPollTimer) {
-    clearInterval(state.unreadPollTimer);
-    state.unreadPollTimer = null;
-  }
-  state.unreadPollTimer = setInterval(() => {
-    pollUnreadCounts().catch(() => {});
-  }, 5000);
-  setTimeout(() => pollUnreadCounts().catch(() => {}), 1200);
 }
 
 function encodeBase64Utf8(value) {
@@ -2412,547 +975,16 @@ async function resetWebviewUiState(webview, tries = 2) {
   }
 }
 
-function openTranslateModal() {
-  els.translateModal.classList.remove('hidden');
-}
-
-function closeTranslateModal() {
-  els.translateModal.classList.add('hidden');
-}
-
-function openAiModal() {
-  renderAiModeButtons();
-  els.aiContextCount.value = String(state.aiContextCount);
-  els.aiReplySourceLang.checked = Boolean(state.aiReplySourceLang);
-  els.aiModal.classList.remove('hidden');
-}
-
-function closeAiModal() {
-  els.aiModal.classList.add('hidden');
-}
-
-function setCrmEditable(editable) {
-  const on = Boolean(editable);
-  state.crmEditable = on;
-  els.crmFullName.readOnly = !on;
-  els.crmCountryCity.readOnly = !on;
-  els.crmAbout.readOnly = !on;
-  els.crmMyInfo.readOnly = !on;
-  els.crmSave.disabled = !on;
-  els.crmEdit.textContent = on ? 'Отмена' : 'Изменить';
-}
-
-function crmFormPayload() {
-  return {
-    fullName: String(els.crmFullName.value || '').trim(),
-    countryCity: String(els.crmCountryCity.value || '').trim(),
-    about: String(els.crmAbout.value || '').trim(),
-    myInfo: String(els.crmMyInfo.value || '').trim(),
-  };
-}
-
-function buildCrmTextForCopy() {
-  const target = state.crmTarget || {};
-  const payload = crmFormPayload();
-  return [
-    `Контакт: ${target.contactName || ''}`,
-    `WhatsApp: ${target.accountName || ''}`,
-    '',
-    `Имя фамилия: ${payload.fullName}`,
-    `Страна город: ${payload.countryCity}`,
-    '',
-    'О нём:',
-    payload.about,
-    '',
-    'Моя информация:',
-    payload.myInfo,
-    '',
-  ].join('\n');
-}
-
-function activeChatContactScript() {
-  return `(() => {
-    const normalize = (value) =>
-      String(value || '')
-        .replace(/\\u200e|\\u200f/g, '')
-        .replace(/\\u00a0/g, ' ')
-        .replace(/\\s+/g, ' ')
-        .trim();
-
-    const blockedTitles = new Set([
-      'сведения профиля',
-      'информация профиля',
-      'профиль',
-      'profile info',
-      'profile',
-      'contact info',
-      'информация о контакте',
-      'сведения о контакте',
-      'данные контакта',
-    ]);
-
-    const isStatusText = (value) => {
-      const text = normalize(value).toLowerCase();
-      if (!text) return true;
-      if (blockedTitles.has(text)) return true;
-      if (/(сведени.*профил|информац.*профил|profile\\s*info|contact\\s*info|информац.*контакт|данные\\s*контакта)/i.test(text)) return true;
-      if (/^(online|в сети|typing|печатает|recording audio|записывает аудио|tap here|нажмите сюда)/i.test(text)) return true;
-      if (/^(last seen|seen |был|была|был\\(-а\\)|был\\(а\\)|сегодня в|вчера в)/i.test(text)) return true;
-      if (/^\\d{1,2}:\\d{2}$/.test(text)) return true;
-      return false;
-    };
-
-    const pickFromNodes = (nodes) => {
-      for (const node of nodes) {
-        const text = normalize(node?.getAttribute?.('title') || node?.textContent || '');
-        if (!text || isStatusText(text)) continue;
-        return text;
-      }
-      return '';
-    };
-
-    const sidebarItems = Array.from(
-      document.querySelectorAll('#pane-side [role=\"listitem\"], #pane-side [data-testid=\"cell-frame-container\"]')
-    );
-
-    const alphaFromBg = (bg) => {
-      const value = String(bg || '').trim().toLowerCase();
-      if (!value || value === 'transparent') return 0;
-      const rgba = value.match(/^rgba\\(([^)]+)\\)$/i);
-      if (rgba) {
-        const parts = rgba[1].split(',').map((part) => Number(String(part).trim()));
-        return Number.isFinite(parts[3]) ? parts[3] : 1;
-      }
-      const rgb = value.match(/^rgb\\(([^)]+)\\)$/i);
-      if (rgb) return 1;
-      if (value.startsWith('#')) return 1;
-      return 0;
-    };
-
-    const selectedSidebarItem =
-      sidebarItems.find((item) => String(item.getAttribute('aria-selected') || '').toLowerCase() === 'true') ||
-      sidebarItems
-        .map((item) => ({
-          item,
-          alpha: alphaFromBg(window.getComputedStyle(item).backgroundColor),
-        }))
-        .filter((row) => row.alpha > 0.01)
-        .sort((a, b) => b.alpha - a.alpha)
-        .map((row) => row.item)[0] ||
-      null;
-
-    if (selectedSidebarItem) {
-      const selectedSidebarTitle = pickFromNodes(
-        Array.from(
-          selectedSidebarItem.querySelectorAll(
-            'span[title], div[title], [dir=\"auto\"], [data-testid=\"cell-frame-title\"]'
-          )
-        )
-      );
-      if (selectedSidebarTitle) return selectedSidebarTitle;
-
-      const firstLine = String(selectedSidebarItem.innerText || '')
-        .split('\\n')
-        .map((line) => normalize(line))
-        .find((line) => line && !isStatusText(line));
-      if (firstLine) return firstLine;
-    }
-
-    const header = document.querySelector('#main header');
-    if (header) {
-      const strictTitle = pickFromNodes(
-        Array.from(
-          header.querySelectorAll(
-            '[data-testid=\"conversation-info-header-chat-title\"], [data-testid=\"conversation-title\"], [data-testid=\"conversation-header-name\"]'
-          )
-        )
-      );
-      if (strictTitle) return strictTitle;
-
-      const headerTitle = pickFromNodes(
-        Array.from(
-          header.querySelectorAll(
-            '[data-testid=\"conversation-info-header-chat-title\"] span[title], [data-testid=\"conversation-info-header-chat-title\"] span[dir=\"auto\"], h1, h2, span[title], div[title], span[dir=\"auto\"]'
-          )
-        )
-      );
-      if (headerTitle) return headerTitle;
-    }
-
-    return '';
-  })();`;
-}
-
-function crmChatBoundaryScript() {
-  return `(() => {
-    const main = document.querySelector('#main');
-    if (!main) return 0;
-    const rect = main.getBoundingClientRect();
-    if (!rect || !Number.isFinite(rect.left)) return 0;
-    return Math.max(0, Math.round(rect.left));
-  })();`;
-}
-
-async function updateCrmModalPosition() {
-  const webview = selectedWebview();
-  if (!webview || !els.crmModal || !els.appRoot) return;
-
-  let chatLeftInside = 0;
-  try {
-    chatLeftInside = Number(await webview.executeJavaScript(crmChatBoundaryScript(), true) || 0) || 0;
-  } catch {
-    chatLeftInside = 0;
-  }
-
-  const appRect = els.appRoot.getBoundingClientRect();
-  const webviewRect = webview.getBoundingClientRect();
-  const left = Math.max(12, Math.round(webviewRect.left - appRect.left + chatLeftInside + 10));
-  els.crmModal.style.setProperty('--crm-modal-left', `${left}px`);
-}
-
-async function getActiveChatContactName() {
-  const account = activeAccount();
-  const webview = selectedWebview();
-  if (!account || !webview || account.frozen) return '';
-  try {
-    return String(await webview.executeJavaScript(activeChatContactScript(), true) || '').trim();
-  } catch {
-    return '';
-  }
-}
-
-async function openCrmModal() {
-  const account = activeAccount();
-  if (!account) {
-    setStatus('Нет активного аккаунта');
-    return;
-  }
-  if (account.frozen) {
-    setStatus(`${account.name}: аккаунт заморожен`);
-    return;
-  }
-
-  const contactName = await getActiveChatContactName();
-  if (!contactName) {
-    setStatus('Откройте нужный чат, затем CRM');
-    return;
-  }
-
-  const response = await window.waDeck.crmLoadContact({
-    accountId: account.id,
-    accountName: account.name,
-    contactName,
-  });
-  if (!response?.ok) {
-    setStatus(`CRM: ${response?.error || 'load_failed'}`);
-    return;
-  }
-
-  const loaded = response.record || {};
-  const nextRecord = {
-    fullName: String(loaded.fullName || ''),
-    countryCity: String(loaded.countryCity || ''),
-    about: String(loaded.about || ''),
-    myInfo: String(loaded.myInfo || ''),
-  };
-
-  const contactMismatch = String(loaded.contactName || '').trim() !== contactName;
-  const accountMismatch = String(loaded.accountName || '').trim() !== account.name;
-  const shouldAutoSave = !response.exists || contactMismatch || accountMismatch;
-
-  let filePath = String(response.filePath || '');
-  let autoSaveError = '';
-  if (shouldAutoSave) {
-    const autoSaved = await window.waDeck.crmSaveContact({
-      accountId: account.id,
-      accountName: account.name,
-      contactName,
-      ...nextRecord,
-    });
-    if (autoSaved?.ok) {
-      filePath = String(autoSaved.filePath || filePath);
-    } else {
-      autoSaveError = String(autoSaved?.error || 'auto_save_failed');
-    }
-  }
-
-  state.crmTarget = {
-    accountId: account.id,
-    accountName: account.name,
-    contactName,
-    filePath,
-  };
-
-  els.crmContactName.value = contactName;
-  els.crmFullName.value = nextRecord.fullName;
-  els.crmCountryCity.value = nextRecord.countryCity;
-  els.crmAbout.value = nextRecord.about;
-  els.crmMyInfo.value = nextRecord.myInfo;
-  els.crmMeta.textContent = `Файл: ${filePath || '—'}`;
-  setCrmEditable(false);
-  await updateCrmModalPosition();
-  els.crmModal.classList.remove('hidden');
-  requestAnimationFrame(() => {
-    updateCrmModalPosition().catch(() => {});
-  });
-  if (response?.migrated) {
-    setStatus('CRM: старый файл перенесён на правильный контакт');
-  } else if (autoSaveError) {
-    setStatus(`CRM: не удалось авто-сохранить (${autoSaveError})`);
-  } else if (!response.exists) {
-    setStatus('CRM: контакт создан и сохранён');
-  } else if (shouldAutoSave) {
-    setStatus('CRM: контакт обновлён');
-  } else {
-    setStatus('CRM: данные загружены');
-  }
-}
-
-function closeCrmModal() {
-  setCrmEditable(false);
-  els.crmModal.classList.add('hidden');
-  els.crmModal.style.removeProperty('--crm-modal-left');
-}
-
-function toggleCrmEdit() {
-  if (state.crmEditable) {
-    setCrmEditable(false);
-  } else {
-    setCrmEditable(true);
-  }
-}
-
-async function saveCrmCard() {
-  const target = state.crmTarget || {};
-  if (!target.accountId || !target.contactName) {
-    setStatus('CRM: контакт не выбран');
-    return;
-  }
-
-  const payload = {
-    accountId: target.accountId,
-    accountName: target.accountName,
-    contactName: target.contactName,
-    ...crmFormPayload(),
-  };
-  const response = await window.waDeck.crmSaveContact(payload);
-  if (!response?.ok) {
-    setStatus(`CRM: ${response?.error || 'save_failed'}`);
-    return;
-  }
-
-  state.crmTarget.filePath = String(response.filePath || target.filePath || '');
-  els.crmMeta.textContent = `Файл: ${state.crmTarget.filePath || '—'}`;
-  setCrmEditable(false);
-  setStatus('CRM: сохранено');
-}
-
-async function copyCrmCard() {
-  const text = buildCrmTextForCopy();
-  await window.waDeck.setClipboardText(text);
-  setStatus('CRM: карточка скопирована');
-}
-
-function normalizeAiContextCount(value) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return 0;
-  return Math.max(0, Math.min(10, Math.trunc(num)));
-}
-
-function renderAiModeButtons() {
-  const mode = String(state.aiMode || 'warm');
-  const map = {
-    short: els.aiModeShort,
-    warm: els.aiModeWarm,
-    business: els.aiModeBusiness,
-    flirt: els.aiModeFlirt,
-  };
-
-  for (const [key, button] of Object.entries(map)) {
-    if (!button) continue;
-    button.classList.toggle('is-active', key === mode);
-  }
-}
-
-function setAiMode(mode) {
-  const safe = ['short', 'warm', 'business', 'flirt'].includes(String(mode)) ? String(mode) : 'warm';
-  state.aiMode = safe;
-  renderAiModeButtons();
-}
-
-function collectRecentIncomingMessagesScript(limit = 3) {
-  const safeLimit = normalizeAiContextCount(limit);
-  return `(() => {
-    const limit = ${safeLimit};
-    if (!limit) return [];
-
-    const normalize = typeof window.__waDeckNormalizeText === 'function'
-      ? window.__waDeckNormalizeText
-      : ((value) => String(value || '').replace(/\\u200e|\\u200f/g, '').replace(/\\s+/g, ' ').trim());
-    const extract = typeof window.__waDeckExtractMessageFromRow === 'function'
-      ? window.__waDeckExtractMessageFromRow
-      : ((row) => normalize(row?.innerText || ''));
-
-    const rows = Array.from(document.querySelectorAll('[data-pre-plain-text]'));
-    const out = [];
-
-    for (let i = rows.length - 1; i >= 0; i -= 1) {
-      const row = rows[i];
-      if (!row || !row.closest('.message-in')) continue;
-      const text = normalize(extract(row) || '');
-      if (!text) continue;
-      out.push(text);
-      if (out.length >= limit) break;
-    }
-
-    return out.reverse();
-  })();`;
-}
-
-async function getRecentIncomingContext(limit = 3) {
-  const webview = selectedWebview();
-  if (!webview) return [];
-
-  try {
-    const result = await webview.executeJavaScript(collectRecentIncomingMessagesScript(limit), true);
-    if (!Array.isArray(result)) return [];
-    return result.map((line) => String(line || '').trim()).filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-async function getSelectedTextFromActiveWebview() {
-  const webview = selectedWebview();
-  if (!webview) return '';
-  try {
-    return String(await webview.executeJavaScript(selectedTextScript(), true) || '').trim();
-  } catch {
-    return '';
-  }
-}
-
-async function fillTranslateInputFromSelection() {
-  const text = await getSelectedTextFromActiveWebview();
-  if (!text) {
-    setStatus('Сначала выделите текст в чате');
-    return;
-  }
-  els.translateInput.value = text;
-}
-
-async function fillAiInputFromSelection() {
-  const text = await getSelectedTextFromActiveWebview();
-  if (!text) {
-    setStatus('Сначала выделите текст в чате');
-    return;
-  }
-  els.aiInput.value = text;
-}
-
-function renderAttachmentsDraft() {
-  els.attachmentsList.innerHTML = '';
-
-  if (!state.attachmentsDraft.length) {
-    const empty = document.createElement('div');
-    empty.className = 'attachment-item attachment-meta';
-    empty.textContent = 'Вложений нет';
-    els.attachmentsList.appendChild(empty);
-    return;
-  }
-
-  for (const att of state.attachmentsDraft) {
-    const row = document.createElement('div');
-    row.className = 'attachment-item';
-
-    const name = document.createElement('div');
-    name.textContent = att.name;
-
-    const meta = document.createElement('div');
-    meta.className = 'attachment-meta';
-    meta.textContent = att.path;
-
-    row.append(name, meta);
-    els.attachmentsList.appendChild(row);
-  }
-}
-
-async function renderScheduled() {
-  els.scheduledList.innerHTML = '';
-  const response = await window.waDeck.listScheduled({ limit: 120 });
-  const items = Array.isArray(response?.items) ? response.items : [];
-
-  if (!items.length) {
-    const empty = document.createElement('div');
-    empty.className = 'scheduled-item scheduled-meta';
-    empty.textContent = 'Активных отложенных сообщений нет';
-    els.scheduledList.appendChild(empty);
-    return;
-  }
-
-  for (const item of items) {
-    const account = state.accounts.find((row) => row.id === item.accountId);
-    const card = document.createElement('div');
-    card.className = 'scheduled-item';
-
-    const top = document.createElement('div');
-    top.className = 'scheduled-item-top';
-
-    const left = document.createElement('div');
-    left.textContent = `${account?.name || item.accountId} / ${item.chatName}`;
-
-    const badge = document.createElement('span');
-    badge.className = `badge ${item.status}`;
-    badge.textContent = item.status;
-
-    top.append(left, badge);
-
-    const meta = document.createElement('div');
-    meta.className = 'scheduled-meta';
-    meta.textContent = `Отправка: ${formatDateTime(item.sendAt)} | файлов: ${item.attachments?.length || 0}`;
-
-    const text = document.createElement('div');
-    text.textContent = item.text || '(без текста)';
-
-    card.append(top, meta, text);
-
-    if (item.status === 'pending' || item.status === 'failed' || item.status === 'processing') {
-      const cancel = document.createElement('button');
-      cancel.className = 'btn';
-      cancel.textContent = 'Отменить';
-      cancel.addEventListener('click', async () => {
-        const res = await window.waDeck.cancelScheduled(item.id);
-        if (!res?.ok) {
-          setStatus(`Не удалось отменить: ${res?.error || 'error'}`);
-          return;
-        }
-        await renderScheduled();
-        setStatus('Отложенная отправка отменена');
-      });
-      card.appendChild(cancel);
-    }
-
-    if (item.errorText) {
-      const err = document.createElement('div');
-      err.className = 'scheduled-meta';
-      err.textContent = `Ошибка: ${item.errorText}`;
-      card.appendChild(err);
-    }
-
-    els.scheduledList.appendChild(card);
-  }
-}
-
 async function saveSettings() {
   els.saveSettings?.classList.add('is-saving');
   const payload = {
     uiTheme: normalizeTheme(state.settings?.uiTheme || 'dark'),
-    translateProvider: getSelectedTranslateProvider(),
+    translateProvider: WaDeckTranslateModule.getSelectedTranslateProvider(),
     deeplApiKey: els.deeplApiKey.value.trim(),
     libreTranslateUrl: els.libreTranslateUrl.value.trim(),
     libreTranslateApiKey: els.libreTranslateApiKey.value.trim(),
-    weatherCity: normalizeWeatherCity(state.settings?.weatherCity),
-    weatherUnit: normalizeWeatherUnit(state.settings?.weatherUnit),
+    weatherCity: WaDeckWeatherModule.normalizeWeatherCity(state.settings?.weatherCity),
+    weatherUnit: WaDeckWeatherModule.normalizeWeatherUnit(state.settings?.weatherUnit),
     aiApiKey: els.aiApiKey.value.trim(),
     aiModel: String(els.aiModel.value || state.aiModel || '').trim(),
     aiRolePrompt: String(els.aiRolePrompt.value || '').trim(),
@@ -2969,7 +1001,7 @@ async function saveSettings() {
     state.aiModel = state.settings.aiModel || state.aiModel || 'google/gemma-3-4b-it';
     state.aiRolePrompt = state.settings.aiRolePrompt || '';
     applySettingsToForm();
-    renderAiModels([state.aiModel]);
+    WaDeckAiModule.renderAiModels([state.aiModel]);
     setStatus('Настройки сохранены');
   } catch (error) {
     setStatus(`Не удалось сохранить настройки: ${String(error?.message || error || 'error')}`);
@@ -2994,19 +1026,6 @@ async function toggleTheme() {
   };
   applyTheme(state.settings.uiTheme);
   setStatus(`Тема: ${state.settings.uiTheme === 'light' ? 'светлая' : 'тёмная'}`);
-}
-
-async function testTranslateApi(provider = 'deepl') {
-  const safeProvider = String(provider || 'deepl').toLowerCase() === 'libre' ? 'libre' : 'deepl';
-  const result = await window.waDeck.testTranslateApi({ provider: safeProvider });
-  if (!result?.ok) {
-    setStatus(`Проверка API: ${mapTranslateError(result)}`);
-    return;
-  }
-  const providerLabel = safeProvider === 'libre' ? 'LibreTranslate' : 'DeepL';
-  setStatus(
-    `Проверка ${providerLabel}: OK (${result.detectedSourceLanguage || 'auto'} -> ru): ${String(result.translatedText || '').slice(0, 80)}`,
-  );
 }
 
 async function addAccount() {
@@ -3046,12 +1065,12 @@ async function removeAccount(accountId) {
   state.webviews.delete(accountId);
   state.chatPickerCache.delete(accountId);
   state.unreadByAccount.delete(accountId);
-  scheduleDockBadgeSync();
+  WaDeckUnreadModule.scheduleDockBadgeSync();
 
   state.accounts = state.accounts.filter((row) => row.id !== accountId);
   if (state.scheduleTarget.accountId === accountId) {
     state.scheduleTarget = { accountId: '', accountName: '', chatName: '' };
-    renderScheduleTarget();
+    WaDeckScheduleModule.renderScheduleTarget();
   }
 
   const nextId = String(response.nextActiveAccountId || state.accounts[0]?.id || '');
@@ -3061,9 +1080,9 @@ async function removeAccount(accountId) {
     state.activeAccountId = null;
     renderAccounts();
     updateFreezeButtonState();
-    updateActiveUnreadIndicator();
+    WaDeckUnreadModule.updateActiveUnreadIndicator();
     refreshWebviewVisibility();
-    await renderScheduled();
+    await WaDeckScheduleModule.renderScheduled();
     setStatus('Аккаунт удален');
   }
   closeAccountMenu();
@@ -3092,122 +1111,6 @@ function refreshActiveWebview() {
   setStatus(`${account.name}: обновлено`);
 }
 
-async function translateTextAndRender(text, mode, sourceLang = 'AUTO', targetLang = 'RU') {
-  if (!text || !text.trim()) {
-    setStatus('Нет текста для перевода');
-    return { ok: false };
-  }
-
-  const provider = String(state.settings?.translateProvider || 'deepl').toLowerCase();
-  const response = await window.waDeck.translateText({
-    text: text.trim(),
-    provider,
-    sourceLang,
-    targetLang,
-  });
-  if (!response?.ok) {
-    setStatus(`Перевод: ${mapTranslateError(response)}`);
-    return { ok: false, response };
-  }
-  const targetLabel = String(response.targetLanguage || targetLang || 'ru').toLowerCase();
-  const providerLabel = provider === 'libre' ? 'LibreTranslate' : 'DeepL';
-  setStatus(`Перевод готов (${providerLabel}: ${response.detectedSourceLanguage || 'auto'} -> ${targetLabel})`);
-  return { ok: true, response };
-}
-
-async function doModalTranslate() {
-  const sourceLang = String(els.translateSourceLang.value || 'AUTO').toUpperCase();
-  const targetLang = String(els.translateTargetLang.value || 'RU').toUpperCase();
-  let text = String(els.translateInput.value || '').trim();
-  if (!text) {
-    text = await getSelectedTextFromActiveWebview();
-    if (text) {
-      els.translateInput.value = text;
-    }
-  }
-  if (!text) {
-    setStatus('Введите текст или возьмите выделенный из чата');
-    return;
-  }
-
-  state.translateSourceLang = sourceLang;
-  state.translateTargetLang = targetLang;
-
-  const result = await runWithBusyButton(
-    els.doTranslate,
-    () => translateTextAndRender(text, 'ручной', sourceLang, targetLang),
-    { text: 'Перевожу...', title: 'Перевод выполняется' },
-  );
-  if (!result?.ok) {
-    return;
-  }
-
-  els.translateOutput.value = String(result.response.translatedText || '');
-}
-
-async function copyTranslateOutput() {
-  const text = String(els.translateOutput.value || '').trim();
-  if (!text) {
-    setStatus('Сначала сделайте перевод');
-    return;
-  }
-  await window.waDeck.setClipboardText(text);
-  setStatus('Перевод скопирован');
-}
-
-async function doAiReply() {
-  let text = String(els.aiInput.value || '').trim();
-  if (!text) {
-    text = await getSelectedTextFromActiveWebview();
-    if (text) {
-      els.aiInput.value = text;
-    }
-  }
-  if (!text) {
-    setStatus('Введите текст или выделите сообщение в чате');
-    return;
-  }
-
-  const contextCount = normalizeAiContextCount(els.aiContextCount.value);
-  state.aiContextCount = contextCount;
-  els.aiContextCount.value = String(contextCount);
-  state.aiReplySourceLang = Boolean(els.aiReplySourceLang.checked);
-
-  const contextMessages = await getRecentIncomingContext(contextCount);
-
-  const payload = {
-    messageText: text,
-    model: String(els.aiModel.value || state.aiModel || '').trim(),
-    mode: state.aiMode,
-    contextMessages,
-    replyInSourceLang: state.aiReplySourceLang,
-    rolePrompt: String(els.aiRolePrompt.value || state.aiRolePrompt || '').trim(),
-  };
-  const response = await runWithBusyButton(
-    els.doAiReply,
-    () => window.waDeck.generateAiReply(payload),
-    { text: 'Генерация...', title: 'AI готовит ответ' },
-  );
-  if (!response?.ok) {
-    setStatus(`AI: ${mapAiError(response)}`);
-    return;
-  }
-
-  els.aiOutput.value = String(response.replyText || '');
-  const contextInfo = contextMessages.length ? `, контекст: ${contextMessages.length}` : '';
-  setStatus(`AI ответ готов (${response.model || 'model'}${contextInfo})`);
-}
-
-async function copyAiReply() {
-  const text = String(els.aiOutput.value || '').trim();
-  if (!text) {
-    setStatus('Сначала сгенерируйте ответ');
-    return;
-  }
-  await window.waDeck.setClipboardText(text);
-  setStatus('AI ответ скопирован');
-}
-
 async function insertTextIntoActiveChat(text) {
   const safeText = String(text || '').trim();
   if (!safeText) {
@@ -3226,400 +1129,13 @@ async function insertTextIntoActiveChat(text) {
     return { ok: false, error: 'no_active_chat' };
   }
 
-  const textB64 = encodeBase64Utf8(safeText);
-  const insertScript = `(async () => {
-    try {
-      const binary = atob('${textB64}');
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const message = new TextDecoder().decode(bytes);
-
-      const composer =
-        document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
-        document.querySelector('footer div[contenteditable="true"][data-tab]') ||
-        document.querySelector('div[contenteditable="true"][role="textbox"]');
-      if (!composer) return { ok: false, error: 'composer_not_found' };
-
-      composer.focus();
-      let inserted = false;
-      try { inserted = document.execCommand('insertText', false, message); } catch { inserted = false; }
-
-      if (!inserted) {
-        try {
-          const dt = new DataTransfer();
-          dt.setData('text/plain', message);
-          composer.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
-        } catch {
-          composer.textContent = message;
-          composer.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-      }
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: String(e?.message || e || 'insert_failed') };
-    }
-  })();`;
-
   try {
-    const result = await webview.executeJavaScript(insertScript, true);
+    const result = await webview.executeJavaScript(insertTextScript(safeText), true);
     if (!result?.ok) return { ok: false, error: String(result?.error || 'insert_failed') };
     return { ok: true };
   } catch (error) {
     return { ok: false, error: String(error?.message || error || 'insert_failed') };
   }
-}
-
-async function insertAiReplyIntoActiveChat() {
-  const text = String(els.aiOutput.value || '').trim();
-  if (!text) {
-    setStatus('Сначала сгенерируйте ответ');
-    return;
-  }
-
-  const result = await insertTextIntoActiveChat(text);
-  if (!result?.ok) {
-    const map = {
-      text_required: 'Нет текста для вставки',
-      no_active_account: 'Нет активного аккаунта',
-      account_frozen: 'Аккаунт заморожен',
-      no_active_chat: 'Нет активного чата для вставки',
-    };
-    setStatus(`Не удалось вставить в чат: ${map[result?.error] || result?.error || 'clipboard_insert_failed'}`);
-    return;
-  }
-  setStatus('AI ответ вставлен в текущий чат');
-}
-
-async function pickAttachments() {
-  const response = await window.waDeck.pickAttachments();
-  if (!response || response.canceled || !Array.isArray(response.files)) return;
-
-  const existing = new Set(state.attachmentsDraft.map((item) => item.path));
-  for (const file of response.files) {
-    if (existing.has(file.path)) continue;
-    state.attachmentsDraft.push({ path: file.path, name: file.name });
-  }
-
-  renderAttachmentsDraft();
-  setStatus(`Вложений в черновике: ${state.attachmentsDraft.length}`);
-}
-
-function clearAttachments() {
-  state.attachmentsDraft = [];
-  renderAttachmentsDraft();
-}
-
-async function createScheduledMessage() {
-  if (!state.scheduleTarget.accountId || !state.scheduleTarget.chatName) {
-    setStatus('Выберите WhatsApp и чат для отправки');
-    return;
-  }
-
-  const sendAtRaw = String(els.scheduleAt.value || '');
-  const parsedSendAt = sendAtRaw ? new Date(sendAtRaw) : null;
-  if (!parsedSendAt || Number.isNaN(parsedSendAt.getTime())) {
-    setStatus('Отложенная отправка: неверная дата/время');
-    return;
-  }
-  const sendAtIso = parsedSendAt.toISOString();
-
-  const payload = {
-    accountId: state.scheduleTarget.accountId,
-    chatName: state.scheduleTarget.chatName,
-    text: String(els.scheduleText.value || ''),
-    sendAt: sendAtIso,
-    attachments: state.attachmentsDraft,
-  };
-
-  const response = await window.waDeck.scheduleMessage(payload);
-  if (!response?.ok) {
-    const map = {
-      account_not_found: 'Аккаунт не найден',
-      chat_required: 'Укажите чат',
-      text_or_attachment_required: 'Добавьте текст или вложение',
-      invalid_sendAt: 'Неверная дата/время',
-      sendAt_in_past: 'Время отправки должно быть в будущем',
-    };
-    setStatus(`Отложенная отправка: ${map[response?.error] || response?.error || 'ошибка'}`);
-    return;
-  }
-
-  els.scheduleText.value = '';
-  els.scheduleAt.value = nextSendAtLocal(5);
-  clearAttachments();
-  await renderScheduled();
-  setStatus('Сообщение запланировано');
-}
-
-async function waitForWebviewReady(webview, timeoutMs = 12000) {
-  if (!webview) return false;
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    if (isWebviewReady(webview) && (!webview.isLoading || !webview.isLoading())) {
-      return true;
-    }
-    await delay(120);
-  }
-  return Boolean(isWebviewReady(webview));
-}
-
-async function runScheduledSend(webview, item) {
-  const chatName = String(item.chatName || '').trim();
-  const text = String(item.text || '');
-
-  if (!chatName) return { ok: false, error: 'no_chat_name' };
-
-  const ready = await waitForWebviewReady(webview, 15000);
-  if (!ready) return { ok: false, error: 'webview_not_ready' };
-
-  /* Helper: run JS in webview to query DOM */
-  const query = async (script) => {
-    try {
-      return await webview.executeJavaScript(script, true);
-    } catch (err) {
-      return { _error: String(err?.message || err) };
-    }
-  };
-
-  /* Helper: native click at coordinates */
-  const nativeClick = async (x, y) => {
-    await sendWebviewInput(webview, { type: 'mouseDown', x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1 });
-    await delay(30);
-    await sendWebviewInput(webview, { type: 'mouseUp', x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1 });
-    await delay(50);
-  };
-
-  /* Helper: type text char by char via native key events */
-  const nativeType = async (str) => {
-    for (const ch of str) {
-      await sendWebviewInput(webview, { type: 'char', keyCode: ch });
-      await delay(15);
-    }
-  };
-
-  /* Helper: press a key natively */
-  const nativeKey = async (keyCode) => {
-    await sendWebviewInput(webview, { type: 'keyDown', keyCode });
-    await delay(30);
-    await sendWebviewInput(webview, { type: 'keyUp', keyCode });
-    await delay(50);
-  };
-
-  /* ---- STEP 1: Find search input and click it ---- */
-  const searchRect = await query(`(() => {
-    const selectors = ['#side input[role="textbox"][data-tab="3"]', '#side input[role="textbox"]', '#side input[placeholder]'];
-    for (const sel of selectors) {
-      const el = document.querySelector(sel);
-      if (el) {
-        const r = el.getBoundingClientRect();
-        if (r.width > 0 && r.height > 0) return { x: r.left + r.width/2, y: r.top + r.height/2, found: true };
-      }
-    }
-    return { found: false };
-  })()`);
-
-  if (!searchRect?.found) return { ok: false, error: 'search_input_not_found' };
-
-  await nativeClick(searchRect.x, searchRect.y);
-  await delay(200);
-
-  /* ---- STEP 2: Clear search and type chat name ---- */
-  /* Select all + delete to clear */
-  await sendWebviewInput(webview, { type: 'keyDown', keyCode: 'a', modifiers: ['meta'] });
-  await sendWebviewInput(webview, { type: 'keyUp', keyCode: 'a', modifiers: ['meta'] });
-  await delay(50);
-  await nativeKey('Backspace');
-  await delay(100);
-
-  /* Type the chat name */
-  await nativeType(chatName);
-  await delay(600);
-
-  /* ---- STEP 3: Find matching search result ---- */
-  const chatNameLower = chatName.toLowerCase();
-  const matchResult = await query(`(() => {
-    const normalize = (v) => String(v || '').replace(/\\u200e|\\u200f/g, '').replace(/\\u00a0/g, ' ').replace(/\\s+/g, ' ').trim();
-    const query = normalize('${chatName.replace(/'/g, "\\'")}').toLowerCase();
-    const items = Array.from(document.querySelectorAll('#pane-side [role="row"], #side [role="row"]'));
-    let exact = null;
-    let partial = null;
-    for (const item of items) {
-      const titleEl = item.querySelector('span[title], div[title], [data-testid="cell-frame-title"]');
-      const title = normalize(titleEl?.getAttribute('title') || titleEl?.textContent || '');
-      if (!title) continue;
-      const lower = title.toLowerCase();
-      if (lower === query && !exact) {
-        const r = item.getBoundingClientRect();
-        exact = { x: r.left + r.width/2, y: r.top + r.height/2, title, w: r.width, h: r.height };
-      } else if (lower.includes(query) && !partial) {
-        const r = item.getBoundingClientRect();
-        partial = { x: r.left + r.width/2, y: r.top + r.height/2, title, w: r.width, h: r.height };
-      }
-      if (exact) break;
-    }
-    return exact || partial || { found: false, itemCount: items.length };
-  })()`);
-
-  if (!matchResult?.x) {
-    /* Clean up: press Escape */
-    await nativeKey('Escape');
-    return { ok: false, error: 'chat_not_found', debug: matchResult };
-  }
-
-  /* ---- STEP 4: Click the search result with native event ---- */
-  await nativeClick(matchResult.x, matchResult.y);
-  await delay(500);
-
-  /* ---- STEP 5: Verify chat opened (composer appeared) ---- */
-  let composerReady = false;
-  for (let i = 0; i < 25; i++) {
-    const check = await query(`(() => {
-      const c = document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
-                document.querySelector('footer div[contenteditable="true"]');
-      return { hasComposer: Boolean(c) };
-    })()`);
-    if (check?.hasComposer) { composerReady = true; break; }
-    await delay(150);
-  }
-
-  if (!composerReady) {
-    /* Only press Escape to clean up if chat didn't open */
-    await nativeKey('Escape');
-    await delay(100);
-    return { ok: false, error: 'chat_not_confirmed_after_click', clickTarget: matchResult };
-  }
-
-  /* ---- STEP 6: Send text message ---- */
-  if (!text.trim()) return { ok: true, method: 'native_input' };
-
-  /* Click on the composer — this also moves focus away from search, effectively closing it */
-  const composerRect = await query(`(() => {
-    const c = document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
-              document.querySelector('footer div[contenteditable="true"]');
-    if (!c) return { found: false };
-    const r = c.getBoundingClientRect();
-    return { x: r.left + r.width/2, y: r.top + r.height/2, found: r.width > 0 && r.height > 0 };
-  })()`);
-
-  if (!composerRect?.found) return { ok: false, error: 'composer_rect_not_found' };
-
-  await nativeClick(composerRect.x, composerRect.y);
-  await delay(150);
-
-  /* Type the message */
-  await nativeType(text);
-  await delay(300);
-
-  /* Press Enter to send */
-  await nativeKey('Enter');
-  await delay(500);
-
-  /* Verify: composer should be empty after send */
-  const afterSend = await query(`(() => {
-    const c = document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
-              document.querySelector('footer div[contenteditable="true"]');
-    const text = (c?.innerText || c?.textContent || '').trim();
-    return { composerEmpty: text.length === 0, remaining: text.slice(0, 50) };
-  })()`);
-
-  if (afterSend?.composerEmpty) {
-    return { ok: true, method: 'native_input' };
-  }
-
-  /* If composer not empty, try clicking send button */
-  const sendBtnRect = await query(`(() => {
-    const btn = document.querySelector('button[data-testid="send"]') ||
-                document.querySelector('[data-testid="send"]') ||
-                document.querySelector('span[data-icon="send"]');
-    if (!btn) return { found: false };
-    const el = btn.closest('button') || btn;
-    const r = el.getBoundingClientRect();
-    return { x: r.left + r.width/2, y: r.top + r.height/2, found: true };
-  })()`);
-
-  if (sendBtnRect?.found) {
-    await nativeClick(sendBtnRect.x, sendBtnRect.y);
-    await delay(500);
-  }
-
-  /* Final check */
-  const finalCheck = await query(`(() => {
-    const c = document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
-              document.querySelector('footer div[contenteditable="true"]');
-    const text = (c?.innerText || c?.textContent || '').trim();
-    return { composerEmpty: text.length === 0 };
-  })()`);
-
-  if (finalCheck?.composerEmpty) {
-    return { ok: true, method: 'native_input_with_btn' };
-  }
-
-  return { ok: false, error: 'text_send_failed', method: 'native_input', debug: afterSend };
-}
-
-async function processDueSchedules() {
-  if (state.scheduleRunnerBusy) return;
-  state.scheduleRunnerBusy = true;
-
-  try {
-    const due = await window.waDeck.claimDueScheduled({ limit: 4 });
-    const items = Array.isArray(due?.items) ? due.items : [];
-    if (items.length) console.log('[scheduled] due:', items.length);
-    if (!items.length) return;
-
-    for (const item of items) {
-      const account = accountById(item.accountId);
-      if (!account || account.frozen) {
-        const errorText = account?.frozen ? 'account_frozen' : 'account_not_found';
-        console.warn('[scheduled]', item.chatName, errorText);
-        await window.waDeck.completeScheduled({ id: item.id, ok: false, errorText });
-        continue;
-      }
-
-      let webview = state.webviews.get(item.accountId);
-      if (!webview) {
-        ensureWebview(account);
-        webview = state.webviews.get(item.accountId) || null;
-      }
-      if (!webview) {
-        console.warn('[scheduled]', item.chatName, 'webview_not_found');
-        await window.waDeck.completeScheduled({ id: item.id, ok: false, errorText: 'webview_not_found' });
-        continue;
-      }
-
-      const result = await runScheduledSend(webview, item);
-      console.log('[scheduled] result:', item.chatName, JSON.stringify(result));
-
-      await window.waDeck.completeScheduled({
-        id: item.id,
-        ok: Boolean(result?.ok),
-        errorText: result?.ok ? '' : String(result?.error || 'send_failed'),
-      });
-
-      if (result?.ok) {
-        setStatus(`Отправлено: ${item.chatName}`);
-      } else {
-        setStatus(`Ошибка отправки: ${item.chatName} (${result?.error || 'send_failed'})`);
-      }
-    }
-
-    await renderScheduled();
-  } finally {
-    state.scheduleRunnerBusy = false;
-  }
-}
-
-function startScheduleRunner() {
-  if (state.scheduleRunnerTimer) {
-    clearInterval(state.scheduleRunnerTimer);
-    state.scheduleRunnerTimer = null;
-  }
-
-  state.scheduleRunnerTimer = setInterval(() => {
-    processDueSchedules().catch(() => {});
-  }, 15000);
-
-  setTimeout(() => processDueSchedules().catch(() => {}), 5000);
 }
 
 function bindActions() {
@@ -3631,16 +1147,16 @@ function bindActions() {
   els.accountsList?.addEventListener('scroll', updateSidebarScrollControls, { passive: true });
   els.refreshActive.addEventListener('click', refreshActiveWebview);
   els.freezeActive?.addEventListener('click', () => toggleActiveFreeze().catch(console.error));
-  els.openTranslateModal?.addEventListener('click', openTranslateModal);
-  els.openAiModal?.addEventListener('click', openAiModal);
-  els.openCrmModal.addEventListener('click', () => openCrmModal().catch(console.error));
+  els.openTranslateModal?.addEventListener('click', WaDeckTranslateModule.openTranslateModal);
+  els.openAiModal?.addEventListener('click', WaDeckAiModule.openAiModal);
+  els.openCrmModal.addEventListener('click', () => WaDeckCrmModule.openCrmModal().catch(console.error));
 
   els.togglePanel.addEventListener('click', () => {
     openSettingsPanel();
   });
   els.themeToggle.addEventListener('click', () => toggleTheme().catch(console.error));
   els.closePanel.addEventListener('click', closeSettingsPanel);
-  els.manualUpdate?.addEventListener('click', () => requestManualUpdate().catch(console.error));
+  els.manualUpdate?.addEventListener('click', () => WaDeckAutoUpdateModule.requestManualUpdate().catch(console.error));
   els.brandFrog?.addEventListener('click', () => {
     playFrogMoneyBurst();
     openHubMode();
@@ -3648,15 +1164,15 @@ function bindActions() {
   els.weatherToggle?.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
-    toggleWeatherPopover();
+    WaDeckWeatherModule.toggleWeatherPopover();
   });
-  els.weatherRefresh?.addEventListener('click', () => refreshWeather().catch(console.error));
-  els.weatherSave?.addEventListener('click', () => saveWeatherSettings().catch(console.error));
-  els.weatherUnit?.addEventListener('click', () => toggleWeatherUnit().catch(console.error));
+  els.weatherRefresh?.addEventListener('click', () => WaDeckWeatherModule.refreshWeather().catch(console.error));
+  els.weatherSave?.addEventListener('click', () => WaDeckWeatherModule.saveWeatherSettings().catch(console.error));
+  els.weatherUnit?.addEventListener('click', () => WaDeckWeatherModule.toggleWeatherUnit().catch(console.error));
   els.weatherCityInput?.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
-      saveWeatherSettings().catch(console.error);
+      WaDeckWeatherModule.saveWeatherSettings().catch(console.error);
     }
   });
   window.addEventListener('keydown', (event) => {
@@ -3669,18 +1185,18 @@ function bindActions() {
     if (!els.weatherWidget || !els.weatherPopover) return;
     if (els.weatherPopover.classList.contains('hidden')) return;
     if (els.weatherWidget.contains(event.target)) return;
-    closeWeatherPopover();
+    WaDeckWeatherModule.closeWeatherPopover();
   });
 
   els.saveSettings.addEventListener('click', () => saveSettings().catch(console.error));
   els.testTranslateApiDeepl.addEventListener('click', () => {
-    runWithBusyButton(els.testTranslateApiDeepl, () => testTranslateApi('deepl'), {
+    runWithBusyButton(els.testTranslateApiDeepl, () => WaDeckTranslateModule.testTranslateApi('deepl'), {
       text: 'Проверка...',
       title: 'Проверка DeepL API',
     }).catch(console.error);
   });
   els.testTranslateApiLibre.addEventListener('click', () => {
-    runWithBusyButton(els.testTranslateApiLibre, () => testTranslateApi('libre'), {
+    runWithBusyButton(els.testTranslateApiLibre, () => WaDeckTranslateModule.testTranslateApi('libre'), {
       text: 'Проверка...',
       title: 'Проверка LibreTranslate API',
     }).catch(console.error);
@@ -3688,60 +1204,60 @@ function bindActions() {
   bindPasswordToggle(els.deeplApiKey, els.toggleDeeplApiKey);
   bindPasswordToggle(els.libreTranslateApiKey, els.toggleLibreTranslateApiKey);
   bindPasswordToggle(els.aiApiKey, els.toggleAiApiKey);
-  els.refreshAiModels.addEventListener('click', () => refreshAiModels(true).catch(console.error));
-  els.fillSelectedText.addEventListener('click', () => fillTranslateInputFromSelection().catch(console.error));
-  els.doTranslate.addEventListener('click', () => doModalTranslate().catch(console.error));
-  els.copyTranslate.addEventListener('click', () => copyTranslateOutput().catch(console.error));
+  els.refreshAiModels.addEventListener('click', () => WaDeckAiModule.refreshAiModels(true).catch(console.error));
+  els.fillSelectedText.addEventListener('click', () => WaDeckTranslateModule.fillTranslateInputFromSelection().catch(console.error));
+  els.doTranslate.addEventListener('click', () => WaDeckTranslateModule.doModalTranslate().catch(console.error));
+  els.copyTranslate.addEventListener('click', () => WaDeckTranslateModule.copyTranslateOutput().catch(console.error));
   els.clearTranslate.addEventListener('click', () => {
     els.translateInput.value = '';
     els.translateOutput.value = '';
   });
-  els.closeTranslateModal.addEventListener('click', closeTranslateModal);
-  els.closeReleaseNotes?.addEventListener('click', () => closeReleaseNotesModal().catch(console.error));
-  els.fillAiSelectedText.addEventListener('click', () => fillAiInputFromSelection().catch(console.error));
-  els.aiModeShort.addEventListener('click', () => setAiMode('short'));
-  els.aiModeWarm.addEventListener('click', () => setAiMode('warm'));
-  els.aiModeBusiness.addEventListener('click', () => setAiMode('business'));
-  els.aiModeFlirt.addEventListener('click', () => setAiMode('flirt'));
+  els.closeTranslateModal.addEventListener('click', WaDeckTranslateModule.closeTranslateModal);
+  els.closeReleaseNotes?.addEventListener('click', () => WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(console.error));
+  els.fillAiSelectedText.addEventListener('click', () => WaDeckAiModule.fillAiInputFromSelection().catch(console.error));
+  els.aiModeShort.addEventListener('click', () => WaDeckAiModule.setAiMode('short'));
+  els.aiModeWarm.addEventListener('click', () => WaDeckAiModule.setAiMode('warm'));
+  els.aiModeBusiness.addEventListener('click', () => WaDeckAiModule.setAiMode('business'));
+  els.aiModeFlirt.addEventListener('click', () => WaDeckAiModule.setAiMode('flirt'));
   els.aiContextCount.addEventListener('change', () => {
-    const count = normalizeAiContextCount(els.aiContextCount.value);
+    const count = WaDeckAiModule.normalizeAiContextCount(els.aiContextCount.value);
     state.aiContextCount = count;
     els.aiContextCount.value = String(count);
   });
   els.aiReplySourceLang.addEventListener('change', () => {
     state.aiReplySourceLang = Boolean(els.aiReplySourceLang.checked);
   });
-  els.doAiReply.addEventListener('click', () => doAiReply().catch(console.error));
-  els.copyAiReply.addEventListener('click', () => copyAiReply().catch(console.error));
-  els.insertAiReply.addEventListener('click', () => insertAiReplyIntoActiveChat().catch(console.error));
+  els.doAiReply.addEventListener('click', () => WaDeckAiModule.doAiReply().catch(console.error));
+  els.copyAiReply.addEventListener('click', () => WaDeckAiModule.copyAiReply().catch(console.error));
+  els.insertAiReply.addEventListener('click', () => WaDeckAiModule.insertAiReplyIntoActiveChat().catch(console.error));
   els.clearAi.addEventListener('click', () => {
     els.aiInput.value = '';
     els.aiOutput.value = '';
   });
-  els.closeAiModal.addEventListener('click', closeAiModal);
-  els.crmEdit.addEventListener('click', toggleCrmEdit);
-  els.crmSave.addEventListener('click', () => saveCrmCard().catch(console.error));
-  els.crmCopy.addEventListener('click', () => copyCrmCard().catch(console.error));
-  els.crmClose.addEventListener('click', closeCrmModal);
+  els.closeAiModal.addEventListener('click', WaDeckAiModule.closeAiModal);
+  els.crmEdit.addEventListener('click', WaDeckCrmModule.toggleCrmEdit);
+  els.crmSave.addEventListener('click', () => WaDeckCrmModule.saveCrmCard().catch(console.error));
+  els.crmCopy.addEventListener('click', () => WaDeckCrmModule.copyCrmCard().catch(console.error));
+  els.crmClose.addEventListener('click', WaDeckCrmModule.closeCrmModal);
   window.addEventListener('resize', () => {
     if (els.crmModal.classList.contains('hidden')) return;
-    updateCrmModalPosition().catch(() => {});
+    WaDeckCrmModule.updateCrmModalPosition().catch(() => {});
   });
   window.addEventListener('resize', updateSidebarScrollControls);
   els.translateTargetLang.addEventListener('change', () => {
-    state.translateTargetLang = normalizeTranslateTargetLang(els.translateTargetLang.value || 'RU');
-    syncHoverTranslateTargetLang();
+    state.translateTargetLang = WaDeckTranslateModule.normalizeTranslateTargetLang(els.translateTargetLang.value || 'RU');
+    WaDeckTranslateModule.syncHoverTranslateTargetLang();
   });
   els.translateSourceLang.addEventListener('change', () => {
     state.translateSourceLang = String(els.translateSourceLang.value || 'AUTO').toUpperCase();
   });
 
-  els.pickAttachments.addEventListener('click', () => pickAttachments().catch(console.error));
-  els.clearAttachments.addEventListener('click', clearAttachments);
-  els.openChatPicker.addEventListener('click', () => openChatPicker().catch(console.error));
-  els.pickerAccount.addEventListener('change', () => refreshPickerChats(true).catch(console.error));
-  els.pickerRefresh.addEventListener('click', () => refreshPickerChats(true).catch(console.error));
-  els.closeChatPicker?.addEventListener('click', closeChatPicker);
+  els.pickAttachments.addEventListener('click', () => WaDeckScheduleModule.pickAttachments().catch(console.error));
+  els.clearAttachments.addEventListener('click', WaDeckScheduleModule.clearAttachments);
+  els.openChatPicker.addEventListener('click', () => WaDeckScheduleModule.openChatPicker().catch(console.error));
+  els.pickerAccount.addEventListener('change', () => WaDeckScheduleModule.refreshPickerChats(true).catch(console.error));
+  els.pickerRefresh.addEventListener('click', () => WaDeckScheduleModule.refreshPickerChats(true).catch(console.error));
+  els.closeChatPicker?.addEventListener('click', WaDeckScheduleModule.closeChatPicker);
   els.accountMenuSave.addEventListener('click', () => saveAccountFromMenu().catch(console.error));
   els.accountMenuReset?.addEventListener('click', () => resetAccountFromMenu().catch(console.error));
   els.accountMenuIcon?.addEventListener('click', () => changeAccountIconFromMenu().catch(console.error));
@@ -3759,12 +1275,12 @@ function bindActions() {
       accountName: account.name,
       chatName,
     };
-    renderScheduleTarget();
-    closeChatPicker();
+    WaDeckScheduleModule.renderScheduleTarget();
+    WaDeckScheduleModule.closeChatPicker();
     setStatus(`Цель отправки: ${account.name} / ${chatName}`);
   });
   els.createSchedule.addEventListener('click', () => {
-    runWithBusyButton(els.createSchedule, () => createScheduledMessage(), {
+    runWithBusyButton(els.createSchedule, () => WaDeckScheduleModule.createScheduledMessage(), {
       text: 'Планирую...',
       title: 'Создание отложенной отправки',
     }).catch(console.error);
@@ -3773,9 +1289,18 @@ function bindActions() {
 }
 
 async function init() {
+  const moduleCtx = { state, els, setStatus, trimMapSize, runWithBusyButton };
+  WaDeckWeatherModule.init(moduleCtx);
+  WaDeckAutoUpdateModule.init(moduleCtx);
+  WaDeckUnreadModule.init({ ...moduleCtx, renderAccounts, isWebviewReady, safeExecuteInWebview });
+  WaDeckCrmModule.init({ ...moduleCtx, activeAccount, selectedWebview });
+  WaDeckAiModule.init({ ...moduleCtx, runWithBusyButton, selectedWebview, insertTextIntoActiveChat });
+  WaDeckTranslateModule.init({ ...moduleCtx, runWithBusyButton, safeExecuteInWebview, getSelectedTextFromActiveWebview: WaDeckAiModule.getSelectedTextFromActiveWebview });
+  WaDeckScheduleModule.init({ ...moduleCtx, trimMapSize, runWithBusyButton, accountById, ensureWebview, isWebviewReady, sendWebviewInput, delay, formatDateTime, nextSendAtLocal });
+
   if (typeof window.waDeck.onAutoUpdateStatus === 'function' && !state.autoUpdateUnsubscribe) {
     state.autoUpdateUnsubscribe = window.waDeck.onAutoUpdateStatus((payload) => {
-      handleAutoUpdateStatus(payload);
+      WaDeckAutoUpdateModule.handleAutoUpdateStatus(payload);
     });
   }
   if (typeof window.waDeck.onHostEscape === 'function') {
@@ -3792,8 +1317,8 @@ async function init() {
     deeplApiKey: String(boot.settings?.deeplApiKey || ''),
     libreTranslateApiKey: String(boot.settings?.libreTranslateApiKey || boot.settings?.googleTranslateApiKey || ''),
     libreTranslateUrl: String(boot.settings?.libreTranslateUrl || 'https://libretranslate.com/translate'),
-    weatherCity: normalizeWeatherCity(boot.settings?.weatherCity || 'Moscow'),
-    weatherUnit: normalizeWeatherUnit(boot.settings?.weatherUnit || 'celsius'),
+    weatherCity: WaDeckWeatherModule.normalizeWeatherCity(boot.settings?.weatherCity || 'Moscow'),
+    weatherUnit: WaDeckWeatherModule.normalizeWeatherUnit(boot.settings?.weatherUnit || 'celsius'),
     aiApiKey: String(boot.settings?.aiApiKey || ''),
     aiModel: String(boot.settings?.aiModel || 'google/gemma-3-4b-it'),
     aiRolePrompt: String(boot.settings?.aiRolePrompt || ''),
@@ -3819,9 +1344,9 @@ async function init() {
   setActiveAccount('');
   updatePanelVisibility();
   applySettingsToForm();
-  renderAiModels([state.aiModel]);
-  renderAttachmentsDraft();
-  renderScheduleTarget();
+  WaDeckAiModule.renderAiModels([state.aiModel]);
+  WaDeckScheduleModule.renderAttachmentsDraft();
+  WaDeckScheduleModule.renderScheduleTarget();
   els.translateTargetLang.value = state.translateTargetLang;
   els.translateSourceLang.value = state.translateSourceLang;
   els.translateInput.value = '';
@@ -3834,10 +1359,10 @@ async function init() {
   els.crmAbout.value = '';
   els.crmMyInfo.value = '';
   els.crmMeta.textContent = 'Файл: —';
-  setCrmEditable(false);
+  WaDeckCrmModule.setCrmEditable(false);
   els.aiContextCount.value = String(state.aiContextCount);
   els.aiReplySourceLang.checked = Boolean(state.aiReplySourceLang);
-  renderAiModeButtons();
+  WaDeckAiModule.renderAiModeButtons();
 
   if (window.WaDeckTemplatesModule?.createTemplateController) {
     templateController = window.WaDeckTemplatesModule.createTemplateController({
@@ -3850,16 +1375,16 @@ async function init() {
   }
 
   els.scheduleAt.value = nextSendAtLocal(5);
-  await renderScheduled();
+  await WaDeckScheduleModule.renderScheduled();
 
   bindActions();
-  startWeatherRefreshLoop();
-  refreshWeather().catch(() => {});
-  await refreshAiModels(false).catch(() => {});
-  startScheduleRunner();
-  startUnreadPolling();
-  scheduleDockBadgeSync();
-  maybeShowReleaseNotes().catch(() => {});
+  WaDeckWeatherModule.startWeatherRefreshLoop();
+  WaDeckWeatherModule.refreshWeather().catch(() => {});
+  await WaDeckAiModule.refreshAiModels(false).catch(() => {});
+  WaDeckScheduleModule.startScheduleRunner();
+  WaDeckUnreadModule.startUnreadPolling();
+  WaDeckUnreadModule.scheduleDockBadgeSync();
+  WaDeckAutoUpdateModule.maybeShowReleaseNotes().catch(() => {});
 
   setStatus(
     `Готово. Аккаунтов: ${state.accounts.length}, Electron ${state.runtime.electron || '?'}, Chromium ${state.runtime.chrome || '?'}`,
