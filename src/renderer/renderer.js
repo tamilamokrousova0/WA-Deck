@@ -215,6 +215,27 @@ function setStatus(text) {
     els.panelStatus.textContent = text;
     els.panelStatus.title = text;
   }
+  const lower = String(text || '').toLowerCase();
+  if (lower.includes('сохранен') || lower.includes('скопирован') || lower.includes('удален') || lower.includes('разморожен')) {
+    showToast(text, 'success');
+  } else if (lower.includes('ошибка') || lower.includes('не удалось') || lower.includes('неверн')) {
+    showToast(text, 'error', 5000);
+  }
+}
+
+function showToast(text, type, duration) {
+  if (typeof type === 'undefined') type = 'info';
+  if (typeof duration === 'undefined') duration = 3000;
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = 'toast' + (type === 'success' ? ' toast-success' : type === 'error' ? ' toast-error' : type === 'warn' ? ' toast-warn' : '');
+  toast.textContent = text;
+  container.appendChild(toast);
+  setTimeout(function () {
+    toast.classList.add('is-hiding');
+    setTimeout(function () { toast.remove(); }, 260);
+  }, duration);
 }
 
 function trimMapSize(map, limit) {
@@ -332,6 +353,13 @@ function updateActiveAccountDisplay() {
   els.activeAccountDisplay.textContent = `${account.name}${suffix}`;
   els.activeAccountDisplay.title = account.name;
   els.activeAccountDisplay.classList.remove('is-empty');
+}
+
+function updateToolbarState() {
+  const hasActive = Boolean(activeAccount());
+  if (els.refreshActive) els.refreshActive.disabled = !hasActive;
+  if (els.freezeActive) els.freezeActive.disabled = !hasActive;
+  if (els.openCrmModal) els.openCrmModal.disabled = !hasActive;
 }
 
 function updateFreezeButtonState() {
@@ -497,6 +525,26 @@ function renderAccounts() {
       card.appendChild(frozenTag);
     }
 
+    const statusDot = document.createElement('div');
+    statusDot.className = 'account-status-dot';
+    if (account.frozen) {
+      statusDot.classList.add('status-frozen');
+      statusDot.title = 'Заморожен';
+    } else {
+      const wv = state.webviews.get(account.id);
+      if (!wv) {
+        statusDot.classList.add('status-offline');
+        statusDot.title = 'Не загружен';
+      } else if (wv.dataset?.waReady === '1') {
+        statusDot.classList.add('status-ready');
+        statusDot.title = 'Подключён';
+      } else {
+        statusDot.classList.add('status-loading');
+        statusDot.title = 'Загружается';
+      }
+    }
+    card.appendChild(statusDot);
+
     card.append(remove, chip, name);
     els.accountsList.appendChild(card);
   }
@@ -555,16 +603,20 @@ function ensureWebview(account) {
           clearTimeout(state.startupHubTimeoutId);
           state.startupHubTimeoutId = null;
         }
-        refreshWebviewVisibility();
       }
+      showWebviewLoading(false);
+      refreshWebviewVisibility();
       setStatus(`${account.name}: готово`);
     }
   });
 
   webview.addEventListener('did-fail-load', () => {
     webview.dataset.waReady = '0';
-    if (account.id === state.activeAccountId && state.startupHubVisible) {
-      state.startupHubVisible = false;
+    if (account.id === state.activeAccountId) {
+      showWebviewLoading(false);
+      if (state.startupHubVisible) {
+        state.startupHubVisible = false;
+      }
       refreshWebviewVisibility();
     }
   });
@@ -615,16 +667,37 @@ function safeExecuteInWebview(webview, script, userGesture = true) {
   }
 }
 
+function showWebviewLoading(show) {
+  let overlay = els.webviews.querySelector('.webview-loading-overlay');
+  if (show) {
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'webview-loading-overlay';
+      const spinner = document.createElement('div');
+      spinner.className = 'spinner';
+      overlay.appendChild(spinner);
+      els.webviews.appendChild(overlay);
+    }
+  } else if (overlay) {
+    overlay.remove();
+  }
+}
+
 function refreshWebviewVisibility() {
   const showHub = state.startupHubVisible || !state.activeAccountId || !selectedWebview();
   setHubVisibility(showHub);
+  let activeLoading = false;
   for (const [accountId, webview] of state.webviews.entries()) {
     if (accountId === state.activeAccountId) {
       webview.classList.add('active');
+      if (webview.dataset.waReady !== '1' && typeof webview.isLoading === 'function' && webview.isLoading()) {
+        activeLoading = true;
+      }
     } else {
       webview.classList.remove('active');
     }
   }
+  showWebviewLoading(!showHub && activeLoading);
 }
 
 function openHubMode() {
@@ -666,6 +739,7 @@ function _setActiveAccountInner(accountId) {
   renderAccounts();
   updateActiveAccountDisplay();
   updateFreezeButtonState();
+  updateToolbarState();
   WaDeckUnreadModule.updateActiveUnreadIndicator();
   refreshWebviewVisibility();
   const account = activeAccount();
@@ -687,12 +761,21 @@ function _setActiveAccountInner(accountId) {
   WaDeckScheduleModule.renderScheduled().catch(console.error);
 }
 
+function syncTranslateProviderVisibility() {
+  const provider = WaDeckTranslateModule.getSelectedTranslateProvider();
+  const deeplBlock = document.getElementById('deepl-settings-block');
+  const libreBlock = document.getElementById('libre-settings-block');
+  if (deeplBlock) deeplBlock.classList.toggle('hidden', provider !== 'deepl');
+  if (libreBlock) libreBlock.classList.toggle('hidden', provider !== 'libre');
+}
+
 function applySettingsToForm() {
   state.settings.uiTheme = normalizeTheme(state.settings.uiTheme);
   state.settings.weatherCity = WaDeckWeatherModule.normalizeWeatherCity(state.settings.weatherCity);
   state.settings.weatherUnit = WaDeckWeatherModule.normalizeWeatherUnit(state.settings.weatherUnit);
   applyTheme(state.settings.uiTheme);
   WaDeckTranslateModule.setSelectedTranslateProvider(state.settings.translateProvider || 'deepl');
+  syncTranslateProviderVisibility();
   els.deeplApiKey.value = state.settings.deeplApiKey || '';
   els.libreTranslateUrl.value = state.settings.libreTranslateUrl || 'https://libretranslate.com/translate';
   els.libreTranslateApiKey.value = state.settings.libreTranslateApiKey || '';
@@ -1148,10 +1231,45 @@ function bindActions() {
     }
   });
   window.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape') return;
-    if (event.defaultPrevented) return;
-    event.preventDefault();
-    handleEscapeUiReset();
+    if (event.key === 'Escape') {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      handleEscapeUiReset();
+      return;
+    }
+
+    const mod = event.metaKey || event.ctrlKey;
+    if (!mod) return;
+
+    const digit = parseInt(event.key, 10);
+    if (digit >= 1 && digit <= 9 && !event.shiftKey && !event.altKey) {
+      const account = state.accounts[digit - 1];
+      if (account) {
+        event.preventDefault();
+        setActiveAccount(account.id);
+      }
+      return;
+    }
+
+    const tag = (event.target?.tagName || '').toLowerCase();
+    const isInput = tag === 'input' || tag === 'textarea' || tag === 'select';
+    if (isInput) return;
+
+    if (event.key === 't' && !event.shiftKey) {
+      event.preventDefault();
+      WaDeckTranslateModule.openTranslateModal();
+      return;
+    }
+    if (event.key === ',' || event.key === '\u0431') {
+      event.preventDefault();
+      if (state.panelHidden) { openSettingsPanel(); } else { closeSettingsPanel(); }
+      return;
+    }
+    if (event.key === 'r' && !event.shiftKey) {
+      event.preventDefault();
+      refreshActiveWebview();
+      return;
+    }
   });
   document.addEventListener('click', (event) => {
     if (!els.weatherWidget || !els.weatherPopover) return;
@@ -1175,6 +1293,8 @@ function bindActions() {
   });
   bindPasswordToggle(els.deeplApiKey, els.toggleDeeplApiKey);
   bindPasswordToggle(els.libreTranslateApiKey, els.toggleLibreTranslateApiKey);
+  els.translateProviderDeepl?.addEventListener('change', syncTranslateProviderVisibility);
+  els.translateProviderLibre?.addEventListener('change', syncTranslateProviderVisibility);
   els.fillSelectedText.addEventListener('click', () => WaDeckTranslateModule.fillTranslateInputFromSelection().catch(console.error));
   els.doTranslate.addEventListener('click', () => WaDeckTranslateModule.doModalTranslate().catch(console.error));
   els.copyTranslate.addEventListener('click', () => WaDeckTranslateModule.copyTranslateOutput().catch(console.error));

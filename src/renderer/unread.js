@@ -35,11 +35,13 @@
   }
 
   function updateActiveUnreadIndicator() {
-    const activeId = state.activeAccountId;
-    const count = activeId ? Number(state.unreadByAccount.get(activeId) || 0) : 0;
-    if (count > 0) {
+    let total = 0;
+    for (const count of state.unreadByAccount.values()) {
+      total += Math.max(0, Number(count) || 0);
+    }
+    if (total > 0) {
       els.activeUnread.classList.remove('hidden');
-      els.activeUnreadCount.textContent = count > 99 ? '99+' : String(count);
+      els.activeUnreadCount.textContent = total > 99 ? '99+' : String(total);
     } else {
       els.activeUnread.classList.add('hidden');
       els.activeUnreadCount.textContent = '0';

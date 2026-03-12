@@ -144,7 +144,7 @@
     els.crmAbout.value = nextRecord.about;
     els.crmMyInfo.value = nextRecord.myInfo;
     els.crmMeta.textContent = `Файл: ${filePath || '—'}`;
-    setCrmEditable(false);
+    setCrmEditable(true);
     await updateCrmModalPosition();
     els.crmModal.classList.remove('hidden');
     requestAnimationFrame(() => {

@@ -41,6 +41,13 @@
         selectedTemplateId = '';
       }
       els.templateSelect.value = selectedTemplateId;
+
+      const summary = document.querySelector('#templates-settings-card > summary');
+      if (summary) {
+        summary.textContent = state.templates.length
+          ? 'Общие шаблоны (' + state.templates.length + ')'
+          : 'Общие шаблоны';
+      }
     }
 
     function fillEditorFromTemplate(template) {
