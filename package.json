@@ -1,7 +1,7 @@
 {
   "name": "wa-deck",
-  "version": "0.1.13",
-  "description": "WA Deck for macOS Apple Silicon",
+  "version": "0.2.00",
+  "description": "WA Deck: multi-account WhatsApp manager",
   "main": "src/main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",

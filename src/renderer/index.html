@@ -106,10 +106,23 @@
         <div class="panel-top">
           <div class="panel-title">Настройки</div>
           <div class="panel-actions">
-            <button id="theme-toggle" class="btn btn-icon btn-theme" title="Переключить тему">🌙</button>
-            <button id="close-panel" class="btn btn-icon" title="Закрыть">✕</button>
+            <button id="theme-toggle" class="btn btn-icon btn-panel-icon btn-theme" title="Переключить тему">
+              <svg class="icon icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <svg class="icon icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button id="close-panel" class="btn btn-icon btn-panel-icon" title="Закрыть (Esc)">
+              <svg class="icon icon-close" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M18 6 6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </button>
           </div>
         </div>
+        <div class="panel-body">
         <div id="panel-status" class="panel-status">Готово</div>
         <details class="card card-collapsible" id="translate-settings-card">
           <summary>Настройки переводчика</summary>
@@ -263,7 +276,9 @@
           <button id="create-schedule" class="btn btn-primary full">Запланировать</button>
           <div id="scheduled-list" class="scheduled-list"></div>
         </details>
+        </div>
 
+        <div class="panel-scroll-fade"></div>
         <div class="panel-bottom-actions">
           <button id="manual-update" class="btn">Обновление</button>
         </div>
@@ -377,6 +392,36 @@
           Результат
           <textarea id="translate-output" rows="6" readonly placeholder="Здесь появится перевод"></textarea>
         </label>
+      </div>
+    </div>
+
+    <div id="update-available-modal" class="modal hidden">
+      <div class="modal-card modal-card-update">
+        <div class="modal-head">
+          <h3>Доступно обновление</h3>
+          <button id="close-update-modal" class="btn btn-icon btn-panel-icon modal-close-btn" title="Закрыть">
+            <svg class="icon icon-close" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M18 6 6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="update-modal-body">
+          <div class="update-icon">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2L12 16M12 16L7 11M12 16L17 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M4 20h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div id="update-version-text" class="update-version"></div>
+          <div id="update-progress-bar" class="update-progress hidden">
+            <div id="update-progress-fill" class="update-progress-fill"></div>
+          </div>
+          <div id="update-status-text" class="update-status"></div>
+        </div>
+        <div class="update-modal-actions">
+          <button id="update-install-btn" class="btn btn-primary full hidden">Установить и перезапустить</button>
+          <button id="update-dismiss-btn" class="btn full">Позже</button>
+        </div>
       </div>
     </div>
 

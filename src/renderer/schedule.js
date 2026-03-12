@@ -383,8 +383,9 @@
     await delay(200);
 
     /* STEP 2: Clear search and type chat name */
-    await sendWebviewInput(webview, { type: 'keyDown', keyCode: 'a', modifiers: ['meta'] });
-    await sendWebviewInput(webview, { type: 'keyUp', keyCode: 'a', modifiers: ['meta'] });
+    const selectAllMod = navigator.platform?.includes('Mac') ? 'meta' : 'control';
+    await sendWebviewInput(webview, { type: 'keyDown', keyCode: 'a', modifiers: [selectAllMod] });
+    await sendWebviewInput(webview, { type: 'keyUp', keyCode: 'a', modifiers: [selectAllMod] });
     await delay(50);
     await nativeKey('Backspace');
     await delay(100);

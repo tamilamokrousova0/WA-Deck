@@ -1,5 +1,12 @@
 (function setupAutoUpdateModule() {
   const RELEASE_NOTES = {
+    '0.1.14': [
+      'Настройки переделаны: SVG-иконки темы и закрытия, анимации hover, скроллируемая панель.',
+      'Добавлен popup при доступности обновления с прогрессом загрузки.',
+      'Кнопки с эффектом подъёма при наведении, фокус-подсветка полей ввода.',
+      'Chevron карточек заменён на CSS-стрелку с плавной анимацией.',
+      'Исправлена совместимость горячих клавиш с Windows.',
+    ],
     '0.1.13': [
       'Скрыта системная полоса прокрутки в левой панели WhatsApp-аккаунтов.',
       'Добавлены стрелки вверх и вниз для прокрутки списка аккаунтов без перекрытия иконок.',
@@ -68,19 +75,21 @@
     }
     if (status === 'available') {
       setStatus(`Обновление: доступна версия ${version || 'новая'}`);
+      showUpdateModal(version);
       return;
     }
     if (status === 'downloading') {
       setStatus(`Обновление: загрузка ${Math.max(0, Math.min(100, percent))}%`);
+      updateDownloadProgress(percent);
       return;
     }
     if (status === 'downloaded') {
       setStatus(`Обновление ${version || ''} загружено`);
+      showUpdateReady(version);
       if (version && RELEASE_NOTES[version]) {
         els.releaseNotesTitle.textContent = 'Что нового в обновлении';
         els.releaseNotesVersion.textContent = `Версия ${version}`;
         renderReleaseNotes([version]);
-        els.releaseNotesModal.classList.remove('hidden');
       }
       return;
     }
@@ -90,8 +99,94 @@
     }
     if (status === 'error') {
       setStatus(`Обновление: ${message}`);
+      updateError(message);
     }
   }
+
+  /* ── Update Available Popup ── */
+
+  function showUpdateModal(version) {
+    if (!els.updateAvailableModal) return;
+    if (els.updateVersionText) {
+      els.updateVersionText.textContent = version ? `Версия ${version}` : 'Новая версия';
+    }
+    if (els.updateStatusText) {
+      els.updateStatusText.textContent = 'Загрузка обновления...';
+    }
+    if (els.updateProgressBar) {
+      els.updateProgressBar.classList.remove('hidden');
+    }
+    if (els.updateProgressFill) {
+      els.updateProgressFill.style.width = '0%';
+    }
+    if (els.updateInstallBtn) {
+      els.updateInstallBtn.classList.add('hidden');
+    }
+    els.updateAvailableModal.classList.remove('hidden');
+  }
+
+  function updateDownloadProgress(percent) {
+    const safePct = Math.max(0, Math.min(100, percent));
+    if (els.updateProgressFill) {
+      els.updateProgressFill.style.width = `${safePct}%`;
+    }
+    if (els.updateStatusText) {
+      els.updateStatusText.textContent = `Загрузка: ${safePct}%`;
+    }
+  }
+
+  function showUpdateReady(version) {
+    if (els.updateStatusText) {
+      els.updateStatusText.textContent = version
+        ? `Версия ${version} готова к установке`
+        : 'Обновление готово к установке';
+    }
+    if (els.updateProgressBar) {
+      els.updateProgressBar.classList.add('hidden');
+    }
+    if (els.updateInstallBtn) {
+      els.updateInstallBtn.classList.remove('hidden');
+    }
+    if (els.updateAvailableModal) {
+      els.updateAvailableModal.classList.remove('hidden');
+    }
+  }
+
+  function updateError(message) {
+    if (els.updateStatusText) {
+      els.updateStatusText.textContent = message || 'Ошибка обновления';
+    }
+    if (els.updateProgressBar) {
+      els.updateProgressBar.classList.add('hidden');
+    }
+  }
+
+  function closeUpdateModal() {
+    if (els.updateAvailableModal) {
+      els.updateAvailableModal.classList.add('hidden');
+    }
+  }
+
+  async function installUpdate() {
+    if (!window.waDeck?.installDownloadedUpdate) {
+      setStatus('Установка обновления недоступна');
+      return;
+    }
+    if (els.updateInstallBtn) {
+      els.updateInstallBtn.classList.add('is-busy');
+      els.updateInstallBtn.disabled = true;
+    }
+    const result = await window.waDeck.installDownloadedUpdate().catch(() => null);
+    if (!result?.ok) {
+      setStatus('Не удалось установить обновление');
+      if (els.updateInstallBtn) {
+        els.updateInstallBtn.classList.remove('is-busy');
+        els.updateInstallBtn.disabled = false;
+      }
+    }
+  }
+
+  /* ── Release Notes ── */
 
   function compareVersions(a, b) {
     const pa = String(a || '')
@@ -197,5 +292,7 @@
     maybeShowReleaseNotes,
     closeReleaseNotesModal,
     requestManualUpdate,
+    closeUpdateModal,
+    installUpdate,
   };
 })();

@@ -153,6 +153,15 @@ const els = {
   clearTranslate: document.getElementById('clear-translate'),
   closeTranslateModal: document.getElementById('close-translate-modal'),
 
+  updateAvailableModal: document.getElementById('update-available-modal'),
+  updateVersionText: document.getElementById('update-version-text'),
+  updateProgressBar: document.getElementById('update-progress-bar'),
+  updateProgressFill: document.getElementById('update-progress-fill'),
+  updateStatusText: document.getElementById('update-status-text'),
+  updateInstallBtn: document.getElementById('update-install-btn'),
+  updateDismissBtn: document.getElementById('update-dismiss-btn'),
+  closeUpdateModal: document.getElementById('close-update-modal'),
+
   releaseNotesModal: document.getElementById('release-notes-modal'),
   releaseNotesTitle: document.getElementById('release-notes-title'),
   releaseNotesVersion: document.getElementById('release-notes-version'),
@@ -188,7 +197,7 @@ function applyTheme(theme) {
   const safeTheme = normalizeTheme(theme);
   document.documentElement.setAttribute('data-theme', safeTheme);
   if (els.themeToggle) {
-    els.themeToggle.textContent = safeTheme === 'light' ? '☀︎' : '☾';
+    els.themeToggle.classList.toggle('is-light', safeTheme === 'light');
     els.themeToggle.title = safeTheme === 'light' ? 'Включить тёмную тему' : 'Включить светлую тему';
   }
 }
@@ -1464,6 +1473,17 @@ function bindActions() {
   });
   els.themeToggle.addEventListener('click', () => toggleTheme().catch(console.error));
   els.closePanel.addEventListener('click', closeSettingsPanel);
+
+  /* Scroll-fade for panel body */
+  const panelBody = document.querySelector('.panel-body');
+  const scrollFade = document.querySelector('.panel-scroll-fade');
+  if (panelBody && scrollFade) {
+    panelBody.addEventListener('scroll', () => {
+      const atBottom = panelBody.scrollTop + panelBody.clientHeight >= panelBody.scrollHeight - 10;
+      scrollFade.classList.toggle('is-bottom', atBottom);
+    });
+  }
+
   els.manualUpdate?.addEventListener('click', () => WaDeckAutoUpdateModule.requestManualUpdate().catch(console.error));
   els.brandFrog?.addEventListener('click', () => {
     playFrogMoneyBurst();
@@ -1557,6 +1577,11 @@ function bindActions() {
   });
   els.closeTranslateModal.addEventListener('click', WaDeckTranslateModule.closeTranslateModal);
   els.closeReleaseNotes?.addEventListener('click', () => WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(console.error));
+
+  /* Update available modal buttons */
+  els.closeUpdateModal?.addEventListener('click', () => WaDeckAutoUpdateModule.closeUpdateModal());
+  els.updateDismissBtn?.addEventListener('click', () => WaDeckAutoUpdateModule.closeUpdateModal());
+  els.updateInstallBtn?.addEventListener('click', () => WaDeckAutoUpdateModule.installUpdate().catch(console.error));
   els.crmEdit.addEventListener('click', WaDeckCrmModule.toggleCrmEdit);
   els.crmSave.addEventListener('click', () => WaDeckCrmModule.saveCrmCard().catch(console.error));
   els.crmCopy.addEventListener('click', () => WaDeckCrmModule.copyCrmCard().catch(console.error));

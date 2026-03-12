@@ -1380,7 +1380,7 @@ function setupAutoUpdater() {
     });
   });
 
-  autoUpdater.on('update-downloaded', async (info) => {
+  autoUpdater.on('update-downloaded', (info) => {
     lastUpdateProgressPercent = -1;
     sendAutoUpdateStatus({
       status: 'downloaded',
@@ -1388,23 +1388,6 @@ function setupAutoUpdater() {
       version: String(info?.version || ''),
       message: `Обновление ${String(info?.version || '')} загружено`,
     });
-
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      return;
-    }
-
-    const result = await dialog.showMessageBox(mainWindow, {
-      type: 'info',
-      buttons: ['Перезапустить сейчас', 'Позже'],
-      defaultId: 0,
-      cancelId: 1,
-      title: APP_TITLE,
-      message: 'Обновление загружено',
-      detail: `Версия ${String(info?.version || '')} готова к установке. Перезапустить приложение сейчас?`,
-    });
-    if (result.response === 0) {
-      setImmediate(() => autoUpdater.quitAndInstall());
-    }
   });
 
   autoUpdater.on('error', (error) => {
