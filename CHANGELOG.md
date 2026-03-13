@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.4
+
+### Windows hotfix
+- Исправлен релизный CI/CD workflow: Windows hotfix теперь публикуется корректно в GitHub Releases.
+- Обновление предназначено для Windows-клиентов через `electron-updater`.
+- macOS для этого hotfix не пересобирается.
+
 ## 0.2.3
 
 ### Windows hotfix
