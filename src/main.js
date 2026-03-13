@@ -1725,6 +1725,9 @@ function registerIpc() {
       return { ok: true };
     }
 
+    const isMac = process.platform === 'darwin';
+    const isWin = process.platform === 'win32';
+
     ytPlayerWindow = new BrowserWindow({
       width: 480,
       height: 320,
@@ -1732,12 +1735,16 @@ function registerIpc() {
       minHeight: 200,
       title: 'YouTube — WA Deck',
       alwaysOnTop: true,
-      frame: false,
-      titleBarStyle: 'hidden',
-      titleBarOverlay: process.platform === 'darwin' ? {
+      frame: isWin,
+      titleBarStyle: isMac ? 'hidden' : 'default',
+      titleBarOverlay: isMac ? {
         color: '#0f1720',
         symbolColor: '#8ea8c8',
         height: 28,
+      } : isWin ? {
+        color: '#0f1720',
+        symbolColor: '#8ea8c8',
+        height: 32,
       } : false,
       backgroundColor: '#000000',
       webPreferences: {
