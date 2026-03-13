@@ -58,9 +58,8 @@ window._waDeckLangOptions = HOVER_TRANSLATE_LANG_OPTIONS;
 
 const els = {
   appRoot: document.getElementById('app-root'),
-  brandFrog: document.getElementById('brand-frog'),
+  brandHub: document.getElementById('brand-hub'),
   accountsScrollUp: document.getElementById('accounts-scroll-up'),
-  brandMoneyBurst: document.getElementById('brand-money-burst'),
   accountsList: document.getElementById('accounts-list'),
   accountsScrollDown: document.getElementById('accounts-scroll-down'),
   addAccount: document.getElementById('add-account'),
@@ -332,38 +331,25 @@ function setHubVisibility(visible) {
   if (visible) updateHubDashboard();
 }
 
-function playFrogMoneyBurst() {
-  if (!els.brandFrog || !els.brandMoneyBurst) return;
-  els.brandFrog.classList.remove('is-burst');
-  // force reflow to re-run animation on repeated clicks
-  void els.brandFrog.offsetWidth;
-  els.brandFrog.classList.add('is-burst');
-  els.brandMoneyBurst.innerHTML = '';
+function playBrandClickAnimation() {
+  if (!els.brandHub) return;
+  els.brandHub.classList.remove('is-clicked');
+  void els.brandHub.offsetWidth;
+  els.brandHub.classList.add('is-clicked');
+  setTimeout(() => els.brandHub?.classList.remove('is-clicked'), 750);
+}
 
-  const particleCount = 9;
-  for (let i = 0; i < particleCount; i += 1) {
-    const particle = document.createElement('span');
-    particle.className = 'money-particle';
-    particle.textContent = '€';
-    const dx = 18 + Math.random() * 46;
-    const dy = -28 - Math.random() * 34;
-    const rot = -26 + Math.random() * 52;
-    const delay = Math.random() * 0.12;
-    particle.style.setProperty('--dx', `${dx}px`);
-    particle.style.setProperty('--dy', `${dy}px`);
-    particle.style.setProperty('--rot', `${rot}deg`);
-    particle.style.setProperty('--delay', `${delay.toFixed(2)}s`);
-    particle.style.left = `${56 + Math.random() * 12}%`;
-    particle.style.top = `${52 + Math.random() * 14}%`;
-    particle.addEventListener('animationend', () => {
-      particle.remove();
-    });
-    els.brandMoneyBurst.appendChild(particle);
-  }
+/* ── YouTube Mini-Player (via BrowserWindow) ── */
+function openYoutubeMiniPlayer(videoId) {
+  const safeId = String(videoId || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!safeId) return;
+  window.waDeck.openYoutubePlayer({ videoId: safeId }).catch(() => {
+    setStatus('Не удалось открыть YouTube плеер');
+  });
+}
 
-  setTimeout(() => {
-    els.brandFrog?.classList.remove('is-burst');
-  }, 720);
+function closeYoutubeMiniPlayer() {
+  window.waDeck.closeYoutubePlayer().catch(() => {});
 }
 
 function formatDateTime(iso) {
@@ -854,6 +840,10 @@ function ensureWebview(account) {
 
     webview.executeJavaScript(hoverTranslateBridgeScript(state.translateTargetLang), true).catch((e) => console.warn('[hover-bridge]', e));
 
+    if (typeof youtubeDetectScript === 'function') {
+      webview.executeJavaScript(youtubeDetectScript(), true).catch((e) => console.warn('[youtube-detect]', e));
+    }
+
     // Debounced UI update — prevents excessive re-renders on SPA navigation
     if (_bindDomTimer) clearTimeout(_bindDomTimer);
     _bindDomTimer = setTimeout(() => {
@@ -867,8 +857,17 @@ function ensureWebview(account) {
   webview.addEventListener('did-navigate-in-page', bindDomHelpers);
   webview.addEventListener('console-message', (event) => {
     const message = String(event?.message || '');
-    if (!message.startsWith('__WADECK_HOVER_TRANSLATE__')) return;
-    WaDeckTranslateModule.handleHoverTranslateMessage(account.id, message).catch(console.error);
+    if (message.startsWith('__WADECK_HOVER_TRANSLATE__')) {
+      WaDeckTranslateModule.handleHoverTranslateMessage(account.id, message).catch(console.error);
+      return;
+    }
+    if (message.startsWith('__WADECK_YOUTUBE_PLAY__')) {
+      try {
+        const payload = JSON.parse(message.slice('__WADECK_YOUTUBE_PLAY__'.length));
+        openYoutubeMiniPlayer(payload.videoId);
+      } catch { /* ignore parse errors */ }
+      return;
+    }
   });
 
   state.webviews.set(account.id, webview);
@@ -938,6 +937,7 @@ function handleEscapeUiReset() {
   }
   WaDeckCrmModule.closeCrmModal();
   closeAccountMenu();
+  closeYoutubeMiniPlayer();
 }
 
 let _switchingAccount = false;
@@ -1465,7 +1465,6 @@ function bindActions() {
   els.accountsList?.addEventListener('scroll', updateSidebarScrollControls, { passive: true });
   els.refreshActive.addEventListener('click', refreshActiveWebview);
   els.freezeActive?.addEventListener('click', () => toggleActiveFreeze().catch(console.error));
-  els.openTranslateModal?.addEventListener('click', WaDeckTranslateModule.openTranslateModal);
   els.openCrmModal.addEventListener('click', () => WaDeckCrmModule.openCrmModal().catch(console.error));
 
   els.togglePanel.addEventListener('click', () => {
@@ -1485,8 +1484,8 @@ function bindActions() {
   }
 
   els.manualUpdate?.addEventListener('click', () => WaDeckAutoUpdateModule.requestManualUpdate().catch(console.error));
-  els.brandFrog?.addEventListener('click', () => {
-    playFrogMoneyBurst();
+  els.brandHub?.addEventListener('click', () => {
+    playBrandClickAnimation();
     openHubMode();
   });
   els.weatherToggle?.addEventListener('click', (event) => {
@@ -1582,6 +1581,9 @@ function bindActions() {
   els.closeUpdateModal?.addEventListener('click', () => WaDeckAutoUpdateModule.closeUpdateModal());
   els.updateDismissBtn?.addEventListener('click', () => WaDeckAutoUpdateModule.closeUpdateModal());
   els.updateInstallBtn?.addEventListener('click', () => WaDeckAutoUpdateModule.installUpdate().catch(console.error));
+
+
+
   els.crmEdit.addEventListener('click', WaDeckCrmModule.toggleCrmEdit);
   els.crmSave.addEventListener('click', () => WaDeckCrmModule.saveCrmCard().catch(console.error));
   els.crmCopy.addEventListener('click', () => WaDeckCrmModule.copyCrmCard().catch(console.error));
@@ -1662,14 +1664,14 @@ async function init() {
   WaDeckCrmModule.init({ ...moduleCtx, activeAccount, selectedWebview });
   WaDeckTranslateModule.init({ ...moduleCtx, runWithBusyButton, safeExecuteInWebview, selectedWebview });
   WaDeckScheduleModule.init({ ...moduleCtx, trimMapSize, runWithBusyButton, accountById, ensureWebview, isWebviewReady, sendWebviewInput, delay, formatDateTime, nextSendAtLocal });
-
   if (typeof window.waDeck.onAutoUpdateStatus === 'function' && !state.autoUpdateUnsubscribe) {
     state.autoUpdateUnsubscribe = window.waDeck.onAutoUpdateStatus((payload) => {
       WaDeckAutoUpdateModule.handleAutoUpdateStatus(payload);
     });
   }
   if (typeof window.waDeck.onHostEscape === 'function') {
-    window.waDeck.onHostEscape(() => {
+    if (state.hostEscapeUnsubscribe) state.hostEscapeUnsubscribe();
+    state.hostEscapeUnsubscribe = window.waDeck.onHostEscape(() => {
       handleEscapeUiReset();
     });
   }
@@ -1691,7 +1693,11 @@ async function init() {
   state.runtime.appVersion = String(boot.appVersion || state.runtime.appVersion || '').trim();
 
   for (const account of state.accounts) {
-    ensureWebview(account);
+    try {
+      ensureWebview(account);
+    } catch (err) {
+      console.error(`[init] failed to create webview for ${account.id}:`, err);
+    }
   }
 
   state.startupHubVisible = true;

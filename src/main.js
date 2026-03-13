@@ -297,9 +297,35 @@ async function loadStore() {
   }
 }
 
+/* Recover scheduled messages stuck in 'processing' (e.g. after crash) */
+function recoverStaleProcessingItems() {
+  let recovered = 0;
+  for (const item of state.store.scheduled) {
+    if (item.status === 'processing') {
+      item.status = 'pending';
+      item.updatedAt = new Date().toISOString();
+      recovered += 1;
+    }
+  }
+  if (recovered > 0) {
+    console.log(`[scheduled] recovered ${recovered} stuck item(s) back to pending`);
+    saveStore().catch(() => {});
+  }
+}
+
+/* Write queue prevents concurrent fs.writeFile calls that can corrupt the store */
+let _saveStoreQueue = Promise.resolve();
+
 async function saveStore() {
-  const payload = JSON.stringify(state.store, null, 2);
-  await fs.writeFile(state.paths.storePath, payload, 'utf8');
+  _saveStoreQueue = _saveStoreQueue.then(async () => {
+    const payload = JSON.stringify(state.store, null, 2);
+    const tmpPath = state.paths.storePath + '.tmp';
+    await fs.writeFile(tmpPath, payload, 'utf8');
+    await fs.rename(tmpPath, state.paths.storePath);
+  }).catch((err) => {
+    console.error('[saveStore] write failed:', err);
+  });
+  return _saveStoreQueue;
 }
 
 function nextWpIndex() {
@@ -1680,6 +1706,72 @@ function registerIpc() {
     return { ok: true };
   });
 
+  /* ── YouTube Mini-Player Window ── */
+  let ytPlayerWindow = null;
+
+  function loadYoutubeVideo(videoId) {
+    if (!ytPlayerWindow || ytPlayerWindow.isDestroyed()) return;
+    ytPlayerWindow.loadURL(`https://www.youtube.com/watch?v=${videoId}`);
+  }
+
+  ipcMain.handle('open-youtube-player', async (_event, payload) => {
+    const videoId = String(payload?.videoId || '').replace(/[^a-zA-Z0-9_-]/g, '');
+    if (!videoId) return { ok: false, error: 'invalid_video_id' };
+
+    if (ytPlayerWindow && !ytPlayerWindow.isDestroyed()) {
+      loadYoutubeVideo(videoId);
+      ytPlayerWindow.show();
+      ytPlayerWindow.focus();
+      return { ok: true };
+    }
+
+    ytPlayerWindow = new BrowserWindow({
+      width: 480,
+      height: 320,
+      minWidth: 320,
+      minHeight: 200,
+      title: 'YouTube — WA Deck',
+      alwaysOnTop: true,
+      frame: false,
+      titleBarStyle: 'hidden',
+      titleBarOverlay: process.platform === 'darwin' ? {
+        color: '#0f1720',
+        symbolColor: '#8ea8c8',
+        height: 28,
+      } : false,
+      backgroundColor: '#000000',
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+
+    // Allow YouTube embeds to navigate within the window
+    ytPlayerWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (url.includes('youtube.com') || url.includes('youtu.be')) {
+        return { action: 'deny' };
+      }
+      shell.openExternal(url).catch(() => {});
+      return { action: 'deny' };
+    });
+
+    loadYoutubeVideo(videoId);
+
+    ytPlayerWindow.on('closed', () => {
+      ytPlayerWindow = null;
+    });
+
+    return { ok: true };
+  });
+
+  ipcMain.handle('close-youtube-player', async () => {
+    if (ytPlayerWindow && !ytPlayerWindow.isDestroyed()) {
+      ytPlayerWindow.close();
+      ytPlayerWindow = null;
+    }
+    return { ok: true };
+  });
+
   ipcMain.handle('set-dock-badge', async (_event, payload) => {
     return setDockBadge(payload?.count);
   });
@@ -1707,6 +1799,7 @@ async function bootstrap() {
   }
   ensurePaths();
   await loadStore();
+  recoverStaleProcessingItems();
   ensureDefaultAccount();
   await saveStore();
 

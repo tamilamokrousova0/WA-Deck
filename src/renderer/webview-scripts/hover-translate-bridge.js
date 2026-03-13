@@ -3,14 +3,46 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
   return `(() => {
     if (window.__waDeckHoverTranslateBound) return true;
     window.__waDeckHoverTranslateBound = true;
-    window.__waDeckHoverTranslateTargetLang = '${safeDefaultTarget}';
+    window.__waDeckHoverTranslateTargetLang = ${JSON.stringify(safeDefaultTarget)};
 
     const normalize = typeof window.__waDeckNormalizeText === 'function'
       ? window.__waDeckNormalizeText
       : ((value) => String(value || '').replace(/\\u200e|\\u200f/g, '').replace(/\\u00a0/g, ' ').replace(/\\s+/g, ' ').trim());
+
+    const deduplicateText = (text) => {
+      if (!text) return '';
+      const lines = text.split('\\n').map(l => normalize(l)).filter(Boolean);
+      const seen = new Set();
+      const unique = [];
+      for (const line of lines) {
+        if (seen.has(line)) continue;
+        seen.add(line);
+        unique.push(line);
+      }
+      const joined = unique.join('\\n');
+      // Check for whole-text repetition (e.g. "abc abc" → "abc")
+      for (let parts = 2; parts <= 4; parts++) {
+        if (joined.length % parts !== 0) continue;
+        const chunk = joined.slice(0, joined.length / parts);
+        if (chunk.length >= 4 && chunk.repeat(parts) === joined) return chunk;
+      }
+      return joined;
+    };
+
     const extractMessage = typeof window.__waDeckExtractMessageFromRow === 'function'
-      ? window.__waDeckExtractMessageFromRow
-      : ((row) => normalize(row?.innerText || ''));
+      ? ((row) => {
+          const text = window.__waDeckExtractMessageFromRow(row);
+          return deduplicateText(text);
+        })
+      : ((row) => {
+          if (!row) return '';
+          // For image/video messages, prefer caption only
+          const caption = row.querySelector('[data-testid="media-caption"], [data-testid="caption"]');
+          if (caption) return deduplicateText(normalize(caption.innerText || ''));
+          const msgText = row.querySelector('[data-testid="msg-text"]');
+          if (msgText) return deduplicateText(normalize(msgText.innerText || ''));
+          return deduplicateText(normalize(row.innerText || ''));
+        });
 
     if (!document.getElementById('waDeckHoverTranslateStyle')) {
       const style = document.createElement('style');

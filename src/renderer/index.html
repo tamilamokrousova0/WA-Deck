@@ -9,9 +9,21 @@
   <body>
     <div id="app-root" class="app panel-hidden">
       <aside class="sidebar">
-        <div id="brand-frog" class="brand" title="WA Deck">
-          <img src="../../assets/icon/wadeck-icon-512.png" alt="WA Deck" />
-          <div id="brand-money-burst" class="brand-money-burst" aria-hidden="true"></div>
+        <div id="brand-hub" class="brand" title="WA Deck">
+          <svg class="brand-hub-svg" viewBox="0 0 80 80" width="34" height="34">
+            <line class="brand-link brand-link-1" x1="40" y1="40" x2="18" y2="16" stroke="#5b9bd5" stroke-width="2.5" stroke-linecap="round" opacity="0.5"/>
+            <line class="brand-link brand-link-2" x1="40" y1="40" x2="64" y2="14" stroke="#5b9bd5" stroke-width="2.5" stroke-linecap="round" opacity="0.5"/>
+            <line class="brand-link brand-link-3" x1="40" y1="40" x2="12" y2="56" stroke="#5b9bd5" stroke-width="2.5" stroke-linecap="round" opacity="0.5"/>
+            <line class="brand-link brand-link-4" x1="40" y1="40" x2="68" y2="58" stroke="#5b9bd5" stroke-width="2.5" stroke-linecap="round" opacity="0.5"/>
+            <line class="brand-link brand-link-5" x1="40" y1="40" x2="40" y2="72" stroke="#5b9bd5" stroke-width="2.5" stroke-linecap="round" opacity="0.5"/>
+            <circle class="brand-node brand-center" cx="40" cy="40" r="10" fill="#2a6ef5"/>
+            <circle class="brand-node brand-leaf brand-leaf-1" cx="18" cy="16" r="6" fill="#48b8d0"/>
+            <circle class="brand-node brand-leaf brand-leaf-2" cx="64" cy="14" r="6" fill="#48b8d0"/>
+            <circle class="brand-node brand-leaf brand-leaf-3" cx="12" cy="56" r="6" fill="#48b8d0"/>
+            <circle class="brand-node brand-leaf brand-leaf-4" cx="68" cy="58" r="6" fill="#48b8d0"/>
+            <circle class="brand-node brand-leaf brand-leaf-5" cx="40" cy="72" r="6" fill="#48b8d0"/>
+            <circle class="brand-pulse" cx="40" cy="40" r="10" fill="none" stroke="#5ba8ff" stroke-width="1.5"/>
+          </svg>
         </div>
         <button id="accounts-scroll-up" class="btn btn-icon sidebar-scroll-btn hidden" title="Прокрутить вверх">
           <svg class="icon icon-chevron" viewBox="0 0 24 24" aria-hidden="true">
@@ -94,6 +106,22 @@
         <section id="webviews" class="webviews">
           <div id="hub-screen" class="hub-screen hidden" aria-hidden="true">
             <div id="hub-overlay" class="hub-overlay">
+              <div class="hub-icon-animated" aria-hidden="true">
+                <svg viewBox="0 0 80 80" width="56" height="56">
+                  <line class="hub-link hub-link-1" x1="40" y1="40" x2="18" y2="16" stroke="#5b9bd5" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+                  <line class="hub-link hub-link-2" x1="40" y1="40" x2="64" y2="14" stroke="#5b9bd5" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+                  <line class="hub-link hub-link-3" x1="40" y1="40" x2="12" y2="56" stroke="#5b9bd5" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+                  <line class="hub-link hub-link-4" x1="40" y1="40" x2="68" y2="58" stroke="#5b9bd5" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+                  <line class="hub-link hub-link-5" x1="40" y1="40" x2="40" y2="72" stroke="#5b9bd5" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+                  <circle class="hub-node hub-node-center" cx="40" cy="40" r="10" fill="#2a6ef5"/>
+                  <circle class="hub-node hub-node-1" cx="18" cy="16" r="6" fill="#48b8d0"/>
+                  <circle class="hub-node hub-node-2" cx="64" cy="14" r="6" fill="#48b8d0"/>
+                  <circle class="hub-node hub-node-3" cx="12" cy="56" r="6" fill="#48b8d0"/>
+                  <circle class="hub-node hub-node-4" cx="68" cy="58" r="6" fill="#48b8d0"/>
+                  <circle class="hub-node hub-node-5" cx="40" cy="72" r="6" fill="#48b8d0"/>
+                  <circle class="hub-pulse" cx="40" cy="40" r="10" fill="none" stroke="#5ba8ff" stroke-width="1.5"/>
+                </svg>
+              </div>
               <div class="hub-title">WA Deck</div>
               <div class="hub-subtitle">Хаб режим. Выберите WhatsApp слева.</div>
               <div id="hub-dashboard" class="hub-dashboard"></div>
@@ -495,6 +523,7 @@
     <script src="webview-scripts/hover-translate-lang.js"></script>
     <script src="webview-scripts/unread-count.js"></script>
     <script src="webview-scripts/active-chat-contact.js"></script>
+    <script src="webview-scripts/youtube-detect.js"></script>
     <script src="webview-scripts/crm-chat-boundary.js"></script>
     <script src="webview-scripts/insert-text.js"></script>
     <script src="weather.js"></script>

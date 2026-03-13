@@ -72,58 +72,80 @@ body {
   height: 40px;
   flex: 0 0 40px;
   border-radius: 11px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid #35577d;
   background: linear-gradient(180deg, #18273b 0%, #142235 100%);
   box-shadow: 0 6px 16px rgba(5, 14, 29, 0.42);
   position: relative;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.brand img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+/* ── Brand Hub SVG ── */
+.brand-hub-svg {
   display: block;
-  transition: transform 0.28s ease;
 }
 
-.brand.is-burst img {
-  transform: scale(1.07);
+.brand-center {
+  transition: fill 0.25s ease;
 }
 
-.brand-money-burst {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
+/* idle: subtle glow on center */
+.brand-center {
+  animation: brandCenterIdle 3s ease-in-out infinite;
+}
+@keyframes brandCenterIdle {
+  0%, 100% { fill: #2a6ef5; }
+  50%      { fill: #3d80ff; }
 }
 
-.money-particle {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  font-size: 11px;
-  font-weight: 800;
-  color: #f2d383;
-  text-shadow: 0 1px 2px rgba(18, 26, 36, 0.45);
-  animation: moneyBurst 0.86s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
-  animation-delay: var(--delay, 0s);
+/* ── Brand click burst animation ── */
+.brand.is-clicked .brand-pulse {
+  animation: brandClickPulse 0.7s ease-out forwards;
+}
+@keyframes brandClickPulse {
+  0%   { r: 10; opacity: 0.8; stroke-width: 2.5; }
+  100% { r: 38; opacity: 0; stroke-width: 0.5; }
 }
 
-@keyframes moneyBurst {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.45) rotate(0deg);
-  }
-  18% {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1) rotate(var(--rot, 0deg));
-  }
-  100% {
-    opacity: 0;
-    transform: translate(calc(-50% + var(--dx, 30px)), calc(-50% + var(--dy, -20px))) scale(0.7)
-      rotate(calc(var(--rot, 0deg) + 30deg));
-  }
+.brand.is-clicked .brand-center {
+  animation: brandClickCenter 0.5s ease-out forwards;
 }
+@keyframes brandClickCenter {
+  0%   { fill: #5ba8ff; r: 12; }
+  30%  { fill: #8fd4ff; r: 13; }
+  100% { fill: #2a6ef5; r: 10; }
+}
+
+.brand.is-clicked .brand-leaf {
+  animation: brandClickLeaf 0.6s ease-out forwards;
+}
+@keyframes brandClickLeaf {
+  0%   { r: 6; fill: #48b8d0; }
+  25%  { r: 8; fill: #7eeaff; }
+  100% { r: 6; fill: #48b8d0; }
+}
+.brand.is-clicked .brand-leaf-1 { animation-delay: 0s; }
+.brand.is-clicked .brand-leaf-2 { animation-delay: 0.06s; }
+.brand.is-clicked .brand-leaf-3 { animation-delay: 0.12s; }
+.brand.is-clicked .brand-leaf-4 { animation-delay: 0.18s; }
+.brand.is-clicked .brand-leaf-5 { animation-delay: 0.24s; }
+
+.brand.is-clicked .brand-link {
+  animation: brandClickLink 0.5s ease-out forwards;
+}
+@keyframes brandClickLink {
+  0%   { opacity: 0.5; stroke-width: 2.5; stroke: #5b9bd5; }
+  30%  { opacity: 1;   stroke-width: 3.5; stroke: #8fd4ff; }
+  100% { opacity: 0.5; stroke-width: 2.5; stroke: #5b9bd5; }
+}
+.brand.is-clicked .brand-link-1 { animation-delay: 0s; }
+.brand.is-clicked .brand-link-2 { animation-delay: 0.06s; }
+.brand.is-clicked .brand-link-3 { animation-delay: 0.12s; }
+.brand.is-clicked .brand-link-4 { animation-delay: 0.18s; }
+.brand.is-clicked .brand-link-5 { animation-delay: 0.24s; }
 
 .accounts-list {
   width: 100%;
@@ -719,12 +741,62 @@ body {
   border-radius: 14px;
   padding: 14px 16px;
   min-width: min(420px, 82vw);
+  max-height: 80vh;
   text-align: center;
   background: linear-gradient(180deg, rgba(8, 18, 33, 0.58) 0%, rgba(9, 19, 34, 0.72) 100%);
   backdrop-filter: blur(3px);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     0 12px 26px rgba(4, 9, 19, 0.45);
+}
+
+/* ── Animated Hub Icon ── */
+.hub-icon-animated {
+  margin-bottom: 8px;
+}
+.hub-icon-animated svg {
+  display: block;
+  margin: 0 auto;
+}
+.hub-pulse {
+  animation: hubPulse 2.4s ease-out infinite;
+  transform-origin: 40px 40px;
+}
+@keyframes hubPulse {
+  0%   { r: 10; opacity: 0.7; }
+  80%  { r: 26; opacity: 0; }
+  100% { r: 26; opacity: 0; }
+}
+.hub-node-center {
+  animation: hubCenterGlow 3s ease-in-out infinite;
+}
+@keyframes hubCenterGlow {
+  0%, 100% { fill: #2a6ef5; }
+  50%      { fill: #4f9aff; }
+}
+.hub-node:not(.hub-node-center) {
+  animation: hubNodePop 3s ease-in-out infinite;
+}
+.hub-node-1 { animation-delay: 0s; }
+.hub-node-2 { animation-delay: 0.4s; }
+.hub-node-3 { animation-delay: 0.8s; }
+.hub-node-4 { animation-delay: 1.2s; }
+.hub-node-5 { animation-delay: 1.6s; }
+@keyframes hubNodePop {
+  0%, 100% { r: 6; opacity: 0.7; }
+  50%      { r: 7.5; opacity: 1; }
+}
+.hub-link {
+  animation: hubLinkFlash 3s ease-in-out infinite;
+}
+.hub-link-1 { animation-delay: 0s; }
+.hub-link-2 { animation-delay: 0.4s; }
+.hub-link-3 { animation-delay: 0.8s; }
+.hub-link-4 { animation-delay: 1.2s; }
+.hub-link-5 { animation-delay: 1.6s; }
+@keyframes hubLinkFlash {
+  0%, 100% { opacity: 0.3; stroke-width: 2; }
+  50%      { opacity: 0.8; stroke-width: 2.5; }
 }
 
 .hub-title {
@@ -1490,6 +1562,15 @@ html[data-theme='light'] .hub-overlay {
     inset 0 1px 0 rgba(255, 255, 255, 0.9),
     0 12px 22px rgba(82, 111, 148, 0.24);
 }
+html[data-theme='light'] .hub-dashboard {
+  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
+}
+html[data-theme='light'] .hub-stat-row {
+  background: rgba(0, 0, 0, 0.03);
+}
+html[data-theme='light'] .hub-stat-row:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
 
 html[data-theme='light'] .hub-title {
   color: #1a3557;
@@ -1917,21 +1998,33 @@ html[data-theme='light'] .modal-card {
 .hub-dashboard {
   margin-top: 14px;
   display: grid;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
   max-width: 400px;
   text-align: left;
+  max-height: 50vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
 }
+.hub-dashboard::-webkit-scrollbar { width: 5px; }
+.hub-dashboard::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 4px; }
 
 .hub-stat-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
+  gap: 6px;
+  padding: 4px 8px;
   border-radius: 6px;
   font-size: 11px;
   color: #b6cae5;
   background: rgba(255, 255, 255, 0.04);
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+.hub-stat-row:hover {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .hub-stat-dot {
@@ -2053,3 +2146,4 @@ html[data-theme='light'] .modal-card {
 html[data-theme='light'] .update-progress {
   background: #e0e8f2;
 }
+

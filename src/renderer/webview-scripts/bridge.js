@@ -141,10 +141,19 @@ function bridgeScript() {
         };
       })();
 
-      const containerCandidates = [
-        ...Array.from(row.querySelectorAll('[data-testid="msg-text"]')),
-        ...Array.from(row.querySelectorAll('[data-testid="media-caption"], [data-testid="caption"]')),
-      ];
+      // For image/video messages: prefer caption-only to avoid text duplication
+      const mediaCaptions = Array.from(row.querySelectorAll('[data-testid="media-caption"], [data-testid="caption"]'));
+      if (mediaCaptions.length > 0) {
+        const captionTexts = mediaCaptions
+          .map((el) => cleanupMeta(extractTextFromNode(el)))
+          .filter(Boolean);
+        const uniqueCaptions = [...new Set(captionTexts)];
+        if (uniqueCaptions.length > 0) {
+          return uniqueCaptions[0];
+        }
+      }
+
+      const containerCandidates = Array.from(row.querySelectorAll('[data-testid="msg-text"]'));
       const candidates = [
         ...containerCandidates,
         ...Array.from(

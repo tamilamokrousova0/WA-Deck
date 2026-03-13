@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.2
+
+### New Features
+- **Hub network icon**: New minimalist hub-network app icon for Dock, taskbar and sidebar branding
+- **Animated sidebar brand**: Hub network SVG in top-left corner with pulse-on-click animation
+- **Hub screen animation**: Animated network visualization on the hub dashboard
+- **YouTube mini-player**: Play button next to YouTube links; opens video in a draggable always-on-top window
+
+### Bug Fixes
+- **Atomic store writes**: saveStore now uses a write queue + atomic rename to prevent data corruption from concurrent IPC handlers
+- **Scheduled message recovery**: Messages stuck in 'processing' (e.g. after crash) are auto-recovered to 'pending' on startup
+- **Hover-translate deduplication**: Fixed text appearing multiple times when translating image messages with captions
+- **Image caption extraction**: Caption extracted directly from media messages to avoid duplicate text
+- **Webview init resilience**: One failed webview no longer prevents other accounts from loading
+
+### Code Quality
+- **Security**: Replaced string interpolation with JSON.stringify in webview script injection
+- **Dead code removal**: Removed unused unread-details.js, stale event listeners, and obsolete frog icon code
+- **Listener leak fix**: onHostEscape subscription now properly stores unsubscribe function
+
 ## 0.2.1
 
 ### Core
