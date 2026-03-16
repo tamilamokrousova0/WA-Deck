@@ -38,6 +38,8 @@ const state = {
   weatherRefreshTimer: null,
   hoverTranslatePending: new Set(),
   unreadPollBusy: false,
+  zoomByAccount: new Map(),
+  _hubClockTimer: null,
 };
 
 const HOVER_TRANSLATE_LANG_OPTIONS = [
@@ -80,6 +82,7 @@ const els = {
   weatherUnit: document.getElementById('weather-unit'),
   weatherRefresh: document.getElementById('weather-refresh'),
   weatherSave: document.getElementById('weather-save'),
+  weatherClose: document.getElementById('weather-close'),
   weatherMeta: document.getElementById('weather-meta'),
   activeAccountDisplay: document.getElementById('active-account-display'),
   activeUnread: document.getElementById('active-unread'),
@@ -135,11 +138,13 @@ const els = {
   accountMenuSave: document.getElementById('account-menu-save'),
   accountMenuReset: document.getElementById('account-menu-reset'),
   accountMenuIcon: document.getElementById('account-menu-icon'),
+  accountMenuResetIcon: document.getElementById('account-menu-reset-icon'),
   accountMenuCancel: document.getElementById('account-menu-cancel'),
   accountMenuChip: document.getElementById('account-menu-chip'),
   accountMenuStatus: document.getElementById('account-menu-status'),
   accountMenuFreeze: document.getElementById('account-menu-freeze'),
   accountMenuDelete: document.getElementById('account-menu-delete'),
+  sidebarResizeHandle: document.getElementById('sidebar-resize-handle'),
 
   translateModal: document.getElementById('translate-modal'),
   translateSourceLang: document.getElementById('translate-source-lang'),
@@ -184,6 +189,20 @@ const els = {
   confirmMessage: document.getElementById('confirm-message'),
   confirmOk: document.getElementById('confirm-ok'),
   confirmCancel: document.getElementById('confirm-cancel'),
+  confirmClose: document.getElementById('confirm-close'),
+
+  zoomSlider: document.getElementById('zoom-slider'),
+  zoomOut: document.getElementById('zoom-out'),
+  zoomIn: document.getElementById('zoom-in'),
+  zoomValue: document.getElementById('zoom-value'),
+
+  clocksSettingsList: document.getElementById('clocks-settings-list'),
+  clockNewLabel: document.getElementById('clock-new-label'),
+  clockNewTz: document.getElementById('clock-new-tz'),
+  clockAdd: document.getElementById('clock-add'),
+  clockAddForm: document.getElementById('clocks-add-form'),
+  clockAddToggle: document.getElementById('clock-add-toggle'),
+
 };
 
 let templateController = null;
@@ -352,6 +371,249 @@ function closeYoutubeMiniPlayer() {
   window.waDeck.closeYoutubePlayer().catch(() => {});
 }
 
+/* ── CRM Hover Popover (read-only on contact hover) ── */
+let _crmHoverCache = new Map(); // contactKey → { data, ts }
+let _crmHoverTimer = null;
+let _crmHoverVisible = false;
+let _crmHoverShowName = ''; // track which contact the current show is for
+
+function getCrmHoverPopover() {
+  let el = document.getElementById('crm-hover-popover');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'crm-hover-popover';
+    el.className = 'crm-hover-popover hidden';
+    el.innerHTML = [
+      '<div class="crm-hover-header">',
+      '  <span class="crm-hover-contact"></span>',
+      '  <span class="crm-hover-badge">CRM</span>',
+      '</div>',
+      '<div class="crm-hover-fields"></div>',
+    ].join('');
+    document.body.appendChild(el);
+    el.addEventListener('mouseenter', () => {
+      if (_crmHoverTimer) { clearTimeout(_crmHoverTimer); _crmHoverTimer = null; }
+    });
+    el.addEventListener('mouseleave', () => {
+      _crmHoverTimer = setTimeout(() => hideCrmHoverPopover(), 300);
+    });
+  }
+  return el;
+}
+
+function hideCrmHoverPopover() {
+  const el = document.getElementById('crm-hover-popover');
+  if (el) el.classList.add('hidden');
+  _crmHoverVisible = false;
+}
+
+function showCrmHoverPopover(contactName, record, webview, rect) {
+  const popover = getCrmHoverPopover();
+  const nameEl = popover.querySelector('.crm-hover-contact');
+  const fieldsEl = popover.querySelector('.crm-hover-fields');
+  nameEl.textContent = contactName;
+
+  const fields = [];
+  if (record.fullName) fields.push({ label: 'Имя', value: record.fullName });
+  if (record.countryCity) fields.push({ label: 'Город', value: record.countryCity });
+  if (record.about) fields.push({ label: 'О нём', value: record.about });
+  if (record.myInfo) fields.push({ label: 'Заметки', value: record.myInfo });
+
+  if (fields.length === 0) {
+    fieldsEl.innerHTML = '<div class="crm-hover-empty">Нет данных в CRM</div>';
+  } else {
+    fieldsEl.innerHTML = fields.map((f) =>
+      '<div class="crm-hover-field">' +
+      '<span class="crm-hover-label">' + f.label + ':</span> ' +
+      '<span class="crm-hover-value">' + escapeHtml(f.value) + '</span>' +
+      '</div>'
+    ).join('');
+  }
+
+  // Position popover next to the contact in sidebar
+  const wvRect = webview.getBoundingClientRect();
+  const popoverWidth = 280;
+  const left = Math.round(wvRect.left + rect.right + 4);
+  let top = Math.round(wvRect.top + rect.top);
+
+  popover.style.width = popoverWidth + 'px';
+  popover.classList.remove('hidden');
+
+  const popoverHeight = popover.offsetHeight || 120;
+  if (top + popoverHeight > window.innerHeight - 10) {
+    top = Math.max(8, window.innerHeight - popoverHeight - 10);
+  }
+
+  popover.style.left = left + 'px';
+  popover.style.top = top + 'px';
+  _crmHoverVisible = true;
+}
+
+function escapeHtml(text) {
+  return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+}
+
+async function handleCrmHover(account, webview, payload) {
+  if (payload.type === 'hide') {
+    _crmHoverShowName = '';
+    if (_crmHoverTimer) clearTimeout(_crmHoverTimer);
+    _crmHoverTimer = setTimeout(() => hideCrmHoverPopover(), 150);
+    return;
+  }
+  if (payload.type !== 'show') return;
+
+  if (_crmHoverTimer) { clearTimeout(_crmHoverTimer); _crmHoverTimer = null; }
+
+  const contactName = String(payload.contactName || '').trim();
+  if (!contactName) return;
+  _crmHoverShowName = contactName;
+
+  const cacheKey = account.id + '::' + contactName;
+  const cached = _crmHoverCache.get(cacheKey);
+  const now = Date.now();
+
+  let record;
+  if (cached && now - cached.ts < 30000) {
+    record = cached.data;
+  } else {
+    try {
+      const res = await window.waDeck.crmLoadContact({
+        accountId: account.id,
+        accountName: account.name,
+        contactName,
+      });
+      if (!res?.ok) return;
+      record = res.record || {};
+      _crmHoverCache.set(cacheKey, { data: record, ts: now });
+      // Limit cache size
+      if (_crmHoverCache.size > 200) {
+        const firstKey = _crmHoverCache.keys().next().value;
+        _crmHoverCache.delete(firstKey);
+      }
+    } catch {
+      return;
+    }
+  }
+
+  // Guard: if a hide arrived while we were loading, don't show
+  if (_crmHoverShowName !== contactName) return;
+
+  const rect = { top: payload.top, bottom: payload.bottom, left: payload.left, right: payload.right };
+  showCrmHoverPopover(contactName, record, webview, rect);
+}
+
+/* ── Zoom Control ── */
+
+function applyZoom(percent) {
+  const clamped = Math.max(50, Math.min(150, Math.round(percent / 5) * 5));
+  const wv = selectedWebview();
+  if (wv) {
+    try { wv.setZoomFactor(clamped / 100); } catch { /* ignore */ }
+  }
+  if (state.activeAccountId) {
+    state.zoomByAccount.set(state.activeAccountId, clamped);
+  }
+  if (els.zoomSlider) els.zoomSlider.value = String(clamped);
+  if (els.zoomValue) els.zoomValue.textContent = clamped + '%';
+}
+
+function syncZoomSlider() {
+  const id = state.activeAccountId;
+  let zoom = 100;
+  if (id) {
+    zoom = state.zoomByAccount.get(id) || 100;
+    const wv = state.webviews.get(id);
+    if (wv) {
+      try {
+        const actual = wv.getZoomFactor?.();
+        if (actual && Number.isFinite(actual)) zoom = Math.round(actual * 100);
+      } catch { /* ignore */ }
+    }
+    state.zoomByAccount.set(id, zoom);
+  }
+  if (els.zoomSlider) els.zoomSlider.value = String(zoom);
+  if (els.zoomValue) els.zoomValue.textContent = zoom + '%';
+}
+
+/* ── Clocks Settings ── */
+
+function renderClocksSettings() {
+  const list = els.clocksSettingsList;
+  if (!list) return;
+  list.innerHTML = '';
+  const clocks = (state.settings && state.settings.worldClocks) || [];
+  for (let i = 0; i < clocks.length; i++) {
+    const c = clocks[i];
+    const row = document.createElement('div');
+    row.className = 'clocks-settings-row';
+
+    const labelInput = document.createElement('input');
+    labelInput.type = 'text';
+    labelInput.className = 'clock-label-input';
+    labelInput.value = c.label;
+    labelInput.maxLength = 30;
+    labelInput.title = 'Название';
+    labelInput.addEventListener('change', () => {
+      const v = labelInput.value.trim();
+      if (v) { state.settings.worldClocks[i].label = v; saveSettings().catch(console.error); }
+      else { labelInput.value = c.label; }
+    });
+
+    const tzSelect = document.createElement('select');
+    tzSelect.className = 'clock-tz-select';
+    tzSelect.title = c.tz;
+    const tzOptions = getTimezoneOptions();
+    for (const opt of tzOptions) {
+      const o = document.createElement('option');
+      o.value = opt.value;
+      o.textContent = opt.label;
+      if (opt.value === c.tz) o.selected = true;
+      tzSelect.appendChild(o);
+    }
+    tzSelect.addEventListener('change', () => {
+      if (tzSelect.value) {
+        state.settings.worldClocks[i].tz = tzSelect.value;
+        saveSettings().catch(console.error);
+      }
+    });
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'btn-remove-clock';
+    removeBtn.textContent = '\u2715';
+    removeBtn.title = 'Удалить';
+    removeBtn.addEventListener('click', () => {
+      state.settings.worldClocks.splice(i, 1);
+      renderClocksSettings();
+      saveSettings().catch(console.error);
+    });
+    row.append(labelInput, tzSelect, removeBtn);
+    list.appendChild(row);
+  }
+}
+
+function getTimezoneOptions() {
+  return [
+    { value: 'Pacific/Auckland', label: 'Окленд +12' },
+    { value: 'Asia/Tokyo', label: 'Токио +9' },
+    { value: 'Asia/Shanghai', label: 'Шанхай +8' },
+    { value: 'Asia/Bangkok', label: 'Бангкок +7' },
+    { value: 'Asia/Almaty', label: 'Алматы +6' },
+    { value: 'Asia/Tashkent', label: 'Ташкент +5' },
+    { value: 'Asia/Dubai', label: 'Дубай +4' },
+    { value: 'Europe/Moscow', label: 'Москва +3' },
+    { value: 'Europe/Kiev', label: 'Киев +2/+3' },
+    { value: 'Europe/Berlin', label: 'Берлин +1/+2' },
+    { value: 'Europe/London', label: 'Лондон +0/+1' },
+    { value: 'Atlantic/Azores', label: 'Азоры −1' },
+    { value: 'America/Sao_Paulo', label: 'Сан-Паулу −3' },
+    { value: 'America/New_York', label: 'Нью-Йорк −5' },
+    { value: 'America/Chicago', label: 'Чикаго −6' },
+    { value: 'America/Denver', label: 'Денвер −7' },
+    { value: 'America/Los_Angeles', label: 'Лос-Анж. −8' },
+    { value: 'Pacific/Honolulu', label: 'Гонолулу −10' },
+  ];
+}
+
 function formatDateTime(iso) {
   const dt = new Date(iso || '');
   if (Number.isNaN(dt.getTime())) return '—';
@@ -510,28 +772,25 @@ function renderAccounts() {
       }
     });
 
-    const chip = document.createElement('div');
-    chip.className = 'account-chip';
-    chip.style.background = account.color;
+    // Lovable-style: whole card is colored, icon/initials inside
+    card.style.background = account.color;
     if (account.iconUrl) {
-      const iconImg = document.createElement('img');
-      iconImg.src = account.iconUrl;
-      iconImg.alt = account.name;
-      iconImg.loading = 'lazy';
-      chip.appendChild(iconImg);
-    } else {
-      chip.textContent = account.name.slice(0, 2).toUpperCase();
+      card.style.backgroundImage = `url(${account.iconUrl})`;
+      card.style.backgroundSize = 'cover';
+      card.style.backgroundPosition = 'center';
     }
-    // chip title убран — используется кастомный tooltip
-    chip.addEventListener('dblclick', (event) => {
+
+    const label = document.createElement('span');
+    label.className = 'account-label';
+    label.textContent = account.name.slice(0, 2).toUpperCase();
+    if (account.iconUrl) label.style.opacity = '0'; // hide text when icon set
+
+    card.addEventListener('dblclick', (event) => {
       event.preventDefault();
       event.stopPropagation();
       openAccountMenu(account.id);
     });
 
-    const name = document.createElement('div');
-    name.className = 'account-name';
-    name.textContent = account.name;
     const remove = document.createElement('button');
     remove.className = 'account-remove';
     remove.title = `Удалить ${account.name}`;
@@ -600,7 +859,7 @@ function renderAccounts() {
       showAccountContextMenu(e, account);
     });
 
-    card.append(remove, chip, name);
+    card.append(remove, label);
     els.accountsList.appendChild(card);
   }
 
@@ -680,11 +939,12 @@ function showAccountContextMenu(event, account) {
   const closeOnEsc = (e) => {
     if (e.key === 'Escape') closeAccountContextMenu();
   };
-  setTimeout(() => {
+  const bindTimer = setTimeout(() => {
     document.addEventListener('click', closeOnClick, { capture: true });
     document.addEventListener('keydown', closeOnEsc);
   }, 0);
   menu._cleanup = () => {
+    clearTimeout(bindTimer);
     document.removeEventListener('click', closeOnClick, { capture: true });
     document.removeEventListener('keydown', closeOnEsc);
   };
@@ -699,7 +959,39 @@ function closeAccountContextMenu() {
 }
 
 // ── Hub Dashboard ──
+function updateHubClocks() {
+  const container = document.getElementById('hub-clocks');
+  if (!container) return;
+  const zones = (state.settings && state.settings.worldClocks) || [
+    { label: 'Москва', tz: 'Europe/Moscow' },
+    { label: 'Киев', tz: 'Europe/Kiev' },
+    { label: 'Берлин', tz: 'Europe/Berlin' },
+  ];
+  container.innerHTML = '';
+  const now = new Date();
+  for (const zone of zones) {
+    const el = document.createElement('div');
+    el.className = 'hub-clock-item';
+    let time = '--:--';
+    try {
+      time = new Intl.DateTimeFormat('ru', {
+        hour: '2-digit', minute: '2-digit',
+        timeZone: zone.tz, hour12: false,
+      }).format(now);
+    } catch { /* invalid tz */ }
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'hub-clock-time';
+    timeSpan.textContent = time;
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'hub-clock-label';
+    labelSpan.textContent = zone.label;
+    el.append(timeSpan, labelSpan);
+    container.appendChild(el);
+  }
+}
+
 async function updateHubDashboard() {
+  updateHubClocks();
   const container = document.getElementById('hub-dashboard');
   if (!container) return;
   container.innerHTML = '';
@@ -844,6 +1136,10 @@ function ensureWebview(account) {
       webview.executeJavaScript(youtubeDetectScript(), true).catch((e) => console.warn('[youtube-detect]', e));
     }
 
+    if (typeof crmHoverBridgeScript === 'function') {
+      webview.executeJavaScript(crmHoverBridgeScript(), true).catch((e) => console.warn('[crm-hover]', e));
+    }
+
     // Debounced UI update — prevents excessive re-renders on SPA navigation
     if (_bindDomTimer) clearTimeout(_bindDomTimer);
     _bindDomTimer = setTimeout(() => {
@@ -865,6 +1161,13 @@ function ensureWebview(account) {
       try {
         const payload = JSON.parse(message.slice('__WADECK_YOUTUBE_PLAY__'.length));
         openYoutubeMiniPlayer(payload.videoId);
+      } catch { /* ignore parse errors */ }
+      return;
+    }
+    if (message.startsWith('__WADECK_CRM_HOVER__')) {
+      try {
+        const payload = JSON.parse(message.slice('__WADECK_CRM_HOVER__'.length));
+        handleCrmHover(account, webview, payload);
       } catch { /* ignore parse errors */ }
       return;
     }
@@ -963,6 +1266,7 @@ function _setActiveAccountInner(accountId) {
   updateActiveAccountDisplay();
   updateFreezeButtonState();
   updateToolbarState();
+  syncZoomSlider();
   WaDeckUnreadModule.updateActiveUnreadIndicator();
   refreshWebviewVisibility();
   const account = activeAccount();
@@ -1013,6 +1317,7 @@ function applySettingsToForm() {
     loading: false,
   });
   WaDeckTranslateModule.syncHoverTranslateTargetLang();
+  renderClocksSettings();
 }
 
 function updatePanelVisibility() {
@@ -1079,12 +1384,13 @@ function openAccountMenu(accountId) {
 
   // Freeze button text
   if (els.accountMenuFreeze) {
-    els.accountMenuFreeze.textContent = account.frozen ? '▶ Разморозить' : '❄ Заморозить';
+    els.accountMenuFreeze.textContent = account.frozen ? 'Разморозить' : 'Заморозить';
   }
 
-  // Icon button
-  if (els.accountMenuIcon) {
-    els.accountMenuIcon.textContent = state.accountMenuDraftIconPath ? '🖼 Иконка ✓' : '🖼 Иконка';
+  // Show/hide reset icon button
+  if (els.accountMenuResetIcon) {
+    const hasIcon = Boolean(account.iconPath || account.iconUrl);
+    els.accountMenuResetIcon.classList.toggle('hidden', !hasIcon);
   }
 
   els.accountMenuModal.classList.remove('hidden');
@@ -1174,7 +1480,7 @@ async function resetAccountFromMenu() {
   state.accountMenuDraftIconPath = '';
   els.accountMenuName.value = defaultName;
   if (els.accountMenuIcon) {
-    els.accountMenuIcon.textContent = '🖼 Иконка';
+    els.accountMenuIcon.style.borderColor = '';
   }
 
   if (state.scheduleTarget.accountId === accountId) {
@@ -1196,9 +1502,27 @@ async function changeAccountIconFromMenu() {
   if (!picked || picked.canceled || !picked.path) return;
   state.accountMenuDraftIconPath = String(picked.path || '').trim();
   if (els.accountMenuIcon) {
-    els.accountMenuIcon.textContent = state.accountMenuDraftIconPath ? '🖼 Иконка ✓' : '🖼 Иконка';
+    els.accountMenuIcon.style.borderColor = state.accountMenuDraftIconPath ? '#3dd68c' : '';
   }
   setStatus(`Иконка выбрана: ${account.name}. Нажмите «Сохранить»`);
+}
+
+async function resetAccountIconFromMenu() {
+  const accountId = String(state.accountMenuAccountId || '');
+  const account = accountById(accountId);
+  if (!account) return;
+
+  const iconResponse = await window.waDeck.setAccountIcon({ accountId, iconPath: '' });
+  if (!iconResponse?.ok || !iconResponse.account) {
+    setStatus(`Не удалось сбросить иконку: ${iconResponse?.error || 'error'}`);
+    return;
+  }
+  patchLocalAccount(iconResponse.account);
+  state.accountMenuDraftIconPath = '';
+  renderAccounts();
+  setStatus(`Иконка сброшена: ${account.name}`);
+  // Re-open to reflect changes
+  openAccountMenu(accountId);
 }
 
 async function setAccountFrozenState(accountId, nextFrozen, options = {}) {
@@ -1309,6 +1633,7 @@ async function saveSettings() {
     weatherCity: WaDeckWeatherModule.normalizeWeatherCity(state.settings?.weatherCity),
     weatherUnit: WaDeckWeatherModule.normalizeWeatherUnit(state.settings?.weatherUnit),
     lastSeenReleaseNotesVersion: String(state.settings?.lastSeenReleaseNotesVersion || '').trim(),
+    worldClocks: state.settings?.worldClocks || [],
   };
 
   try {
@@ -1483,6 +1808,62 @@ function bindActions() {
     });
   }
 
+  /* Zoom controls */
+  els.zoomSlider?.addEventListener('input', () => {
+    applyZoom(Number(els.zoomSlider.value) || 100);
+  });
+  els.zoomIn?.addEventListener('click', () => {
+    applyZoom((Number(els.zoomSlider?.value) || 100) + 10);
+  });
+  els.zoomOut?.addEventListener('click', () => {
+    applyZoom((Number(els.zoomSlider?.value) || 100) - 10);
+  });
+
+  /* Clocks settings — toggle add form */
+  els.clockAddToggle?.addEventListener('click', () => {
+    const form = els.clockAddForm;
+    if (!form) return;
+    const isHidden = form.classList.contains('hidden');
+    if (isHidden) {
+      form.classList.remove('hidden');
+      form.style.maxHeight = '0';
+      form.style.opacity = '0';
+      requestAnimationFrame(() => {
+        form.style.transition = 'max-height 0.25s ease, opacity 0.2s ease';
+        form.style.maxHeight = '50px';
+        form.style.opacity = '1';
+      });
+      els.clockAddToggle.textContent = '− Отмена';
+      els.clockNewLabel?.focus();
+    } else {
+      form.style.maxHeight = '0';
+      form.style.opacity = '0';
+      setTimeout(() => { form.classList.add('hidden'); form.style.transition = ''; }, 250);
+      els.clockAddToggle.textContent = '+ Добавить';
+    }
+  });
+
+  /* Clocks settings — add new clock */
+  els.clockAdd?.addEventListener('click', () => {
+    const label = (els.clockNewLabel?.value || '').trim();
+    const tz = (els.clockNewTz?.value || '').trim();
+    if (!label || !tz) { showToast('Введите город и выберите часовой пояс', 'warn'); return; }
+    if (!state.settings.worldClocks) state.settings.worldClocks = [];
+    if (state.settings.worldClocks.length >= 10) { showToast('Максимум 10 часовых поясов', 'warn'); return; }
+    state.settings.worldClocks.push({ label, tz });
+    if (els.clockNewLabel) els.clockNewLabel.value = '';
+    if (els.clockNewTz) els.clockNewTz.value = '';
+    renderClocksSettings();
+    saveSettings().catch(console.error);
+    // Collapse add form after adding
+    if (els.clockAddForm) {
+      els.clockAddForm.style.maxHeight = '0';
+      els.clockAddForm.style.opacity = '0';
+      setTimeout(() => { els.clockAddForm.classList.add('hidden'); els.clockAddForm.style.transition = ''; }, 250);
+    }
+    if (els.clockAddToggle) els.clockAddToggle.textContent = '+ Добавить';
+  });
+
   els.manualUpdate?.addEventListener('click', () => WaDeckAutoUpdateModule.requestManualUpdate().catch(console.error));
   els.brandHub?.addEventListener('click', () => {
     playBrandClickAnimation();
@@ -1493,6 +1874,7 @@ function bindActions() {
     event.stopPropagation();
     WaDeckWeatherModule.toggleWeatherPopover();
   });
+  els.weatherClose?.addEventListener('click', () => WaDeckWeatherModule.closeWeatherPopover());
   els.weatherRefresh?.addEventListener('click', () => WaDeckWeatherModule.refreshWeather().catch(console.error));
   els.weatherSave?.addEventListener('click', () => WaDeckWeatherModule.saveWeatherSettings().catch(console.error));
   els.weatherUnit?.addEventListener('click', () => WaDeckWeatherModule.toggleWeatherUnit().catch(console.error));
@@ -1540,6 +1922,23 @@ function bindActions() {
     if (event.key === 'r' && !event.shiftKey) {
       event.preventDefault();
       refreshActiveWebview();
+      return;
+    }
+
+    // Zoom: Cmd/Ctrl + = / + / -
+    if (event.key === '=' || event.key === '+') {
+      event.preventDefault();
+      applyZoom((Number(els.zoomSlider?.value) || 100) + 10);
+      return;
+    }
+    if (event.key === '-') {
+      event.preventDefault();
+      applyZoom((Number(els.zoomSlider?.value) || 100) - 10);
+      return;
+    }
+    if (event.key === '0') {
+      event.preventDefault();
+      applyZoom(100);
       return;
     }
   });
@@ -1593,6 +1992,7 @@ function bindActions() {
   // Confirm модал
   els.confirmOk.addEventListener('click', () => closeConfirm(true));
   els.confirmCancel.addEventListener('click', () => closeConfirm(false));
+  if (els.confirmClose) els.confirmClose.addEventListener('click', () => closeConfirm(false));
   els.confirmModal.addEventListener('click', (e) => { if (e.target === els.confirmModal) closeConfirm(false); });
   window.addEventListener('resize', () => {
     if (!els.crmModal.classList.contains('hidden')) {
@@ -1617,6 +2017,7 @@ function bindActions() {
   els.accountMenuSave.addEventListener('click', () => saveAccountFromMenu().catch(console.error));
   els.accountMenuReset?.addEventListener('click', () => resetAccountFromMenu().catch(console.error));
   els.accountMenuIcon?.addEventListener('click', () => changeAccountIconFromMenu().catch(console.error));
+  els.accountMenuResetIcon?.addEventListener('click', () => resetAccountIconFromMenu().catch(console.error));
   els.accountMenuCancel.addEventListener('click', closeAccountMenu);
   els.accountMenuFreeze?.addEventListener('click', () => {
     const id = state.accountMenuAccountId;
@@ -1654,13 +2055,54 @@ function bindActions() {
     }).catch(console.error);
   });
   templateController?.bind();
+
+  // ── Sidebar Resize Handle ──
+  if (els.sidebarResizeHandle) {
+    const SIDEBAR_MIN = 64;
+    const SIDEBAR_MAX = 200;
+    const appRoot = document.getElementById('app-root');
+    let resizing = false;
+
+    // Restore saved width
+    const savedWidth = localStorage.getItem('sidebarWidth');
+    if (savedWidth) {
+      const w = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Number(savedWidth)));
+      appRoot.style.setProperty('--sidebar-width', w + 'px');
+      els.sidebarResizeHandle.style.left = w + 'px';
+    }
+
+    els.sidebarResizeHandle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      resizing = true;
+      els.sidebarResizeHandle.classList.add('active');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!resizing) return;
+      const x = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, e.clientX));
+      appRoot.style.setProperty('--sidebar-width', x + 'px');
+      els.sidebarResizeHandle.style.left = x + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!resizing) return;
+      resizing = false;
+      els.sidebarResizeHandle.classList.remove('active');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      const currentWidth = getComputedStyle(appRoot).getPropertyValue('--sidebar-width').trim();
+      localStorage.setItem('sidebarWidth', parseInt(currentWidth, 10));
+    });
+  }
 }
 
 async function init() {
   const moduleCtx = { state, els, setStatus, trimMapSize, runWithBusyButton };
   WaDeckWeatherModule.init(moduleCtx);
   WaDeckAutoUpdateModule.init(moduleCtx);
-  WaDeckUnreadModule.init({ ...moduleCtx, renderAccounts, isWebviewReady, safeExecuteInWebview });
+  WaDeckUnreadModule.init({ ...moduleCtx, renderAccounts, isWebviewReady, safeExecuteInWebview, updateHubDashboard });
   WaDeckCrmModule.init({ ...moduleCtx, activeAccount, selectedWebview });
   WaDeckTranslateModule.init({ ...moduleCtx, runWithBusyButton, safeExecuteInWebview, selectedWebview });
   WaDeckScheduleModule.init({ ...moduleCtx, trimMapSize, runWithBusyButton, accountById, ensureWebview, isWebviewReady, sendWebviewInput, delay, formatDateTime, nextSendAtLocal });
@@ -1687,6 +2129,11 @@ async function init() {
     weatherCity: WaDeckWeatherModule.normalizeWeatherCity(boot.settings?.weatherCity || 'Moscow'),
     weatherUnit: WaDeckWeatherModule.normalizeWeatherUnit(boot.settings?.weatherUnit || 'celsius'),
     lastSeenReleaseNotesVersion: String(boot.settings?.lastSeenReleaseNotesVersion || ''),
+    worldClocks: Array.isArray(boot.settings?.worldClocks) ? boot.settings.worldClocks : [
+      { label: 'Москва', tz: 'Europe/Moscow' },
+      { label: 'Киев', tz: 'Europe/Kiev' },
+      { label: 'Берлин', tz: 'Europe/Berlin' },
+    ],
   };
   state.templates = Array.isArray(boot.templates) ? boot.templates.map((tpl) => ({ ...tpl })) : [];
   state.runtime = boot.runtime || {};
@@ -1742,6 +2189,14 @@ async function init() {
   WaDeckScheduleModule.startScheduleRunner();
   WaDeckUnreadModule.startUnreadPolling();
   WaDeckUnreadModule.scheduleDockBadgeSync();
+  renderClocksSettings();
+  // Hub clock auto-refresh every 30s
+  if (!state._hubClockTimer) {
+    state._hubClockTimer = setInterval(() => {
+      const hs = document.getElementById('hub-screen');
+      if (hs && !hs.classList.contains('hidden')) updateHubClocks();
+    }, 30000);
+  }
   WaDeckAutoUpdateModule.maybeShowReleaseNotes().catch(console.error);
 
   setStatus(

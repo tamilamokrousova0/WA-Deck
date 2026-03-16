@@ -1,5 +1,5 @@
 (function setupUnreadModule() {
-  let state, els, renderAccounts, isWebviewReady, safeExecuteInWebview;
+  let state, els, renderAccounts, isWebviewReady, safeExecuteInWebview, updateHubDashboard;
 
   function init(ctx) {
     state = ctx.state;
@@ -7,6 +7,7 @@
     renderAccounts = ctx.renderAccounts;
     isWebviewReady = ctx.isWebviewReady;
     safeExecuteInWebview = ctx.safeExecuteInWebview;
+    updateHubDashboard = ctx.updateHubDashboard;
   }
 
   function scheduleDockBadgeSync() {
@@ -88,6 +89,9 @@
     }
     updateActiveUnreadIndicator();
     scheduleDockBadgeSync();
+    if (typeof updateHubDashboard === 'function') {
+      updateHubDashboard();
+    }
   }
 
   async function pollUnreadCounts() {
@@ -124,8 +128,8 @@
     }
     state.unreadPollTimer = setInterval(() => {
       pollUnreadCounts().catch(() => {});
-    }, 5000);
-    setTimeout(() => pollUnreadCounts().catch(() => {}), 1200);
+    }, 3000);
+    setTimeout(() => pollUnreadCounts().catch(() => {}), 800);
   }
 
   window.WaDeckUnreadModule = {

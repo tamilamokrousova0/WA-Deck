@@ -202,7 +202,11 @@ function hoverTranslateBridgeScript(defaultTargetLang = 'RU') {
       return row && row.closest('#main') ? row : null;
     };
 
+    let _moveThrottled = false;
     document.addEventListener('mousemove', (event) => {
+      if (_moveThrottled) return;
+      _moveThrottled = true;
+      setTimeout(() => { _moveThrottled = false; }, 80);
       if (hoverHideTimer) {
         clearTimeout(hoverHideTimer);
         hoverHideTimer = null;

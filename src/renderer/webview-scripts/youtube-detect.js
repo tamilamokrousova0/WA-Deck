@@ -71,8 +71,23 @@ function youtubeDetectScript() {
       }
     }
 
-    // Run on interval to catch dynamically loaded messages
-    setInterval(addPlayButtons, 3000);
+    // Use MutationObserver instead of setInterval to avoid leaks
+    const observer = new MutationObserver(() => { addPlayButtons(); });
+    const mainEl = document.getElementById('main');
+    if (mainEl) {
+      observer.observe(mainEl, { childList: true, subtree: true });
+    } else {
+      // Fallback: wait for #main to appear, then observe
+      const waitForMain = new MutationObserver(() => {
+        const m = document.getElementById('main');
+        if (m) {
+          waitForMain.disconnect();
+          observer.observe(m, { childList: true, subtree: true });
+          addPlayButtons();
+        }
+      });
+      waitForMain.observe(document.body, { childList: true, subtree: true });
+    }
     setTimeout(addPlayButtons, 1000);
 
     return true;

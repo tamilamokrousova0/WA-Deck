@@ -24,6 +24,11 @@ const DEFAULT_SETTINGS = {
   weatherCity: 'Moscow',
   weatherUnit: 'celsius',
   lastSeenReleaseNotesVersion: '',
+  worldClocks: [
+    { label: 'Москва', tz: 'Europe/Moscow' },
+    { label: 'Киев', tz: 'Europe/Kiev' },
+    { label: 'Берлин', tz: 'Europe/Berlin' },
+  ],
 };
 
 function normalizeWeatherUnit(value) {
@@ -61,24 +66,29 @@ let macDeveloperIdSignatureCache = null;
 
 function setDockBadge(count) {
   const safeCount = Math.max(0, Number(count) || 0);
+  if (safeCount > 0) {
+    console.log('[dock-badge] Setting badge:', safeCount);
+  }
   if (process.platform === 'darwin') {
     const badge = safeCount > 0 ? String(safeCount) : '';
     try {
-      app.dock?.setBadge(badge);
-    } catch {
-      // ignore dock badge errors
+      if (app.dock) {
+        app.dock.setBadge(badge);
+      }
+    } catch (e) {
+      console.warn('[dock-badge] dock.setBadge error:', e?.message);
     }
     try {
       app.setBadgeCount(safeCount);
-    } catch {
-      // ignore badge count errors
+    } catch (e) {
+      console.warn('[dock-badge] setBadgeCount error:', e?.message);
     }
     return { ok: true, count: safeCount };
   }
   try {
     app.setBadgeCount(safeCount);
-  } catch {
-    // ignore badge count errors
+  } catch (e) {
+    console.warn('[dock-badge] setBadgeCount error:', e?.message);
   }
   return { ok: true, count: safeCount };
 }
@@ -1198,7 +1208,9 @@ function createWindow() {
   });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
-  if (process.platform === 'darwin' && fsSync.existsSync(APP_ICON_PNG_PATH)) {
+  // On macOS in dev mode (not packaged), set dock icon from PNG.
+  // In production, the .icns in the app bundle is used automatically.
+  if (process.platform === 'darwin' && !app.isPackaged && fsSync.existsSync(APP_ICON_PNG_PATH)) {
     try {
       app.dock?.setIcon(APP_ICON_PNG_PATH);
     } catch {
@@ -1213,6 +1225,7 @@ function setupWebviewGuards() {
 
     contents.setUserAgent(WA_USER_AGENT);
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
     contents.on('will-navigate', (event, url) => {
       if (!String(url || '').startsWith('https://web.whatsapp.com')) {
         event.preventDefault();
@@ -1554,6 +1567,12 @@ function registerIpc() {
       lastSeenReleaseNotesVersion: String(
         payload?.lastSeenReleaseNotesVersion ?? current.lastSeenReleaseNotesVersion ?? DEFAULT_SETTINGS.lastSeenReleaseNotesVersion,
       ).trim(),
+      worldClocks: Array.isArray(payload?.worldClocks)
+        ? payload.worldClocks
+            .slice(0, 10)
+            .map((c) => ({ label: String(c?.label || '').trim().slice(0, 30), tz: String(c?.tz || '').trim() }))
+            .filter((c) => c.label && c.tz)
+        : (current.worldClocks || DEFAULT_SETTINGS.worldClocks),
     };
 
     state.store.settings = next;
@@ -1824,10 +1843,6 @@ if (addSingleInstanceGuard()) {
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
-  });
-
-  app.on('before-quit', () => {
-    // noop
   });
 
   app.on('activate', () => {
