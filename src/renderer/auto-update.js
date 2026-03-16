@@ -1,5 +1,8 @@
 (function setupAutoUpdateModule() {
   const RELEASE_NOTES = {
+    '0.3.2': [
+      'CRM hover popover расширен: теперь показывает полный объём информации.',
+    ],
     '0.3.1': [
       'Исправлен скролл sidebar при 20+ аккаунтах.',
     ],
