@@ -424,15 +424,15 @@ function showCrmHoverPopover(contactName, record, webview, rect) {
   } else {
     fieldsEl.innerHTML = fields.map((f) =>
       '<div class="crm-hover-field">' +
-      '<span class="crm-hover-label">' + f.label + ':</span> ' +
-      '<span class="crm-hover-value">' + escapeHtml(f.value) + '</span>' +
+      '<div class="crm-hover-label">' + f.label + '</div>' +
+      '<div class="crm-hover-value">' + escapeHtml(f.value) + '</div>' +
       '</div>'
     ).join('');
   }
 
   // Position popover next to the contact in sidebar
   const wvRect = webview.getBoundingClientRect();
-  const popoverWidth = 280;
+  const popoverWidth = 340;
   const left = Math.round(wvRect.left + rect.right + 4);
   let top = Math.round(wvRect.top + rect.top);
 
