@@ -1244,6 +1244,8 @@ function ensureWebview(account) {
   const currentAccount = () => accountById(accountId) || account;
 
   const onStartLoading = () => {
+    // After initial dom-ready, don't reset status for SPA reloads (Telegram does many internal navigations)
+    if (_domReadyFired) return;
     webview.dataset.waReady = '0';
     updateAccountCardStatus(accountId);
     if (accountId === state.activeAccountId) {
@@ -1330,10 +1332,14 @@ function ensureWebview(account) {
 
   const onNavigateInPage = () => {
     if (!_domReadyFired) return;
-    // Only WhatsApp needs re-injection after SPA navigation
-    if (!isWhatsApp) return;
 
     webview.dataset.waReady = '1';
+
+    // Only WhatsApp needs script re-injection after SPA navigation
+    if (!isWhatsApp) {
+      updateAccountCardStatus(accountId);
+      return;
+    }
 
     webview
       .executeJavaScript(bridgeScript(), true)
