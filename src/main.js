@@ -1217,7 +1217,9 @@ function createWindow() {
     if (String(input?.key || '') !== 'Escape') return;
     event.preventDefault();
     try {
-      mainWindow?.webContents?.send('host-escape-pressed');
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('host-escape-pressed');
+      }
     } catch {
       // ignore channel send errors
     }
@@ -1592,7 +1594,8 @@ function registerIpc() {
   });
 
   ipcMain.handle('set-account-icon', async (_event, payload) => {
-    return setAccountIcon(payload?.accountId, payload?.iconPath);
+    if (!payload || typeof payload !== 'object') return { ok: false, error: 'invalid_payload' };
+    return setAccountIcon(payload.accountId, payload.iconPath);
   });
 
   ipcMain.handle('set-account-color', async (_event, payload) => {

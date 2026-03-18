@@ -120,14 +120,40 @@
     }
   }
 
+  const POLL_ACTIVE_MS = 5000;
+  const POLL_BACKGROUND_MS = 15000;
+  let _pollIntervalMs = POLL_ACTIVE_MS;
+
+  function _restartPollTimer() {
+    if (state.unreadPollTimer) clearInterval(state.unreadPollTimer);
+    state.unreadPollTimer = setInterval(() => {
+      pollUnreadCounts().catch(() => {});
+    }, _pollIntervalMs);
+  }
+
+  window.addEventListener('focus', () => {
+    if (_pollIntervalMs !== POLL_ACTIVE_MS) {
+      _pollIntervalMs = POLL_ACTIVE_MS;
+      _restartPollTimer();
+      pollUnreadCounts().catch(() => {});
+    }
+  });
+  window.addEventListener('blur', () => {
+    if (_pollIntervalMs !== POLL_BACKGROUND_MS) {
+      _pollIntervalMs = POLL_BACKGROUND_MS;
+      _restartPollTimer();
+    }
+  });
+
   function startUnreadPolling() {
     if (state.unreadPollTimer) {
       clearInterval(state.unreadPollTimer);
       state.unreadPollTimer = null;
     }
+    _pollIntervalMs = document.hasFocus() ? POLL_ACTIVE_MS : POLL_BACKGROUND_MS;
     state.unreadPollTimer = setInterval(() => {
       pollUnreadCounts().catch(() => {});
-    }, 3000);
+    }, _pollIntervalMs);
     setTimeout(() => pollUnreadCounts().catch(() => {}), 800);
   }
 

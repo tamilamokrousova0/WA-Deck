@@ -442,7 +442,7 @@ function showCrmHoverPopover(contactName, record, webview, rect) {
   } else {
     fieldsEl.innerHTML = fields.map((f) =>
       '<div class="crm-hover-field">' +
-      '<div class="crm-hover-label">' + f.label + '</div>' +
+      '<div class="crm-hover-label">' + escapeHtml(f.label) + '</div>' +
       '<div class="crm-hover-value">' + escapeHtml(f.value) + '</div>' +
       '</div>'
     ).join('');
@@ -504,11 +504,12 @@ async function handleCrmHover(account, webview, payload) {
       record = res.record || {};
       _crmHoverCache.set(cacheKey, { data: record, ts: now });
       // Limit cache size
-      if (_crmHoverCache.size > 200) {
+      if (_crmHoverCache.size > 50) {
         const firstKey = _crmHoverCache.keys().next().value;
         _crmHoverCache.delete(firstKey);
       }
-    } catch {
+    } catch (err) {
+      console.warn('[CRM Hover] Failed to load contact:', contactName, err);
       return;
     }
   }
@@ -745,7 +746,7 @@ async function reorderAccountsByDrag(sourceAccountId, targetAccountId) {
 }
 
 function renderAccounts() {
-  els.accountsList.innerHTML = '';
+  const fragment = document.createDocumentFragment();
 
   for (const account of state.accounts) {
     const card = document.createElement('div');
@@ -895,9 +896,11 @@ function renderAccounts() {
     });
 
     card.append(remove, label);
-    els.accountsList.appendChild(card);
+    fragment.appendChild(card);
   }
 
+  els.accountsList.innerHTML = '';
+  els.accountsList.appendChild(fragment);
   updateActiveAccountDisplay();
   updateSidebarScrollControls();
 }
@@ -1065,6 +1068,8 @@ function updateHubClocks() {
 }
 
 async function updateHubDashboard() {
+  const hubScreen = document.getElementById('hub-screen');
+  if (hubScreen && hubScreen.classList.contains('hidden')) return;
   updateHubClocks();
   const container = document.getElementById('hub-dashboard');
   if (!container) return;
@@ -1144,6 +1149,25 @@ async function updateHubDashboard() {
   container.appendChild(actions);
 }
 
+function cleanupWebview(webview) {
+  if (!webview) return;
+  // Remove ALL stored event listeners to prevent memory leaks
+  if (webview._wadeckListeners) {
+    const L = webview._wadeckListeners;
+    if (L.onDomReady) webview.removeEventListener('dom-ready', L.onDomReady);
+    if (L.onNavigateInPage) webview.removeEventListener('did-navigate-in-page', L.onNavigateInPage);
+    if (L.onStartLoading) webview.removeEventListener('did-start-loading', L.onStartLoading);
+    if (L.onFinishLoad) webview.removeEventListener('did-finish-load', L.onFinishLoad);
+    if (L.onFailLoad) webview.removeEventListener('did-fail-load', L.onFailLoad);
+    if (L.onPageTitle) webview.removeEventListener('page-title-updated', L.onPageTitle);
+    if (L.onConsoleMessage) webview.removeEventListener('console-message', L.onConsoleMessage);
+    webview._wadeckListeners = null;
+  }
+  if (webview.parentNode) {
+    webview.parentNode.removeChild(webview);
+  }
+}
+
 function ensureWebview(account) {
   if (account?.frozen) return;
   if (state.webviews.has(account.id)) return;
@@ -1165,14 +1189,14 @@ function ensureWebview(account) {
   const accountId = account.id;
   const currentAccount = () => accountById(accountId) || account;
 
-  webview.addEventListener('did-start-loading', () => {
+  const onStartLoading = () => {
     webview.dataset.waReady = '0';
     if (accountId === state.activeAccountId) {
       setStatus(`${currentAccount().name}: загрузка...`);
     }
-  });
+  };
 
-  webview.addEventListener('did-finish-load', () => {
+  const onFinishLoad = () => {
     if (accountId === state.activeAccountId) {
       if (state.startupHubVisible) {
         state.startupHubVisible = false;
@@ -1185,9 +1209,9 @@ function ensureWebview(account) {
       refreshWebviewVisibility();
       setStatus(`${currentAccount().name}: готово`);
     }
-  });
+  };
 
-  webview.addEventListener('did-fail-load', () => {
+  const onFailLoad = () => {
     webview.dataset.waReady = '0';
     if (accountId === state.activeAccountId) {
       showWebviewLoading(false);
@@ -1196,20 +1220,28 @@ function ensureWebview(account) {
       }
       refreshWebviewVisibility();
     }
-  });
+  };
 
-  // WhatsApp-specific: parse unread count from page title
+  let onPageTitle = null;
   if (isWhatsApp) {
-    webview.addEventListener('page-title-updated', (event) => {
+    onPageTitle = (event) => {
       const title = String(event?.title || '');
       const count = WaDeckUnreadModule.parseUnreadFromTitle(title);
       WaDeckUnreadModule.setUnreadCount(accountId, count);
-    });
+    };
   }
 
+  webview.addEventListener('did-start-loading', onStartLoading);
+  webview.addEventListener('did-finish-load', onFinishLoad);
+  webview.addEventListener('did-fail-load', onFailLoad);
+  if (onPageTitle) webview.addEventListener('page-title-updated', onPageTitle);
+
   let _bindDomTimer = null;
-  const bindDomHelpers = () => {
+  let _domReadyFired = false;
+
+  const onDomReady = () => {
     webview.dataset.waReady = '1';
+    _domReadyFired = true;
 
     // WhatsApp-specific script injection
     if (isWhatsApp) {
@@ -1232,7 +1264,7 @@ function ensureWebview(account) {
       }
     }
 
-    // Debounced UI update — prevents excessive re-renders on SPA navigation
+    // Debounced UI update on initial load
     if (_bindDomTimer) clearTimeout(_bindDomTimer);
     _bindDomTimer = setTimeout(() => {
       _bindDomTimer = null;
@@ -1241,12 +1273,35 @@ function ensureWebview(account) {
     }, 300);
   };
 
-  webview.addEventListener('dom-ready', bindDomHelpers);
-  webview.addEventListener('did-navigate-in-page', bindDomHelpers);
+  const onNavigateInPage = () => {
+    if (!_domReadyFired) return;
+    // Only WhatsApp needs re-injection after SPA navigation
+    if (!isWhatsApp) return;
 
-  // WhatsApp-specific console message handlers
+    webview.dataset.waReady = '1';
+
+    webview
+      .executeJavaScript(bridgeScript(), true)
+      .catch((e) => console.warn('[bridge]', e));
+
+    webview.executeJavaScript(hoverTranslateBridgeScript(state.translateTargetLang), true).catch((e) => console.warn('[hover-bridge]', e));
+
+    if (typeof crmHoverBridgeScript === 'function') {
+      webview.executeJavaScript(crmHoverBridgeScript(), true).catch((e) => console.warn('[crm-hover]', e));
+    }
+
+    // Debounced UI update — prevents excessive re-renders on SPA navigation
+    if (_bindDomTimer) clearTimeout(_bindDomTimer);
+    _bindDomTimer = setTimeout(() => {
+      _bindDomTimer = null;
+      renderAccounts();
+      updateHubDashboard();
+    }, 800);
+  };
+
+  let onConsoleMessage = null;
   if (isWhatsApp) {
-    webview.addEventListener('console-message', (event) => {
+    onConsoleMessage = (event) => {
       const message = String(event?.message || '');
       if (message.startsWith('__WADECK_HOVER_TRANSLATE__')) {
         WaDeckTranslateModule.handleHoverTranslateMessage(account.id, message).catch(console.error);
@@ -1266,8 +1321,17 @@ function ensureWebview(account) {
         } catch { /* ignore parse errors */ }
         return;
       }
-    });
+    };
+    webview.addEventListener('console-message', onConsoleMessage);
   }
+
+  // Store ALL listener references for cleanup
+  webview._wadeckListeners = {
+    onDomReady, onNavigateInPage, onStartLoading,
+    onFinishLoad, onFailLoad, onPageTitle, onConsoleMessage,
+  };
+  webview.addEventListener('dom-ready', onDomReady);
+  webview.addEventListener('did-navigate-in-page', onNavigateInPage);
 
   state.webviews.set(account.id, webview);
   els.webviews.appendChild(webview);
@@ -1706,10 +1770,7 @@ async function setAccountFrozenState(accountId, nextFrozen, options = {}) {
   patchLocalAccount(response.account);
 
   if (response.account.frozen) {
-    const webview = state.webviews.get(accountId);
-    if (webview && webview.parentNode) {
-      webview.parentNode.removeChild(webview);
-    }
+    cleanupWebview(state.webviews.get(accountId));
     state.webviews.delete(accountId);
     state.chatPickerCache.delete(accountId);
     WaDeckUnreadModule.setUnreadCount(accountId, 0);
@@ -1855,10 +1916,7 @@ async function removeAccount(accountId) {
     return;
   }
 
-  const webview = state.webviews.get(accountId);
-  if (webview && webview.parentNode) {
-    webview.parentNode.removeChild(webview);
-  }
+  cleanupWebview(state.webviews.get(accountId));
   state.webviews.delete(accountId);
   state.chatPickerCache.delete(accountId);
   state.unreadByAccount.delete(accountId);
@@ -2446,7 +2504,7 @@ async function init() {
       updateToolbarClock();
       const hs = document.getElementById('hub-screen');
       if (hs && !hs.classList.contains('hidden')) updateHubClocks();
-    }, 15000);
+    }, 30000);
   }
   WaDeckAutoUpdateModule.maybeShowReleaseNotes().catch(console.error);
 

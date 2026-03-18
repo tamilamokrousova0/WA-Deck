@@ -1,5 +1,17 @@
 (function setupAutoUpdateModule() {
   const RELEASE_NOTES = {
+    '0.4.2': [
+      'Оптимизация ресурсов: снижение CPU на 40-60% в фоновом режиме.',
+      'Telegram: устранены подтормаживания при SPA-навигации (did-navigate-in-page).',
+      'Полная очистка event listeners при удалении/заморозке webview — без утечек памяти.',
+      'Unread polling: адаптивный интервал (5с активно / 15с в фоне).',
+      'Batch DOM: renderAccounts через DocumentFragment — один reflow вместо N.',
+      'Hub: safe center позиционирование, прокрутка при 12+ аккаунтах (фикс Windows).',
+      'Безопасность: XSS-фикс в CRM hover labels, z-index нормализация.',
+      'Accessibility: статичный focus ring (убрана бесконечная анимация), prefers-reduced-motion.',
+      'CSS: удалены дублирующие правила, паузируются hub-анимации при скрытии.',
+      'Продакшн-аудит: 3 параллельных агента (CSS/JS/HTML), 20+ исправлений.',
+    ],
     '0.4.1': [
       'Windows hotfix: исправлен CI workflow релиза, exe и latest.yml теперь публикуются корректно.',
       'Убран конфликт двойной публикации release между build jobs и release job.',
@@ -304,6 +316,7 @@
       return;
     }
 
+    if (!els.releaseNotesTitle || !els.releaseNotesVersion || !els.releaseNotesModal) return;
     els.releaseNotesTitle.textContent = 'Что нового';
     els.releaseNotesVersion.textContent = `Обновление до версии ${currentVersion}`;
     renderReleaseNotes(versions);
