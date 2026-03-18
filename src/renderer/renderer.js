@@ -745,6 +745,52 @@ async function reorderAccountsByDrag(sourceAccountId, targetAccountId) {
   }
 }
 
+/** Lightweight: only toggle .active class without rebuilding DOM */
+function updateAccountActiveHighlight() {
+  const cards = els.accountsList.querySelectorAll('.account-item');
+  for (const card of cards) {
+    card.classList.toggle('active', card.dataset.accountId === state.activeAccountId);
+  }
+}
+
+/** Update status dot + tooltip for a single account card (no full rebuild) */
+function updateAccountCardStatus(accountId) {
+  const card = els.accountsList.querySelector(`.account-item[data-account-id="${accountId}"]`);
+  if (!card) return;
+  const account = accountById(accountId);
+  if (!account) return;
+
+  // Update status dot
+  const dot = card.querySelector('.account-status-dot');
+  if (dot) {
+    dot.classList.remove('status-frozen', 'status-offline', 'status-ready', 'status-loading');
+    if (account.frozen) {
+      dot.classList.add('status-frozen');
+      dot.title = 'Заморожен';
+    } else {
+      const wv = state.webviews.get(account.id);
+      if (!wv) { dot.classList.add('status-offline'); dot.title = 'Не загружен'; }
+      else if (wv.dataset?.waReady === '1') { dot.classList.add('status-ready'); dot.title = 'Подключён'; }
+      else { dot.classList.add('status-loading'); dot.title = 'Загружается'; }
+    }
+  }
+
+  // Update tooltip
+  const tooltip = card.querySelector('.account-tooltip');
+  if (tooltip) {
+    let tooltipStatus = '';
+    if (account.frozen) { tooltipStatus = 'Заморожен ❄'; }
+    else {
+      const wv = state.webviews.get(account.id);
+      if (!wv) tooltipStatus = 'Не подключён';
+      else if (wv.dataset?.waReady === '1') tooltipStatus = 'Подключён';
+      else tooltipStatus = 'Загрузка…';
+    }
+    const typeLabel = account.type === 'telegram' ? 'Telegram' : 'WhatsApp';
+    tooltip.textContent = account.name + ' — ' + typeLabel + ' — ' + tooltipStatus;
+  }
+}
+
 function renderAccounts() {
   const fragment = document.createDocumentFragment();
 
@@ -1191,12 +1237,14 @@ function ensureWebview(account) {
 
   const onStartLoading = () => {
     webview.dataset.waReady = '0';
+    updateAccountCardStatus(accountId);
     if (accountId === state.activeAccountId) {
       setStatus(`${currentAccount().name}: загрузка...`);
     }
   };
 
   const onFinishLoad = () => {
+    updateAccountCardStatus(accountId);
     if (accountId === state.activeAccountId) {
       if (state.startupHubVisible) {
         state.startupHubVisible = false;
@@ -1213,6 +1261,7 @@ function ensureWebview(account) {
 
   const onFailLoad = () => {
     webview.dataset.waReady = '0';
+    updateAccountCardStatus(accountId);
     if (accountId === state.activeAccountId) {
       showWebviewLoading(false);
       if (state.startupHubVisible) {
@@ -1264,11 +1313,11 @@ function ensureWebview(account) {
       }
     }
 
-    // Debounced UI update on initial load
+    // Debounced status update on initial load (no full sidebar rebuild)
     if (_bindDomTimer) clearTimeout(_bindDomTimer);
     _bindDomTimer = setTimeout(() => {
       _bindDomTimer = null;
-      renderAccounts();
+      updateAccountCardStatus(accountId);
       updateHubDashboard();
     }, 300);
   };
@@ -1290,11 +1339,11 @@ function ensureWebview(account) {
       webview.executeJavaScript(crmHoverBridgeScript(), true).catch((e) => console.warn('[crm-hover]', e));
     }
 
-    // Debounced UI update — prevents excessive re-renders on SPA navigation
+    // Debounced status update — prevents excessive re-renders on SPA navigation
     if (_bindDomTimer) clearTimeout(_bindDomTimer);
     _bindDomTimer = setTimeout(() => {
       _bindDomTimer = null;
-      renderAccounts();
+      updateAccountCardStatus(accountId);
       updateHubDashboard();
     }, 800);
   };
@@ -1422,7 +1471,7 @@ function _setActiveAccountInner(accountId) {
       state.startupHubVisible = false;
     }
   }
-  renderAccounts();
+  updateAccountActiveHighlight();
   updateActiveAccountDisplay();
   updateFreezeButtonState();
   updateToolbarState();
@@ -2444,6 +2493,9 @@ async function init() {
   state.templates = Array.isArray(boot.templates) ? boot.templates.map((tpl) => ({ ...tpl })) : [];
   state.runtime = boot.runtime || {};
   state.runtime.appVersion = String(boot.appVersion || state.runtime.appVersion || '').trim();
+
+  // Render sidebar immediately so accounts are visible right away
+  renderAccounts();
 
   for (const account of state.accounts) {
     try {
