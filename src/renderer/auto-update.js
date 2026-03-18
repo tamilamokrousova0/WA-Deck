@@ -1,5 +1,10 @@
 (function setupAutoUpdateModule() {
   const RELEASE_NOTES = {
+    '0.4.4': [
+      'Telegram: исправлен статус «загрузка» — SPA-навигация больше не сбрасывает ready-состояние.',
+      'Telegram: уведомления о непрочитанных сообщениях теперь работают (page-title-updated).',
+      'Шаблоны и перевод: восстановлена функция encodeBase64Utf8, ошибочно удалённая при аудите.',
+    ],
     '0.4.3': [
       'Telegram support: отдельные Telegram Web аккаунты, type badges WA/TG, корректные partition и guards.',
       'Performance: CPU в фоне снижен, sidebar появляется мгновенно, переключение аккаунтов без миганий.',
