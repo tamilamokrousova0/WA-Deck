@@ -1,9 +1,11 @@
 (function setupAutoUpdateModule() {
   const RELEASE_NOTES = {
     '0.4.3': [
-      'Sidebar: мгновенное появление аккаунтов при запуске (без задержки 10-15с).',
-      'Sidebar: устранено мигание при переключении аккаунтов — точечное обновление DOM.',
-      'Точечное обновление status dot при загрузке webview без перестройки sidebar.',
+      'Telegram support: отдельные Telegram Web аккаунты, type badges WA/TG, корректные partition и guards.',
+      'Performance: CPU в фоне снижен, sidebar появляется мгновенно, переключение аккаунтов без миганий.',
+      'Windows: добавлен disable-renderer-backgrounding против Efficiency Mode.',
+      'CRM hover popover: прокрутка колёсиком и адаптивная высота.',
+      'Production hardening: Telegram fixes, XSS-fix, z-index, accessibility и удаление мёртвого кода.',
     ],
     '0.4.2': [
       'Оптимизация ресурсов: снижение CPU на 40-60% в фоновом режиме.',

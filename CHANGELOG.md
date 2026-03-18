@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.4.3
+
+### New Features
+- Telegram support expanded alongside WhatsApp with dedicated account type handling.
+- Type selector popover on `+`: add WhatsApp or Telegram via icon choice.
+- Separate Telegram webviews with own session partition and navigation guards.
+- WhatsApp-specific scripts are no longer injected into Telegram webviews.
+- Type badges on account cards: green `WA` / blue `TG`.
+- 50-color palette in account management modal.
+- CRM hover popover improved with mouse wheel scrolling and adaptive height.
+
+### Bug Fixes
+- Fixed Telegram account type being lost after app restart by preserving `type` in `sanitizeStore`.
+- Fixed `will-navigate` guard incorrectly blocking Telegram navigation.
+- Fixed WhatsApp user-agent being forced on Telegram webviews.
+- Fixed sidebar resize handle `z-index` overlapping modals.
+- Fixed duplicate `type="button"` attributes on 7 buttons.
+- Added missing `-webkit-backdrop-filter` prefixes in 3 places.
+- Hub fixed on Windows with 12+ accounts.
+
+### Windows
+- Added `disable-renderer-backgrounding` to prevent Windows Efficiency Mode from suspending webview processes.
+
+### Performance
+- CPU usage reduced by roughly 40-60% in background through adaptive polling and batched DOM updates.
+- Telegram navigation slowdowns removed.
+- Sidebar now appears immediately on startup: `renderAccounts` runs before creating webviews.
+- Account switching no longer flickers: only `.active` class toggles.
+
+### Code Quality
+- Removed dead CSS: `.sidebar-group*`, `.translation-*` orphaned selectors.
+- Removed dead JS: `encodeBase64Utf8`, `collapsedGroups` orphan state.
+- Added missing `hostEscapeUnsubscribe` state declaration.
+- Removed noisy `console.log` calls from dock badge and unread polling.
+- Toolbar now auto-hides freeze/CRM buttons for Telegram accounts.
+- Hub dashboard now has separate `+ WhatsApp` / `+ Telegram` buttons.
+- Includes 20+ fixes from triple production audit across CSS / JS / HTML.
+
 ## 0.4.1
 
 ### Windows hotfix
