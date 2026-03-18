@@ -67,7 +67,7 @@ let macDeveloperIdSignatureCache = null;
 function setDockBadge(count) {
   const safeCount = Math.max(0, Number(count) || 0);
   if (safeCount > 0) {
-    console.log('[dock-badge] Setting badge:', safeCount);
+    // badge set silently
   }
   if (process.platform === 'darwin') {
     const badge = safeCount > 0 ? String(safeCount) : '';
@@ -231,6 +231,7 @@ function sanitizeStore(raw) {
   clean.accounts = clean.accounts
     .map((item, index) => ({
       id: String(item?.id || `wa_${Date.now()}_${index}`),
+      type: item?.type === 'telegram' ? 'telegram' : 'whatsapp',
       name: String(item?.name || `WP_${index + 1}`),
       color: String(item?.color || pickColor(index + 1)),
       iconPath: String(item?.iconPath || '').trim(),
@@ -349,8 +350,20 @@ function nextWpIndex() {
   return max + 1;
 }
 
-function partitionForAccount(accountId) {
-  return `persist:wa_${accountId}`;
+function nextTgIndex() {
+  let max = 0;
+  for (const account of state.store.accounts) {
+    const match = String(account.name).match(/^TG_(\d+)$/i);
+    if (match) {
+      max = Math.max(max, Number(match[1] || 0));
+    }
+  }
+  return max + 1;
+}
+
+function partitionForAccount(accountId, type) {
+  const prefix = type === 'telegram' ? 'tg' : 'wa';
+  return `persist:${prefix}_${accountId}`;
 }
 
 function sanitizeFsName(value, fallback = 'unknown') {
@@ -677,10 +690,12 @@ function accountToView(account = {}) {
 }
 
 function accountToRuntimePayload(account = {}) {
+  const type = account.type || 'whatsapp';
   return {
     ...accountToView(account),
-    partition: partitionForAccount(account.id),
-    url: 'https://web.whatsapp.com/',
+    type,
+    partition: partitionForAccount(account.id, type),
+    url: type === 'telegram' ? 'https://web.telegram.org/a/' : 'https://web.whatsapp.com/',
   };
 }
 
@@ -765,13 +780,14 @@ async function removeAccount(accountId) {
   const idx = state.store.accounts.findIndex((acc) => acc.id === id);
   if (idx < 0) return { ok: false, error: 'account_not_found' };
 
+  const removedType = state.store.accounts[idx].type || 'whatsapp';
   state.store.accounts.splice(idx, 1);
   normalizeAccountOrder();
   state.store.scheduled = state.store.scheduled.filter((item) => item.accountId !== id);
   await saveStore();
 
   try {
-    const partition = partitionForAccount(id);
+    const partition = partitionForAccount(id, removedType);
     const partitionSession = session.fromPartition(partition);
     await partitionSession.clearStorageData();
     await partitionSession.clearCache();
@@ -1223,12 +1239,33 @@ function setupWebviewGuards() {
   app.on('web-contents-created', (_event, contents) => {
     if (contents.getType() !== 'webview') return;
 
-    contents.setUserAgent(WA_USER_AGENT);
+    // Determine webview type from partition (persist:tg_* = Telegram, persist:wa_* = WhatsApp)
+    const isTelegram = () => {
+      try {
+        const partition = contents.session?.getStoragePath?.() || '';
+        if (partition.includes('/tg_')) return true;
+        // Fallback: check current URL
+        const url = contents.getURL() || '';
+        return url.includes('web.telegram.org');
+      } catch { return false; }
+    };
+
+    // Only set WhatsApp user-agent for WhatsApp webviews
+    if (!isTelegram()) {
+      contents.setUserAgent(WA_USER_AGENT);
+    }
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
     contents.on('will-navigate', (event, url) => {
-      if (!String(url || '').startsWith('https://web.whatsapp.com')) {
-        event.preventDefault();
+      const dest = String(url || '');
+      if (isTelegram()) {
+        if (!dest.startsWith('https://web.telegram.org')) {
+          event.preventDefault();
+        }
+      } else {
+        if (!dest.startsWith('https://web.whatsapp.com')) {
+          event.preventDefault();
+        }
       }
     });
     contents.on('context-menu', (_event, params) => {
@@ -1497,12 +1534,16 @@ async function deleteTemplate(id) {
 function registerIpc() {
   ipcMain.handle('bootstrap', async () => buildBootstrap());
 
-  ipcMain.handle('add-account', async () => {
-    const idx = nextWpIndex();
+  ipcMain.handle('add-account', async (_event, type) => {
+    const accountType = (type === 'telegram') ? 'telegram' : 'whatsapp';
+    const isTg = accountType === 'telegram';
+    const idx = isTg ? nextTgIndex() : nextWpIndex();
+    const prefix = isTg ? 'tg' : 'wa';
     const maxOrder = state.store.accounts.reduce((max, acc) => Math.max(max, Number(acc.order || 0)), 0);
     const account = {
-      id: `wa_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
-      name: `WP_${idx}`,
+      id: `${prefix}_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
+      type: accountType,
+      name: isTg ? `TG_${idx}` : `WP_${idx}`,
       color: pickColor(idx),
       iconPath: '',
       frozen: false,
@@ -1552,6 +1593,17 @@ function registerIpc() {
 
   ipcMain.handle('set-account-icon', async (_event, payload) => {
     return setAccountIcon(payload?.accountId, payload?.iconPath);
+  });
+
+  ipcMain.handle('set-account-color', async (_event, payload) => {
+    const id = String(payload?.accountId || '').trim();
+    const color = String(payload?.color || '').trim();
+    if (!id || !color) return { ok: false, error: 'invalid_params' };
+    const account = state.store.accounts.find((a) => a.id === id);
+    if (!account) return { ok: false, error: 'account_not_found' };
+    account.color = color;
+    await saveStore();
+    return { ok: true, account: accountToRuntimePayload(account) };
   });
 
   ipcMain.handle('save-settings', async (_event, payload) => {
@@ -1833,6 +1885,11 @@ async function bootstrap() {
   registerIpc();
   createWindow();
   setupAutoUpdater();
+}
+
+// Windows: prevent OS from suspending webview renderer processes (Efficiency Mode)
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('disable-renderer-backgrounding');
 }
 
 if (addSingleInstanceGuard()) {

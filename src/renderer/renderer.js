@@ -19,12 +19,13 @@ const state = {
   unreadPollTimer: null,
   dockBadgeTimer: null,
   autoUpdateUnsubscribe: null,
+  hostEscapeUnsubscribe: null,
   translateTargetLang: 'RU',
   translateSourceLang: 'AUTO',
   accountMenuAccountId: '',
   accountMenuDraftIconPath: '',
+  accountMenuDraftColor: '',
   draggedAccountId: '',
-  collapsedGroups: new Set(),
   crmEditable: false,
   crmTarget: {
     accountId: '',
@@ -203,6 +204,17 @@ const els = {
   clockAddForm: document.getElementById('clocks-add-form'),
   clockAddToggle: document.getElementById('clock-add-toggle'),
 
+  toolbarClock: document.getElementById('toolbar-clock'),
+  toolbarClockTime: document.getElementById('toolbar-clock-time'),
+  toolbarClockZones: document.getElementById('toolbar-clock-zones'),
+  toolbarClockPopover: document.getElementById('toolbar-clock-popover'),
+
+  tqOverlay: document.getElementById('template-quick-overlay'),
+  tqSearch: document.getElementById('tq-search'),
+  tqList: document.getElementById('tq-list'),
+  tqEmpty: document.getElementById('tq-empty'),
+  tqClose: document.getElementById('tq-close'),
+  openTemplateQuick: document.getElementById('open-template-quick'),
 };
 
 let templateController = null;
@@ -397,6 +409,12 @@ function getCrmHoverPopover() {
     el.addEventListener('mouseleave', () => {
       _crmHoverTimer = setTimeout(() => hideCrmHoverPopover(), 300);
     });
+    // Capture wheel events so scrolling works over webview
+    el.addEventListener('wheel', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      el.scrollTop += e.deltaY;
+    }, { passive: false });
   }
   return el;
 }
@@ -653,10 +671,12 @@ function updateActiveAccountDisplay() {
 }
 
 function updateToolbarState() {
-  const hasActive = Boolean(activeAccount());
+  const account = activeAccount();
+  const hasActive = Boolean(account);
+  const isWa = hasActive && account.type !== 'telegram';
   if (els.refreshActive) els.refreshActive.disabled = !hasActive;
-  if (els.freezeActive) els.freezeActive.disabled = !hasActive;
-  if (els.openCrmModal) els.openCrmModal.disabled = !hasActive;
+  if (els.freezeActive) { els.freezeActive.disabled = !isWa; els.freezeActive.style.display = isWa || !hasActive ? '' : 'none'; }
+  if (els.openCrmModal) { els.openCrmModal.disabled = !isWa; els.openCrmModal.style.display = isWa || !hasActive ? '' : 'none'; }
 }
 
 function updateFreezeButtonState() {
@@ -817,6 +837,20 @@ function renderAccounts() {
       card.appendChild(frozenTag);
     }
 
+    // Account type badge (WhatsApp / Telegram)
+    const typeBadge = document.createElement('div');
+    typeBadge.className = 'account-type-badge';
+    if (account.type === 'telegram') {
+      typeBadge.classList.add('account-type-tg');
+      typeBadge.title = 'Telegram';
+      typeBadge.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.07-.2c-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.25-5.54 3.66-.52.36-1 .53-1.42.52-.47-.01-1.37-.27-2.04-.49-.82-.27-1.47-.42-1.42-.88.03-.24.37-.49 1.02-.75 3.98-1.73 6.64-2.88 7.97-3.44 3.8-1.58 4.59-1.86 5.1-1.87.11 0 .37.03.54.17.14.12.18.28.2.45-.01.06.01.24 0 .38z" fill="white"/></svg>';
+    } else {
+      typeBadge.classList.add('account-type-wa');
+      typeBadge.title = 'WhatsApp';
+      typeBadge.innerHTML = '<svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" fill="white"/><path d="M12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2 22l4.832-1.438A9.955 9.955 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2zm0 18a7.96 7.96 0 01-4.106-1.138l-.294-.176-2.868.852.852-2.868-.176-.294A7.96 7.96 0 014 12c0-4.411 3.589-8 8-8s8 3.589 8 8-3.589 8-8 8z" fill="white"/></svg>';
+    }
+    card.appendChild(typeBadge);
+
     const statusDot = document.createElement('div');
     statusDot.className = 'account-status-dot';
     if (account.frozen) {
@@ -849,7 +883,8 @@ function renderAccounts() {
       else if (wv.dataset?.waReady === '1') tooltipStatus = 'Подключён';
       else tooltipStatus = 'Загрузка…';
     }
-    tooltip.textContent = account.name + ' — ' + tooltipStatus;
+    const typeLabel = account.type === 'telegram' ? 'Telegram' : 'WhatsApp';
+    tooltip.textContent = account.name + ' — ' + typeLabel + ' — ' + tooltipStatus;
     card.appendChild(tooltip);
 
     // Контекстное меню (правый клик)
@@ -895,11 +930,11 @@ function showAccountContextMenu(event, account) {
   menu.className = 'context-menu';
   menu.id = 'account-context-menu';
 
+  const isWa = account.type !== 'telegram';
   const items = [
     { label: 'Обновить', action: () => { setActiveAccount(account.id); requestAnimationFrame(() => refreshActiveWebview()); } },
-    { label: account.frozen ? 'Разморозить' : 'Заморозить', action: () => { setAccountFrozenState(account.id, !account.frozen).catch(console.error); } },
+    ...(isWa ? [{ label: account.frozen ? 'Разморозить' : 'Заморозить', action: () => { setAccountFrozenState(account.id, !account.frozen).catch(console.error); } }] : []),
     { divider: true },
-    { label: 'CRM', action: () => { setActiveAccount(account.id); requestAnimationFrame(() => { if (window.WaDeckCrmModule) window.WaDeckCrmModule.openCrmModal(); }); } },
     { label: 'Управление', action: () => openAccountMenu(account.id) },
     { divider: true },
     { label: 'Удалить', danger: true, action: () => removeAccount(account.id).catch(console.error) },
@@ -955,6 +990,45 @@ function closeAccountContextMenu() {
   if (existing) {
     if (existing._cleanup) existing._cleanup();
     existing.remove();
+  }
+}
+
+// ── Toolbar Clock ──
+function updateToolbarClock() {
+  if (!els.toolbarClockTime) return;
+  const now = new Date();
+  els.toolbarClockTime.textContent = new Intl.DateTimeFormat('ru', {
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(now);
+
+  // Update timezone popover
+  if (!els.toolbarClockZones) return;
+  const zones = (state.settings && state.settings.worldClocks) || [
+    { label: 'Москва', tz: 'Europe/Moscow' },
+    { label: 'Киев', tz: 'Europe/Kiev' },
+    { label: 'Берлин', tz: 'Europe/Berlin' },
+  ];
+  if (!zones.length) return;
+  els.toolbarClockZones.innerHTML = '';
+  if (els.toolbarClockPopover) els.toolbarClockPopover.classList.remove('hidden');
+  for (const zone of zones) {
+    const row = document.createElement('div');
+    row.className = 'toolbar-clock-zone-row';
+    let time = '--:--';
+    try {
+      time = new Intl.DateTimeFormat('ru', {
+        hour: '2-digit', minute: '2-digit',
+        timeZone: zone.tz, hour12: false,
+      }).format(now);
+    } catch { /* invalid tz */ }
+    const label = document.createElement('span');
+    label.className = 'toolbar-clock-zone-label';
+    label.textContent = zone.label;
+    const timeEl = document.createElement('span');
+    timeEl.className = 'toolbar-clock-zone-time';
+    timeEl.textContent = time;
+    row.append(label, timeEl);
+    els.toolbarClockZones.appendChild(row);
   }
 }
 
@@ -1054,12 +1128,19 @@ async function updateHubDashboard() {
   settingsBtn.textContent = '⚙ Настройки';
   settingsBtn.addEventListener('click', () => { if (state.panelHidden) openSettingsPanel(); else closeSettingsPanel(); });
 
-  const addBtn = document.createElement('button');
-  addBtn.className = 'btn';
-  addBtn.textContent = '+ Аккаунт';
-  addBtn.addEventListener('click', () => addAccount());
+  const addWaBtn = document.createElement('button');
+  addWaBtn.className = 'btn';
+  addWaBtn.type = 'button';
+  addWaBtn.textContent = '+ WhatsApp';
+  addWaBtn.addEventListener('click', () => addAccount('whatsapp'));
 
-  actions.append(settingsBtn, addBtn);
+  const addTgBtn = document.createElement('button');
+  addTgBtn.className = 'btn';
+  addTgBtn.type = 'button';
+  addTgBtn.textContent = '+ Telegram';
+  addTgBtn.addEventListener('click', () => addAccount('telegram'));
+
+  actions.append(settingsBtn, addWaBtn, addTgBtn);
   container.appendChild(actions);
 }
 
@@ -1067,15 +1148,19 @@ function ensureWebview(account) {
   if (account?.frozen) return;
   if (state.webviews.has(account.id)) return;
 
+  const isWhatsApp = account.type !== 'telegram';
+
   const webview = document.createElement('webview');
   webview.partition = account.partition;
   webview.src = account.url;
-  if (state.runtime?.waUserAgent) {
+  // Custom user-agent only for WhatsApp
+  if (isWhatsApp && state.runtime?.waUserAgent) {
     webview.setAttribute('useragent', state.runtime.waUserAgent);
   }
   webview.setAttribute('allowpopups', 'false');
   webview.setAttribute('webpreferences', 'contextIsolation=yes');
   webview.dataset.waReady = '0';
+  webview.dataset.accountType = account.type || 'whatsapp';
 
   const accountId = account.id;
   const currentAccount = () => accountById(accountId) || account;
@@ -1113,31 +1198,38 @@ function ensureWebview(account) {
     }
   });
 
-  webview.addEventListener('page-title-updated', (event) => {
-    const title = String(event?.title || '');
-    const count = WaDeckUnreadModule.parseUnreadFromTitle(title);
-    WaDeckUnreadModule.setUnreadCount(accountId, count);
-  });
+  // WhatsApp-specific: parse unread count from page title
+  if (isWhatsApp) {
+    webview.addEventListener('page-title-updated', (event) => {
+      const title = String(event?.title || '');
+      const count = WaDeckUnreadModule.parseUnreadFromTitle(title);
+      WaDeckUnreadModule.setUnreadCount(accountId, count);
+    });
+  }
 
   let _bindDomTimer = null;
   const bindDomHelpers = () => {
     webview.dataset.waReady = '1';
-    if (typeof webview.setUserAgent === 'function' && state.runtime?.waUserAgent) {
-      webview.setUserAgent(state.runtime.waUserAgent);
-    }
 
-    webview
-      .executeJavaScript(bridgeScript(), true)
-      .catch((e) => console.warn('[bridge]', e));
+    // WhatsApp-specific script injection
+    if (isWhatsApp) {
+      if (typeof webview.setUserAgent === 'function' && state.runtime?.waUserAgent) {
+        webview.setUserAgent(state.runtime.waUserAgent);
+      }
 
-    webview.executeJavaScript(hoverTranslateBridgeScript(state.translateTargetLang), true).catch((e) => console.warn('[hover-bridge]', e));
+      webview
+        .executeJavaScript(bridgeScript(), true)
+        .catch((e) => console.warn('[bridge]', e));
 
-    if (typeof youtubeDetectScript === 'function') {
-      webview.executeJavaScript(youtubeDetectScript(), true).catch((e) => console.warn('[youtube-detect]', e));
-    }
+      webview.executeJavaScript(hoverTranslateBridgeScript(state.translateTargetLang), true).catch((e) => console.warn('[hover-bridge]', e));
 
-    if (typeof crmHoverBridgeScript === 'function') {
-      webview.executeJavaScript(crmHoverBridgeScript(), true).catch((e) => console.warn('[crm-hover]', e));
+      if (typeof youtubeDetectScript === 'function') {
+        webview.executeJavaScript(youtubeDetectScript(), true).catch((e) => console.warn('[youtube-detect]', e));
+      }
+
+      if (typeof crmHoverBridgeScript === 'function') {
+        webview.executeJavaScript(crmHoverBridgeScript(), true).catch((e) => console.warn('[crm-hover]', e));
+      }
     }
 
     // Debounced UI update — prevents excessive re-renders on SPA navigation
@@ -1151,27 +1243,31 @@ function ensureWebview(account) {
 
   webview.addEventListener('dom-ready', bindDomHelpers);
   webview.addEventListener('did-navigate-in-page', bindDomHelpers);
-  webview.addEventListener('console-message', (event) => {
-    const message = String(event?.message || '');
-    if (message.startsWith('__WADECK_HOVER_TRANSLATE__')) {
-      WaDeckTranslateModule.handleHoverTranslateMessage(account.id, message).catch(console.error);
-      return;
-    }
-    if (message.startsWith('__WADECK_YOUTUBE_PLAY__')) {
-      try {
-        const payload = JSON.parse(message.slice('__WADECK_YOUTUBE_PLAY__'.length));
-        openYoutubeMiniPlayer(payload.videoId);
-      } catch { /* ignore parse errors */ }
-      return;
-    }
-    if (message.startsWith('__WADECK_CRM_HOVER__')) {
-      try {
-        const payload = JSON.parse(message.slice('__WADECK_CRM_HOVER__'.length));
-        handleCrmHover(account, webview, payload);
-      } catch { /* ignore parse errors */ }
-      return;
-    }
-  });
+
+  // WhatsApp-specific console message handlers
+  if (isWhatsApp) {
+    webview.addEventListener('console-message', (event) => {
+      const message = String(event?.message || '');
+      if (message.startsWith('__WADECK_HOVER_TRANSLATE__')) {
+        WaDeckTranslateModule.handleHoverTranslateMessage(account.id, message).catch(console.error);
+        return;
+      }
+      if (message.startsWith('__WADECK_YOUTUBE_PLAY__')) {
+        try {
+          const payload = JSON.parse(message.slice('__WADECK_YOUTUBE_PLAY__'.length));
+          openYoutubeMiniPlayer(payload.videoId);
+        } catch { /* ignore parse errors */ }
+        return;
+      }
+      if (message.startsWith('__WADECK_CRM_HOVER__')) {
+        try {
+          const payload = JSON.parse(message.slice('__WADECK_CRM_HOVER__'.length));
+          handleCrmHover(account, webview, payload);
+        } catch { /* ignore parse errors */ }
+        return;
+      }
+    });
+  }
 
   state.webviews.set(account.id, webview);
   els.webviews.appendChild(webview);
@@ -1393,12 +1489,73 @@ function openAccountMenu(accountId) {
     els.accountMenuResetIcon.classList.toggle('hidden', !hasIcon);
   }
 
+  // Color swatch
+  const swatch = document.getElementById('account-menu-color-swatch');
+  if (swatch) {
+    swatch.style.background = account.color || '#0ea5e9';
+  }
+  state.accountMenuDraftColor = account.color || '';
+
+  // Build color palette popover
+  const colorPopover = document.getElementById('account-color-popover');
+  if (colorPopover) {
+    colorPopover.innerHTML = '';
+    colorPopover.classList.add('hidden');
+    const PALETTE = [
+      // Greens
+      '#22c55e', '#16a34a', '#15803d', '#059669', '#10b981',
+      // Teals & Cyans
+      '#14b8a6', '#0d9488', '#06b6d4', '#0891b2', '#22d3ee',
+      // Blues
+      '#0ea5e9', '#0284c7', '#3b82f6', '#2563eb', '#1d4ed8',
+      // Indigos & Violets
+      '#6366f1', '#4f46e5', '#7c3aed', '#8b5cf6', '#a78bfa',
+      // Purples & Pinks
+      '#a855f7', '#9333ea', '#d946ef', '#c026d3', '#e879f9',
+      // Roses & Reds
+      '#ec4899', '#db2777', '#e11d48', '#be123c', '#f43f5e',
+      // Reds & Oranges
+      '#ef4444', '#dc2626', '#b91c1c', '#f97316', '#ea580c',
+      // Ambers & Yellows
+      '#f59e0b', '#d97706', '#eab308', '#ca8a04', '#facc15',
+      // Limes
+      '#84cc16', '#65a30d', '#a3e635', '#4ade80', '#34d399',
+      // Neutrals
+      '#78716c', '#57534e', '#475569', '#334155', '#1e293b',
+    ];
+    for (const c of PALETTE) {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'color-dot';
+      dot.style.background = c;
+      dot.title = c;
+      if (c === (account.color || '').toLowerCase()) dot.classList.add('active');
+      dot.addEventListener('click', () => {
+        state.accountMenuDraftColor = c;
+        if (swatch) swatch.style.background = c;
+        if (els.accountMenuChip) els.accountMenuChip.style.background = c;
+        for (const d of colorPopover.querySelectorAll('.color-dot')) d.classList.remove('active');
+        dot.classList.add('active');
+        colorPopover.classList.add('hidden');
+      });
+      colorPopover.appendChild(dot);
+    }
+  }
+
+  // Hide freeze for Telegram
+  if (els.accountMenuFreeze) {
+    els.accountMenuFreeze.style.display = account.type === 'telegram' ? 'none' : '';
+  }
+
   els.accountMenuModal.classList.remove('hidden');
 }
 
 function closeAccountMenu() {
   state.accountMenuAccountId = '';
   state.accountMenuDraftIconPath = '';
+  state.accountMenuDraftColor = '';
+  const colorPop = document.getElementById('account-color-popover');
+  if (colorPop) colorPop.classList.add('hidden');
   els.accountMenuModal.classList.add('hidden');
 }
 
@@ -1444,6 +1601,17 @@ async function saveAccountFromMenu() {
     patchLocalAccount(iconResponse.account);
     currentAccount = accountById(accountId) || currentAccount;
     changed = true;
+  }
+
+  // Save color if changed
+  const draftColor = String(state.accountMenuDraftColor || '').trim();
+  if (draftColor && draftColor !== String(account.color || '').trim()) {
+    const colorResponse = await window.waDeck.setAccountColor({ accountId, color: draftColor });
+    if (colorResponse?.ok && colorResponse.account) {
+      patchLocalAccount(colorResponse.account);
+      currentAccount = accountById(accountId) || currentAccount;
+      changed = true;
+    }
   }
 
   if (state.scheduleTarget.accountId === accountId) {
@@ -1577,20 +1745,6 @@ async function toggleActiveFreeze() {
   await setAccountFrozenState(account.id, !Boolean(account.frozen), { reopenMenu: false });
 }
 
-function encodeBase64Utf8(value) {
-  const bytes = new TextEncoder().encode(String(value || ''));
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    const slice = bytes.slice(i, i + chunk);
-    let piece = '';
-    for (let j = 0; j < slice.length; j += 1) {
-      piece += String.fromCharCode(slice[j]);
-    }
-    binary += piece;
-  }
-  return btoa(binary);
-}
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -1670,9 +1824,9 @@ async function toggleTheme() {
   setStatus(`Тема: ${state.settings.uiTheme === 'light' ? 'светлая' : 'тёмная'}`);
 }
 
-async function addAccount() {
+async function addAccount(type) {
   try {
-    const created = await window.waDeck.addAccount();
+    const created = await window.waDeck.addAccount(type || 'whatsapp');
     if (!created || typeof created !== 'object' || !created.id) {
       setStatus('Не удалось добавить аккаунт');
       return;
@@ -1754,6 +1908,62 @@ function refreshActiveWebview() {
   setStatus(`${account.name}: обновлено`);
 }
 
+function refreshAllWebviews() {
+  let count = 0;
+  for (const account of state.accounts) {
+    if (account.frozen) continue;
+    const wv = state.webviews.get(account.id);
+    if (wv) { wv.reload(); count++; }
+  }
+  els.refreshActive?.classList.add('is-spinning');
+  setTimeout(() => els.refreshActive?.classList.remove('is-spinning'), 680);
+  setStatus(`Обновлено аккаунтов: ${count}`);
+}
+
+function showRefreshContextMenu(event) {
+  closeAccountContextMenu();
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.id = 'account-context-menu';
+
+  const items = [
+    { label: 'Обновить текущий', action: () => refreshActiveWebview() },
+    { label: 'Обновить все', action: () => refreshAllWebviews() },
+  ];
+
+  for (const item of items) {
+    const el = document.createElement('div');
+    el.className = 'context-menu-item';
+    el.textContent = item.label;
+    el.addEventListener('click', () => {
+      closeAccountContextMenu();
+      item.action();
+    });
+    menu.appendChild(el);
+  }
+
+  document.body.appendChild(menu);
+  let x = event.clientX;
+  let y = event.clientY;
+  const rect = menu.getBoundingClientRect();
+  if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 4;
+  if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 4;
+  menu.style.left = Math.max(0, x) + 'px';
+  menu.style.top = Math.max(0, y) + 'px';
+
+  const closeOnClick = (e) => { if (!menu.contains(e.target)) closeAccountContextMenu(); };
+  const closeOnEsc = (e) => { if (e.key === 'Escape') closeAccountContextMenu(); };
+  const bindTimer = setTimeout(() => {
+    document.addEventListener('click', closeOnClick, { capture: true });
+    document.addEventListener('keydown', closeOnEsc);
+  }, 0);
+  menu._cleanup = () => {
+    clearTimeout(bindTimer);
+    document.removeEventListener('click', closeOnClick, { capture: true });
+    document.removeEventListener('keydown', closeOnEsc);
+  };
+}
+
 async function insertTextIntoActiveChat(text) {
   const safeText = String(text || '').trim();
   if (!safeText) {
@@ -1782,13 +1992,35 @@ async function insertTextIntoActiveChat(text) {
 }
 
 function bindActions() {
-  els.addAccount.addEventListener('click', () => {
-    runWithBusyButton(els.addAccount, () => addAccount(), { text: '…', title: 'Добавление WhatsApp' }).catch(console.error);
+  // ── Add-account popover (WhatsApp / Telegram choice) ──
+  const addPopover = document.getElementById('add-account-popover');
+  els.addAccount.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (addPopover) addPopover.classList.toggle('hidden');
   });
+  if (addPopover) {
+    for (const btn of addPopover.querySelectorAll('.add-account-option')) {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const type = btn.dataset.type || 'whatsapp';
+        addPopover.classList.add('hidden');
+        runWithBusyButton(els.addAccount, () => addAccount(type), { text: '…', title: 'Добавление аккаунта' }).catch(console.error);
+      });
+    }
+    document.addEventListener('click', (e) => {
+      if (!addPopover.contains(e.target) && e.target !== els.addAccount) {
+        addPopover.classList.add('hidden');
+      }
+    });
+  }
   els.accountsScrollUp?.addEventListener('click', () => scrollAccountsList('up'));
   els.accountsScrollDown?.addEventListener('click', () => scrollAccountsList('down'));
   els.accountsList?.addEventListener('scroll', updateSidebarScrollControls, { passive: true });
   els.refreshActive.addEventListener('click', refreshActiveWebview);
+  els.refreshActive.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    showRefreshContextMenu(e);
+  });
   els.freezeActive?.addEventListener('click', () => toggleActiveFreeze().catch(console.error));
   els.openCrmModal.addEventListener('click', () => WaDeckCrmModule.openCrmModal().catch(console.error));
 
@@ -2008,6 +2240,7 @@ function bindActions() {
     state.translateSourceLang = String(els.translateSourceLang.value || 'AUTO').toUpperCase();
   });
 
+
   els.pickAttachments.addEventListener('click', () => WaDeckScheduleModule.pickAttachments().catch(console.error));
   els.clearAttachments.addEventListener('click', WaDeckScheduleModule.clearAttachments);
   els.openChatPicker.addEventListener('click', () => WaDeckScheduleModule.openChatPicker().catch(console.error));
@@ -2018,6 +2251,21 @@ function bindActions() {
   els.accountMenuReset?.addEventListener('click', () => resetAccountFromMenu().catch(console.error));
   els.accountMenuIcon?.addEventListener('click', () => changeAccountIconFromMenu().catch(console.error));
   els.accountMenuResetIcon?.addEventListener('click', () => resetAccountIconFromMenu().catch(console.error));
+
+  // Color picker toggle
+  const colorBtn = document.getElementById('account-menu-color');
+  const colorPop = document.getElementById('account-color-popover');
+  if (colorBtn && colorPop) {
+    colorBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      colorPop.classList.toggle('hidden');
+    });
+    document.addEventListener('click', (e) => {
+      if (!colorPop.contains(e.target) && e.target !== colorBtn && !colorBtn.contains(e.target)) {
+        colorPop.classList.add('hidden');
+      }
+    });
+  }
   els.accountMenuCancel.addEventListener('click', closeAccountMenu);
   els.accountMenuFreeze?.addEventListener('click', () => {
     const id = state.accountMenuAccountId;
@@ -2190,12 +2438,15 @@ async function init() {
   WaDeckUnreadModule.startUnreadPolling();
   WaDeckUnreadModule.scheduleDockBadgeSync();
   renderClocksSettings();
+  // Toolbar clock — update immediately and every 15s
+  updateToolbarClock();
   // Hub clock auto-refresh every 30s
   if (!state._hubClockTimer) {
     state._hubClockTimer = setInterval(() => {
+      updateToolbarClock();
       const hs = document.getElementById('hub-screen');
       if (hs && !hs.classList.contains('hidden')) updateHubClocks();
-    }, 30000);
+    }, 15000);
   }
   WaDeckAutoUpdateModule.maybeShowReleaseNotes().catch(console.error);
 
@@ -2203,6 +2454,160 @@ async function init() {
     `Готово. Аккаунтов: ${state.accounts.length}, Electron ${state.runtime.electron || '?'}, Chromium ${state.runtime.chrome || '?'}`,
   );
 }
+
+/* ── Template Quick Access (Ctrl+T / toolbar button) ── */
+(function setupTemplateQuickAccess() {
+  const overlay = els.tqOverlay;
+  const searchInput = els.tqSearch;
+  const listEl = els.tqList;
+  const emptyEl = els.tqEmpty;
+  if (!overlay || !searchInput || !listEl) return;
+
+  let activeIndex = -1;
+  let visibleItems = [];
+
+  function getTemplates() {
+    return Array.isArray(state.templates) ? state.templates : [];
+  }
+
+  function truncate(str, len) {
+    const s = String(str || '');
+    return s.length > len ? s.slice(0, len) + '…' : s;
+  }
+
+  function renderList(filter) {
+    const q = String(filter || '').trim().toLowerCase();
+    const templates = getTemplates();
+    const filtered = q
+      ? templates.filter(t => {
+          const title = String(t.title || '').toLowerCase();
+          const text = String(t.text || '').toLowerCase();
+          return title.includes(q) || text.includes(q);
+        })
+      : templates;
+
+    listEl.innerHTML = '';
+    visibleItems = [];
+    activeIndex = -1;
+
+    if (!filtered.length) {
+      if (emptyEl) {
+        emptyEl.classList.remove('hidden');
+        emptyEl.textContent = q
+          ? `Ничего не найдено по «${truncate(q, 30)}»`
+          : 'Нет шаблонов. Создайте в Настройках → Общие шаблоны';
+      }
+      return;
+    }
+    if (emptyEl) emptyEl.classList.add('hidden');
+
+    filtered.forEach((tpl, i) => {
+      const item = document.createElement('div');
+      item.className = 'tq-item';
+      item.dataset.index = i;
+      item.dataset.templateId = tpl.id;
+
+      const icon = document.createElement('div');
+      icon.className = 'tq-item-icon';
+      icon.textContent = String(tpl.title || '?').slice(0, 1).toUpperCase();
+
+      const body = document.createElement('div');
+      body.className = 'tq-item-body';
+
+      const title = document.createElement('div');
+      title.className = 'tq-item-title';
+      title.textContent = tpl.title || 'Без названия';
+
+      const preview = document.createElement('div');
+      preview.className = 'tq-item-preview';
+      preview.textContent = truncate(tpl.text, 60);
+
+      body.appendChild(title);
+      body.appendChild(preview);
+      item.appendChild(icon);
+      item.appendChild(body);
+
+      item.addEventListener('click', () => insertAndClose(tpl));
+      listEl.appendChild(item);
+      visibleItems.push({ el: item, tpl });
+    });
+
+    setActive(0);
+  }
+
+  function setActive(idx) {
+    if (!visibleItems.length) return;
+    if (activeIndex >= 0 && activeIndex < visibleItems.length) {
+      visibleItems[activeIndex].el.classList.remove('tq-active');
+    }
+    activeIndex = Math.max(0, Math.min(idx, visibleItems.length - 1));
+    const item = visibleItems[activeIndex];
+    item.el.classList.add('tq-active');
+    item.el.scrollIntoView({ block: 'nearest' });
+  }
+
+  async function insertAndClose(tpl) {
+    closePalette();
+    const text = String(tpl.text || '').trim();
+    if (!text) return;
+    const result = await insertTextIntoActiveChat(text);
+    if (result?.ok) {
+      setStatus(`Шаблон «${truncate(tpl.title, 20)}» вставлен`);
+    } else {
+      setStatus(`Шаблон: не удалось вставить (${result?.error || 'ошибка'})`);
+    }
+  }
+
+  function openPalette() {
+    overlay.classList.remove('hidden');
+    searchInput.value = '';
+    renderList('');
+    searchInput.focus();
+  }
+
+  function closePalette() {
+    overlay.classList.add('hidden');
+    searchInput.value = '';
+    listEl.innerHTML = '';
+    activeIndex = -1;
+    visibleItems = [];
+  }
+
+  // Event listeners
+  searchInput.addEventListener('input', () => renderList(searchInput.value));
+
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActive(activeIndex + 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActive(activeIndex - 1);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIndex >= 0 && activeIndex < visibleItems.length) {
+        insertAndClose(visibleItems[activeIndex].tpl);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closePalette();
+    }
+  });
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closePalette();
+  });
+
+  if (els.tqClose) {
+    els.tqClose.addEventListener('click', closePalette);
+  }
+
+  // Toolbar button
+  if (els.openTemplateQuick) {
+    els.openTemplateQuick.addEventListener('click', openPalette);
+  }
+
+})();
 
 init().catch((error) => {
   setStatus(`Ошибка запуска: ${String(error?.message || error)}`);

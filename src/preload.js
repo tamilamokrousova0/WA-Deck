@@ -2,13 +2,14 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('waDeck', {
   bootstrap: () => ipcRenderer.invoke('bootstrap'),
-  addAccount: () => ipcRenderer.invoke('add-account'),
+  addAccount: (type) => ipcRenderer.invoke('add-account', type),
   removeAccount: (accountId) => ipcRenderer.invoke('remove-account', accountId),
   renameAccount: (payload) => ipcRenderer.invoke('rename-account', payload),
   setAccountFrozen: (payload) => ipcRenderer.invoke('set-account-frozen', payload),
   moveAccount: (payload) => ipcRenderer.invoke('move-account', payload),
   pickAccountIcon: () => ipcRenderer.invoke('pick-account-icon'),
   setAccountIcon: (payload) => ipcRenderer.invoke('set-account-icon', payload),
+  setAccountColor: (payload) => ipcRenderer.invoke('set-account-color', payload),
   saveSettings: (payload) => ipcRenderer.invoke('save-settings', payload),
   translateText: (payload) => ipcRenderer.invoke('translate-text', payload),
   testTranslateApi: (payload) => ipcRenderer.invoke('test-translate-api', payload),

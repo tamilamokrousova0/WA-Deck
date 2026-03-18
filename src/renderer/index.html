@@ -36,7 +36,22 @@
             <path d="M6 10l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
-        <button type="button" id="add-account" class="btn btn-ghost add-account-btn" title="Добавить WhatsApp">+</button>
+        <div class="add-account-wrap">
+          <button type="button" id="add-account" class="btn btn-ghost add-account-btn" title="Добавить аккаунт">+</button>
+          <div id="add-account-popover" class="add-account-popover hidden">
+            <button type="button" class="add-account-option" data-type="whatsapp" title="WhatsApp">
+              <svg class="icon-wa-mini" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" fill="currentColor"/>
+                <path d="M12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2 22l4.832-1.438A9.955 9.955 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2zm0 18a7.96 7.96 0 01-4.106-1.138l-.294-.176-2.868.852.852-2.868-.176-.294A7.96 7.96 0 014 12c0-4.411 3.589-8 8-8s8 3.589 8 8-3.589 8-8 8z" fill="currentColor"/>
+              </svg>
+            </button>
+            <button type="button" class="add-account-option" data-type="telegram" title="Telegram">
+              <svg class="icon-tg-mini" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.25-5.54 3.66-.52.36-1 .53-1.42.52-.47-.01-1.37-.27-2.04-.49-.82-.27-1.47-.42-1.42-.88.03-.24.37-.49 1.02-.75 3.98-1.73 6.64-2.88 7.97-3.44 3.8-1.58 4.59-1.86 5.1-1.87.11 0 .37.03.54.17.14.12.18.28.2.45-.01.06.01.24 0 .38z" fill="currentColor"/>
+              </svg>
+            </button>
+          </div>
+        </div>
       </aside>
       <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
 
@@ -69,6 +84,13 @@
                 <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
+            <button type="button" id="open-template-quick" class="btn btn-icon btn-toolbar-icon btn-template" title="Шаблоны">
+              <svg class="icon icon-template" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M3 9h18" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M9 9v12" stroke="currentColor" stroke-width="1.8"/>
+              </svg>
+            </button>
           </div>
           <div id="weather-widget" class="weather-widget">
             <button type="button" id="weather-toggle" class="weather-toggle" title="Погода">
@@ -88,14 +110,25 @@
                 <input id="weather-city-input" type="text" placeholder="Москва" />
               </label>
               <div class="weather-popover-actions">
-                <button type="button" id="weather-unit" class="btn btn-ghost weather-unit" type="button">°C</button>
-                <button type="button" id="weather-refresh" class="btn btn-ghost" type="button">Обновить</button>
-                <button type="button" id="weather-save" class="btn" type="button">Сохранить</button>
+                <button type="button" id="weather-unit" class="btn btn-ghost weather-unit">°C</button>
+                <button type="button" id="weather-refresh" class="btn btn-ghost">Обновить</button>
+                <button type="button" id="weather-save" class="btn">Сохранить</button>
               </div>
               <div id="weather-meta" class="weather-meta">Погода не загружена</div>
             </div>
           </div>
           <div id="active-account-display" class="active-account-display" title="Активный WhatsApp">—</div>
+          <div id="toolbar-clock" class="toolbar-clock" title="Местное время">
+            <svg class="icon icon-clock" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+              <path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span id="toolbar-clock-time" class="toolbar-clock-time">--:--</span>
+            <div id="toolbar-clock-popover" class="toolbar-clock-popover hidden">
+              <div class="toolbar-clock-popover-title">Часовые пояса</div>
+              <div id="toolbar-clock-zones" class="toolbar-clock-zones"></div>
+            </div>
+          </div>
           <div class="toolbar-right">
             <div class="zoom-control">
               <button type="button" id="zoom-out" class="btn btn-icon btn-toolbar-icon btn-zoom" title="Уменьшить масштаб">−</button>
@@ -211,7 +244,7 @@
                 </label>
               </div>
             </label>
-            <button type="button" id="save-settings" class="btn btn-icon btn-save-settings" type="button" title="Сохранить настройки переводчика">
+            <button type="button" id="save-settings" class="btn btn-icon btn-save-settings" title="Сохранить настройки переводчика">
               <svg class="icon icon-save" viewBox="0 0 24 24" aria-hidden="true">
                 <path
                   d="M5 3h11l3 3v15H5V3Zm2 0v6h8V3M8 21v-7h8v7"
@@ -229,7 +262,7 @@
               DeepL API Key
               <div class="password-field">
                 <input id="deepl-api-key" type="password" placeholder="DeepL Auth Key" />
-                <button type="button" id="toggle-deepl-api-key" class="btn btn-icon btn-eye" type="button" title="Показать ключ">
+                <button type="button" id="toggle-deepl-api-key" class="btn btn-icon btn-eye" title="Показать ключ">
                   <svg class="icon icon-eye" viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Zm10 3.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"
@@ -256,7 +289,7 @@
               LibreTranslate API Key
               <div class="password-field">
                 <input id="libretranslate-api-key" type="password" placeholder="API key (если требуется сервером)" />
-                <button type="button" id="toggle-libretranslate-api-key" class="btn btn-icon btn-eye" type="button" title="Показать ключ">
+                <button type="button" id="toggle-libretranslate-api-key" class="btn btn-icon btn-eye" title="Показать ключ">
                   <svg class="icon icon-eye" viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Zm10 3.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"
@@ -284,7 +317,7 @@
           <label>
             Шаблон
             <div class="template-select-row">
-              <button type="button" id="template-search" class="btn btn-icon btn-template-search" type="button" title="Поиск шаблона по названию">
+              <button type="button" id="template-search" class="btn btn-icon btn-template-search" title="Поиск шаблона по названию">
                 <svg class="icon icon-search" viewBox="0 0 24 24" aria-hidden="true">
                   <path
                     d="M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Zm9 2-4.2-4.2"
@@ -386,6 +419,7 @@
           <button type="button" id="manual-update" class="btn">Обновление</button>
         </div>
       </aside>
+
     </div>
 
     <div id="chat-picker-modal" class="modal hidden">
@@ -424,12 +458,18 @@
           <input id="account-menu-name" type="text" placeholder="WP_1" maxlength="60" />
         </label>
         <div class="account-menu-actions">
-          <button type="button" id="account-menu-icon" class="btn btn-action-icon" type="button" title="Сменить иконку">
+          <button type="button" id="account-menu-icon" class="btn btn-action-icon" title="Сменить иконку">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
           </button>
-          <button type="button" id="account-menu-reset-icon" class="btn btn-action-icon hidden" type="button" title="Сбросить иконку">
+          <button type="button" id="account-menu-reset-icon" class="btn btn-action-icon hidden" title="Сбросить иконку">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           </button>
+          <div class="color-picker-wrap">
+            <button type="button" id="account-menu-color" class="btn btn-action-icon btn-color-picker" title="Цвет аккаунта">
+              <span id="account-menu-color-swatch" class="color-swatch"></span>
+            </button>
+            <div id="account-color-popover" class="color-picker-popover hidden"></div>
+          </div>
           <button type="button" id="account-menu-save" class="btn btn-primary grow">Сохранить</button>
         </div>
         <div class="account-menu-divider"></div>
@@ -618,6 +658,33 @@
       </div>
     </div>
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- Template Quick Access (Ctrl+T / toolbar button) -->
+    <div id="template-quick-overlay" class="tq-overlay hidden">
+      <div class="tq-palette">
+        <div class="tq-header">
+          <div class="tq-icon-circle">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <rect x="3" y="3" width="18" height="18" rx="3" stroke="#fff" stroke-width="1.8"/>
+              <path d="M3 9h18" stroke="#fff" stroke-width="1.8"/>
+              <path d="M9 9v12" stroke="#fff" stroke-width="1.8"/>
+            </svg>
+          </div>
+          <h3 class="tq-title">Шаблоны</h3>
+          <button type="button" id="tq-close" class="btn-close-round" title="Закрыть (Esc)">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M11 3L3 11M3 3l8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <input id="tq-search" type="text" class="tq-search" placeholder="Поиск шаблона..." autocomplete="off" />
+        <div id="tq-list" class="tq-list"></div>
+        <div id="tq-empty" class="tq-empty hidden">Нет шаблонов. Создайте в Настройках → Общие шаблоны</div>
+        <div class="tq-hint">
+          <span class="tq-kbd">↑↓</span> навигация
+          <span class="tq-kbd">Enter</span> вставить
+          <span class="tq-kbd">Esc</span> закрыть
+        </div>
+      </div>
+    </div>
 
     <script src="templates.js"></script>
     <script src="webview-scripts/bridge.js"></script>
