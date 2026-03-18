@@ -1252,6 +1252,7 @@ function ensureWebview(account) {
   };
 
   const onFinishLoad = () => {
+    webview.dataset.waReady = '1';
     updateAccountCardStatus(accountId);
     if (accountId === state.activeAccountId) {
       if (state.startupHubVisible) {
@@ -1279,19 +1280,16 @@ function ensureWebview(account) {
     }
   };
 
-  let onPageTitle = null;
-  if (isWhatsApp) {
-    onPageTitle = (event) => {
-      const title = String(event?.title || '');
-      const count = WaDeckUnreadModule.parseUnreadFromTitle(title);
-      WaDeckUnreadModule.setUnreadCount(accountId, count);
-    };
-  }
+  const onPageTitle = (event) => {
+    const title = String(event?.title || '');
+    const count = WaDeckUnreadModule.parseUnreadFromTitle(title);
+    WaDeckUnreadModule.setUnreadCount(accountId, count);
+  };
 
   webview.addEventListener('did-start-loading', onStartLoading);
   webview.addEventListener('did-finish-load', onFinishLoad);
   webview.addEventListener('did-fail-load', onFailLoad);
-  if (onPageTitle) webview.addEventListener('page-title-updated', onPageTitle);
+  webview.addEventListener('page-title-updated', onPageTitle);
 
   let _bindDomTimer = null;
   let _domReadyFired = false;
