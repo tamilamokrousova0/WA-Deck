@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+### Windows hotfix
+- Исправлен CI workflow релиза: Windows installer и `latest.yml` теперь публикуются корректно вместе с macOS артефактами.
+- Убран конфликт двойной публикации release между build jobs и release job.
+
 ## 0.4.0
 
 ### New Features

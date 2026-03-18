@@ -1,5 +1,9 @@
 (function setupAutoUpdateModule() {
   const RELEASE_NOTES = {
+    '0.4.1': [
+      'Windows hotfix: исправлен CI workflow релиза, exe и latest.yml теперь публикуются корректно.',
+      'Убран конфликт двойной публикации release между build jobs и release job.',
+    ],
     '0.4.0': [
       'Поддержка Telegram: добавление Telegram-аккаунтов наряду с WhatsApp.',
       'Выбор типа аккаунта при нажатии «+» — иконки WhatsApp и Telegram.',
