@@ -1,3 +1,11 @@
+/* Encode UTF-8 string to base64 — used by webview inject scripts (insert-text, hover-translate-apply) */
+function encodeBase64Utf8(str) {
+  const bytes = new TextEncoder().encode(String(str || ''));
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
 const state = {
   accounts: [],
   activeAccountId: null,
