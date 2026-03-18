@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.0
+
+### New Features
+- **Telegram support**: можно добавлять Telegram Web аккаунты наряду с WhatsApp.
+- При нажатии `+` открывается выбор типа аккаунта с иконками WhatsApp / Telegram.
+- Для Telegram используется отдельный webview со своей session partition и navigation guards.
+- В Telegram webview не инжектируются WhatsApp-специфичные скрипты.
+- На карточках аккаунтов отображаются type-badges: зелёный `WA` / синий `TG`.
+- В управлении аккаунтом добавлена палитра из 50 цветов.
+- CRM hover popover улучшен: скролл колёсиком и адаптивная высота.
+
+### Bug Fixes
+- Исправлена потеря типа Telegram-аккаунта после рестарта приложения: `type` добавлен в `sanitizeStore`.
+- Исправлен `will-navigate` guard, блокировавший Telegram webview navigation.
+- Исправлен forced WhatsApp user-agent для Telegram webviews.
+- Исправлен `z-index` у sidebar resize handle, перекрывавший модальные окна.
+- Исправлены 7 кнопок с дублирующимся `type=\"button\"`.
+- Добавлены недостающие `-webkit-backdrop-filter` префиксы в 3 местах.
+
+### Windows
+- Добавлен флаг `disable-renderer-backgrounding`, чтобы Windows Efficiency Mode не усыплял webview-процессы.
+
+### Code Quality
+- Удалён мёртвый CSS: `.sidebar-group*`, `.translation-*` orphaned selectors.
+- Удалён мёртвый JS: `encodeBase64Utf8`, `collapsedGroups` orphan state.
+- Добавлено недостающее состояние `hostEscapeUnsubscribe`.
+- Убраны шумные `console.log` из dock-badge и unread polling.
+- В toolbar для Telegram-аккаунтов автоматически скрываются freeze/CRM buttons.
+- В hub dashboard раздельные кнопки `+ WhatsApp` / `+ Telegram`.
+
 ## 0.3.2
 
 ### UI / UX
