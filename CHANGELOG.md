@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.5
+
+### Bug Fixes
+- Windows: отложенная отправка теперь работает при Режиме эффективности — webview автоматически пробуждается.
+- Scheduler: добавлен retry с reload при `search_input_not_found` вместо немедленного падения.
+
 ## 0.4.4
 
 ### Bug Fixes
