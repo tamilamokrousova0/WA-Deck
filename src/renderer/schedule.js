@@ -364,8 +364,8 @@
       await delay(50);
     };
 
-    /* STEP 1: Find search input and click it */
-    const searchRect = await query(`(() => {
+    /* STEP 1: Find search input and click it (with wake-up retry) */
+    const findSearchInput = () => query(`(() => {
       const selectors = ['#side input[role="textbox"][data-tab="3"]', '#side input[role="textbox"]', '#side input[placeholder]'];
       for (const sel of selectors) {
         const el = document.querySelector(sel);
@@ -376,6 +376,21 @@
       }
       return { found: false };
     })()`);
+
+    let searchRect = await findSearchInput();
+
+    /* If not found, webview may be suspended (Windows Efficiency Mode).
+       Reload to wake it up and retry. */
+    if (!searchRect?.found) {
+      console.warn('[scheduled] search input not found, attempting webview wake-up reload...');
+      try { webview.reload(); } catch (_e) { /* ignore */ }
+      await delay(3000);
+      const reloaded = await waitForWebviewReady(webview, 20000);
+      if (reloaded) {
+        await delay(2000);
+        searchRect = await findSearchInput();
+      }
+    }
 
     if (!searchRect?.found) return { ok: false, error: 'search_input_not_found' };
 

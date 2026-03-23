@@ -1,5 +1,9 @@
 (function setupAutoUpdateModule() {
   const RELEASE_NOTES = {
+    '0.4.5': [
+      'Windows: отложенная отправка теперь работает при Режиме эффективности — автоматическое пробуждение webview.',
+      'Scheduler: retry с reload при search_input_not_found вместо мгновенной ошибки.',
+    ],
     '0.4.4': [
       'Telegram: исправлен статус «загрузка» — SPA-навигация больше не сбрасывает ready-состояние.',
       'Telegram: уведомления о непрочитанных сообщениях теперь работают (page-title-updated).',
