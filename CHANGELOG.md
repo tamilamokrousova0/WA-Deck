@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.5.1
+
+### UX Improvements
+- Активный аккаунт: белая левая полоса и scale-индикатор.
+- Toolbar: разделители между группами и новая иконка отложенной отправки.
+- CRM hover popover: перетаскивание за header и задержка скрытия 600ms.
+- Палитра шаблонов показывает целевой аккаунт и блокирует вставку без активного чата.
+- Sidebar unread badges увеличены, добавлена пульсация.
+- Hub dashboard: WA/TG иконки типа аккаунта и ghost-style action buttons.
+- Scheduled send: UI разделён на форму и список карточек со счётчиком.
+- Усилен backdrop модалок, улучшен focus management.
+- Кнопки async-сценариев получили spinner и более заметный disabled-state.
+- Отмена scheduled send теперь требует подтверждения, редактирование сохраняет старый текст.
+- Light theme: улучшен контраст badge и readonly input styling.
+- Для icon-buttons автоматически проставляются aria-label.
+
+### Security and Stability
+- Добавлен Content-Security-Policy в renderer.
+- shell.openExternal ограничен только http/https.
+- BrowserWindow переведён в sandbox: true.
+- Восстановление webview после render-process-gone через auto-reload.
+- Глобальные обработчики ошибок и flush store перед before-quit.
+
+### Performance
+- Удалён disable-renderer-backgrounding: экономия 60-80% idle CPU при 20+ аккаунтах.
+- Опрос непрочитанных разбит на батчи по 6 webview с паузой 500ms.
+- Hub dashboard теперь debounce-ится вместо 30 rebuild за цикл.
+
+### Removed
+- Удалён переводчик DeepL/LibreTranslate.
+- Удалён нерабочий YouTube mini-player.
+- Electron обновлён с 40.8 до 41.1.1 (Chromium 146.0.7680.166).
+
 ## 0.4.5
 
 ### Bug Fixes

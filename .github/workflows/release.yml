@@ -27,7 +27,7 @@ jobs:
         run: npm ci
 
       - name: Build mac app
-        run: npx electron-builder --mac dmg zip --arm64 --publish never
+        run: npx electron-builder --mac dmg zip --arm64 --x64 --publish never
 
       - name: Upload mac artifacts
         uses: actions/upload-artifact@v4
@@ -104,6 +104,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name == 'v0.5.1' && 'v0.5.1 — Security hardening, UX polish, Electron 41.1.1' || github.ref_name }}
           draft: false
           prerelease: false
           body_path: release-notes.md
