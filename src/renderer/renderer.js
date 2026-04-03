@@ -1370,9 +1370,11 @@ function refreshWebviewVisibility() {
   for (const [accountId, webview] of state.webviews.entries()) {
     if (accountId === state.activeAccountId) {
       webview.classList.add('active');
-      if (webview.dataset.waReady !== '1' && typeof webview.isLoading === 'function' && webview.isLoading()) {
-        activeLoading = true;
-      }
+      try {
+        if (webview.dataset.waReady !== '1' && typeof webview.isLoading === 'function' && webview.isLoading()) {
+          activeLoading = true;
+        }
+      } catch { /* webview not yet attached to DOM — ignore */ }
     } else {
       webview.classList.remove('active');
     }
@@ -2047,13 +2049,13 @@ function bindActions() {
   els.accountsScrollUp?.addEventListener('click', () => scrollAccountsList('up'));
   els.accountsScrollDown?.addEventListener('click', () => scrollAccountsList('down'));
   els.accountsList?.addEventListener('scroll', updateSidebarScrollControls, { passive: true });
-  els.refreshActive.addEventListener('click', refreshActiveWebview);
-  els.refreshActive.addEventListener('contextmenu', (e) => {
+  els.refreshActive?.addEventListener('click', refreshActiveWebview);
+  els.refreshActive?.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     showRefreshContextMenu(e);
   });
   els.freezeActive?.addEventListener('click', () => toggleActiveFreeze().catch(console.error));
-  els.openCrmModal.addEventListener('click', () => WaDeckCrmModule.openCrmModal().catch(console.error));
+  els.openCrmModal?.addEventListener('click', () => WaDeckCrmModule.openCrmModal().catch(console.error));
 
   els.togglePanel.addEventListener('click', () => {
     openSettingsPanel();
@@ -2207,7 +2209,7 @@ function bindActions() {
     WaDeckWeatherModule.closeWeatherPopover();
   });
 
-  els.saveSettings.addEventListener('click', () => saveSettings().catch(console.error));
+  els.saveSettings?.addEventListener('click', () => saveSettings().catch(console.error));
   els.closeReleaseNotes?.addEventListener('click', () => WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(console.error));
 
   /* Update available modal buttons */
@@ -2217,26 +2219,26 @@ function bindActions() {
 
 
 
-  els.crmEdit.addEventListener('click', WaDeckCrmModule.toggleCrmEdit);
-  els.crmSave.addEventListener('click', () => WaDeckCrmModule.saveCrmCard().catch(console.error));
-  els.crmCopy.addEventListener('click', () => WaDeckCrmModule.copyCrmCard().catch(console.error));
-  els.crmClose.addEventListener('click', WaDeckCrmModule.closeCrmModal);
+  els.crmEdit?.addEventListener('click', WaDeckCrmModule.toggleCrmEdit);
+  els.crmSave?.addEventListener('click', () => WaDeckCrmModule.saveCrmCard().catch(console.error));
+  els.crmCopy?.addEventListener('click', () => WaDeckCrmModule.copyCrmCard().catch(console.error));
+  els.crmClose?.addEventListener('click', WaDeckCrmModule.closeCrmModal);
   if (els.crmAddNote) els.crmAddNote.addEventListener('click', WaDeckCrmModule.addCrmNote);
   WaDeckCrmModule.bindCrmAutoResize();
   // Confirm модал
-  els.confirmOk.addEventListener('click', () => closeConfirm(true));
-  els.confirmCancel.addEventListener('click', () => closeConfirm(false));
+  els.confirmOk?.addEventListener('click', () => closeConfirm(true));
+  els.confirmCancel?.addEventListener('click', () => closeConfirm(false));
   if (els.confirmClose) els.confirmClose.addEventListener('click', () => closeConfirm(false));
-  els.confirmModal.addEventListener('click', (e) => { if (e.target === els.confirmModal) closeConfirm(false); });
+  els.confirmModal?.addEventListener('click', (e) => { if (e.target === els.confirmModal) closeConfirm(false); });
   window.addEventListener('resize', () => {
     if (!els.crmModal.classList.contains('hidden')) {
       WaDeckCrmModule.updateCrmModalPosition().catch(() => {});
     }
     updateSidebarScrollControls();
   });
-  els.pickAttachments.addEventListener('click', () => WaDeckScheduleModule.pickAttachments().catch(console.error));
-  els.clearAttachments.addEventListener('click', WaDeckScheduleModule.clearAttachments);
-  els.openChatPicker.addEventListener('click', () => WaDeckScheduleModule.openChatPicker().catch(console.error));
+  els.pickAttachments?.addEventListener('click', () => WaDeckScheduleModule.pickAttachments().catch(console.error));
+  els.clearAttachments?.addEventListener('click', WaDeckScheduleModule.clearAttachments);
+  els.openChatPicker?.addEventListener('click', () => WaDeckScheduleModule.openChatPicker().catch(console.error));
 
   /* Toolbar schedule button — open panel and scroll to schedule card */
   if (els.openScheduleToolbar) {
@@ -2254,10 +2256,10 @@ function bindActions() {
       }, 100);
     });
   }
-  els.pickerAccount.addEventListener('change', () => WaDeckScheduleModule.refreshPickerChats(true).catch(console.error));
-  els.pickerRefresh.addEventListener('click', () => WaDeckScheduleModule.refreshPickerChats(true).catch(console.error));
+  els.pickerAccount?.addEventListener('change', () => WaDeckScheduleModule.refreshPickerChats(true).catch(console.error));
+  els.pickerRefresh?.addEventListener('click', () => WaDeckScheduleModule.refreshPickerChats(true).catch(console.error));
   els.closeChatPicker?.addEventListener('click', WaDeckScheduleModule.closeChatPicker);
-  els.accountMenuSave.addEventListener('click', () => saveAccountFromMenu().catch(console.error));
+  els.accountMenuSave?.addEventListener('click', () => saveAccountFromMenu().catch(console.error));
   els.accountMenuReset?.addEventListener('click', () => resetAccountFromMenu().catch(console.error));
   els.accountMenuIcon?.addEventListener('click', () => changeAccountIconFromMenu().catch(console.error));
   els.accountMenuResetIcon?.addEventListener('click', () => resetAccountIconFromMenu().catch(console.error));
@@ -2276,7 +2278,7 @@ function bindActions() {
       }
     });
   }
-  els.accountMenuCancel.addEventListener('click', closeAccountMenu);
+  els.accountMenuCancel?.addEventListener('click', closeAccountMenu);
   els.accountMenuFreeze?.addEventListener('click', () => {
     const id = state.accountMenuAccountId;
     const account = accountById(id);
@@ -2289,7 +2291,7 @@ function bindActions() {
     closeAccountMenu();
     removeAccount(id).catch(console.error);
   });
-  els.pickerApply.addEventListener('click', () => {
+  els.pickerApply?.addEventListener('click', () => {
     const accountId = String(els.pickerAccount.value || '').trim();
     const chatName = String(els.pickerChat.value || '').trim();
     const account = state.accounts.find((row) => row.id === accountId);
@@ -2306,7 +2308,7 @@ function bindActions() {
     WaDeckScheduleModule.closeChatPicker();
     setStatus(`Цель отправки: ${account.name} / ${chatName}`);
   });
-  els.createSchedule.addEventListener('click', () => {
+  els.createSchedule?.addEventListener('click', () => {
     runWithBusyButton(els.createSchedule, () => WaDeckScheduleModule.createScheduledMessage(), {
       text: 'Планирую...',
       title: 'Создание отложенной отправки',
