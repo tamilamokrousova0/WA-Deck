@@ -11,16 +11,10 @@ const APP_ID = 'com.local.wadeck';
 const APP_TITLE = 'WA Deck';
 const FALLBACK_CHROME_VERSION = '136.0.0.0';
 const APP_ICON_PNG_PATH = path.join(__dirname, '..', 'assets', 'icon', 'wadeck-icon-512.png');
-const DEEPL_FREE_API_URL = 'https://api-free.deepl.com/v2/translate';
-const LIBRETRANSLATE_DEFAULT_URL = 'https://libretranslate.com/translate';
 const RELEASES_LATEST_URL = 'https://github.com/tamilamokrousova0/WA-Deck/releases/latest';
 
 const DEFAULT_SETTINGS = {
   uiTheme: 'dark',
-  translateProvider: 'deepl',
-  deeplApiKey: '',
-  libreTranslateApiKey: '',
-  libreTranslateUrl: LIBRETRANSLATE_DEFAULT_URL,
   weatherCity: 'Moscow',
   weatherUnit: 'celsius',
   lastSeenReleaseNotesVersion: '',
@@ -205,23 +199,7 @@ function sanitizeStore(raw) {
     scheduled: Array.isArray(raw?.scheduled) ? raw.scheduled : [],
   };
 
-  // миграция: перенос legacy ключей во второй переводчик (LibreTranslate)
-  const legacyGoogleKey = String(clean.settings.googleApiKey || '').trim();
-  if (!clean.settings.libreTranslateApiKey && legacyGoogleKey) {
-    clean.settings.libreTranslateApiKey = legacyGoogleKey;
-  }
-  const legacyGoogleTranslateApiKey = String(clean.settings.googleTranslateApiKey || '').trim();
-  if (!clean.settings.libreTranslateApiKey && legacyGoogleTranslateApiKey) {
-    clean.settings.libreTranslateApiKey = legacyGoogleTranslateApiKey;
-  }
-  clean.settings.translateProvider =
-    ['deepl', 'libre'].includes(String(clean.settings.translateProvider || '').toLowerCase())
-      ? String(clean.settings.translateProvider || '').toLowerCase()
-      : 'deepl';
   clean.settings.uiTheme = String(clean.settings.uiTheme || 'dark').toLowerCase() === 'light' ? 'light' : 'dark';
-  clean.settings.deeplApiKey = String(clean.settings.deeplApiKey || '').trim();
-  clean.settings.libreTranslateApiKey = String(clean.settings.libreTranslateApiKey || '').trim();
-  clean.settings.libreTranslateUrl = normalizeLibreTranslateUrl(clean.settings.libreTranslateUrl);
   clean.settings.lastSeenReleaseNotesVersion = String(
     clean.settings.lastSeenReleaseNotesVersion || DEFAULT_SETTINGS.lastSeenReleaseNotesVersion,
   ).trim();
@@ -911,272 +889,6 @@ async function cancelScheduled(id) {
   return { ok: true };
 }
 
-function mapDeepLError(status, data) {
-  const full = String(data?.message || data?.detail || data?.error || '').trim() || `HTTP_${status}`;
-
-  if (status === 403 || /auth|authorization|forbidden|key/i.test(full)) {
-    return { errorCode: 'deepl_api_key_invalid', error: full };
-  }
-  if (status === 429 || /too many requests|rate/i.test(full)) {
-    return { errorCode: 'deepl_rate_limited', error: full };
-  }
-  if (status === 456 || /quota|limit/i.test(full)) {
-    return { errorCode: 'deepl_quota_exceeded', error: full };
-  }
-  if (status >= 500) {
-    return { errorCode: 'deepl_server_error', error: full };
-  }
-
-  return { errorCode: 'deepl_api_request_failed', error: full };
-}
-
-function mapLibreTranslateError(status, data) {
-  const full = String(data?.error || data?.message || '').trim() || `HTTP_${status}`;
-  if (status === 401 || status === 403 || /api[_ -]?key|auth|forbidden|unauthorized/i.test(full)) {
-    return { errorCode: 'libre_api_key_invalid', error: full };
-  }
-  if (status === 429 || /rate|too many requests/i.test(full)) {
-    return { errorCode: 'libre_rate_limited', error: full };
-  }
-  if (status === 400 || /invalid|bad request|missing|required/i.test(full)) {
-    return { errorCode: 'libre_bad_request', error: full };
-  }
-  if (status >= 500) {
-    return { errorCode: 'libre_server_error', error: full };
-  }
-  return { errorCode: 'libre_api_request_failed', error: full };
-}
-
-const DEEPL_SOURCE_LANGS = new Set([
-  'AUTO',
-  'BG',
-  'CS',
-  'DA',
-  'DE',
-  'EL',
-  'EN',
-  'ES',
-  'ET',
-  'FI',
-  'FR',
-  'HU',
-  'ID',
-  'IT',
-  'JA',
-  'KO',
-  'LT',
-  'LV',
-  'NB',
-  'NL',
-  'PL',
-  'PT',
-  'RO',
-  'RU',
-  'SK',
-  'SL',
-  'SV',
-  'TR',
-  'UK',
-  'ZH',
-]);
-
-const DEEPL_TARGET_LANGS = new Set([
-  'BG',
-  'CS',
-  'DA',
-  'DE',
-  'EL',
-  'EN-GB',
-  'EN-US',
-  'ES',
-  'ET',
-  'FI',
-  'FR',
-  'HU',
-  'ID',
-  'IT',
-  'JA',
-  'KO',
-  'LT',
-  'LV',
-  'NB',
-  'NL',
-  'PL',
-  'PT-BR',
-  'PT-PT',
-  'RO',
-  'RU',
-  'SK',
-  'SL',
-  'SV',
-  'TR',
-  'UK',
-  'ZH',
-]);
-
-async function translateViaDeepL(text, sourceLang = 'AUTO', targetLang = 'RU') {
-  const apiKey = String(state.store.settings.deeplApiKey || '').trim();
-  if (!apiKey) {
-    return { ok: false, errorCode: 'deepl_api_key_required', error: 'deepl_api_key_required' };
-  }
-
-  const source = String(sourceLang || 'AUTO').toUpperCase();
-  const target = String(targetLang || 'RU').toUpperCase();
-  const safeSource = DEEPL_SOURCE_LANGS.has(source) ? source : 'AUTO';
-  const safeTarget = DEEPL_TARGET_LANGS.has(target) ? target : 'RU';
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
-
-  try {
-    const body = new URLSearchParams();
-    body.append('text', String(text || ''));
-    body.append('target_lang', safeTarget);
-    if (safeSource !== 'AUTO') {
-      body.append('source_lang', safeSource);
-    }
-
-    const response = await fetch(DEEPL_FREE_API_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `DeepL-Auth-Key ${apiKey}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: body.toString(),
-      signal: controller.signal,
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      return { ok: false, ...mapDeepLError(response.status, data) };
-    }
-
-    const row = data?.translations?.[0];
-    const translated = String(row?.text || '').trim();
-    const detectedSourceLanguage = String(row?.detected_source_language || '').trim();
-
-    if (!translated) {
-      return { ok: false, errorCode: 'empty_translation', error: 'empty_translation' };
-    }
-
-    return {
-      ok: true,
-      translatedText: translated,
-      detectedSourceLanguage,
-      targetLanguage: safeTarget.toLowerCase(),
-    };
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      return { ok: false, errorCode: 'deepl_api_timeout', error: 'deepl_api_timeout' };
-    }
-    return { ok: false, errorCode: 'deepl_api_network_error', error: String(error?.message || error) };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function normalizeProvider(value) {
-  const v = String(value || '').trim().toLowerCase();
-  return v === 'libre' ? 'libre' : 'deepl';
-}
-
-function toLibreLangCode(value, fallback = 'ru') {
-  const v = String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, '-');
-  if (!v) return fallback;
-  if (v === 'auto') return 'auto';
-  if (v.startsWith('en-')) return 'en';
-  if (v.startsWith('pt-')) return 'pt';
-  if (v.startsWith('zh-')) return 'zh';
-  return v;
-}
-
-function normalizeLibreTranslateUrl(value) {
-  const raw = String(value || '').trim();
-  const base = raw || LIBRETRANSLATE_DEFAULT_URL;
-  try {
-    const parsed = new URL(base);
-    let pathname = parsed.pathname || '/';
-    pathname = pathname.replace(/\/+$/, '');
-    if (!pathname || pathname === '') {
-      pathname = '/translate';
-    } else if (!pathname.endsWith('/translate')) {
-      pathname = `${pathname}/translate`;
-    }
-    parsed.pathname = pathname;
-    parsed.search = '';
-    parsed.hash = '';
-    return parsed.toString().replace(/\/$/, '');
-  } catch {
-    return LIBRETRANSLATE_DEFAULT_URL;
-  }
-}
-
-async function translateViaLibreTranslate(text, sourceLang = 'AUTO', targetLang = 'RU') {
-  const apiKey = String(state.store.settings.libreTranslateApiKey || '').trim();
-  const endpoint = normalizeLibreTranslateUrl(state.store.settings.libreTranslateUrl);
-  const source = toLibreLangCode(sourceLang, 'auto');
-  const target = toLibreLangCode(targetLang, 'ru');
-  const payload = {
-    q: String(text || ''),
-    source,
-    target: target === 'auto' ? 'ru' : target,
-    format: 'text',
-  };
-  if (apiKey) {
-    payload.api_key = apiKey;
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
-
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      return { ok: false, ...mapLibreTranslateError(response.status, data) };
-    }
-
-    const translated = String(data?.translatedText || '').trim();
-    const detectedSourceLanguage = String(data?.detectedLanguage?.language || source).trim();
-    if (!translated) {
-      return { ok: false, errorCode: 'empty_translation', error: 'empty_translation' };
-    }
-
-    return {
-      ok: true,
-      translatedText: translated,
-      detectedSourceLanguage,
-      targetLanguage: payload.target,
-    };
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      return { ok: false, errorCode: 'libre_api_timeout', error: 'libre_api_timeout' };
-    }
-    return { ok: false, errorCode: 'libre_api_network_error', error: String(error?.message || error) };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function translateByProvider(provider, text, sourceLang = 'AUTO', targetLang = 'RU') {
-  const safeProvider = normalizeProvider(provider);
-  if (safeProvider === 'libre') {
-    return translateViaLibreTranslate(text, sourceLang, targetLang);
-  }
-  return translateViaDeepL(text, sourceLang, targetLang);
-}
-
 function addSingleInstanceGuard() {
   const lock = app.requestSingleInstanceLock();
   if (!lock) {
@@ -1613,10 +1325,6 @@ function registerIpc() {
     const current = state.store.settings || {};
     const next = {
       uiTheme: String(payload?.uiTheme ?? current.uiTheme ?? DEFAULT_SETTINGS.uiTheme).toLowerCase() === 'light' ? 'light' : 'dark',
-      translateProvider: normalizeProvider(payload?.translateProvider ?? current.translateProvider),
-      deeplApiKey: String(payload?.deeplApiKey ?? current.deeplApiKey ?? '').trim(),
-      libreTranslateApiKey: String(payload?.libreTranslateApiKey ?? payload?.googleApiKey ?? current.libreTranslateApiKey ?? '').trim(),
-      libreTranslateUrl: normalizeLibreTranslateUrl(payload?.libreTranslateUrl ?? current.libreTranslateUrl),
       weatherCity: String(payload?.weatherCity ?? current.weatherCity ?? DEFAULT_SETTINGS.weatherCity).trim() || DEFAULT_SETTINGS.weatherCity,
       weatherUnit: normalizeWeatherUnit(payload?.weatherUnit ?? current.weatherUnit ?? DEFAULT_SETTINGS.weatherUnit),
       lastSeenReleaseNotesVersion: String(
@@ -1633,28 +1341,6 @@ function registerIpc() {
     state.store.settings = next;
     await saveStore();
     return { ...state.store.settings };
-  });
-
-  ipcMain.handle('translate-text', async (_event, payload) => {
-    const text = String(payload?.text || '').trim();
-    if (!text) return { ok: false, error: 'text_required' };
-    const provider = normalizeProvider(payload?.provider || state.store.settings.translateProvider);
-    const sourceLang = String(payload?.sourceLang || 'AUTO');
-    const targetLang = String(payload?.targetLang || 'RU');
-    return translateByProvider(provider, text, sourceLang, targetLang);
-  });
-
-  ipcMain.handle('test-translate-api', async (_event, payload) => {
-    const provider = normalizeProvider(payload?.provider || state.store.settings.translateProvider);
-    const probe = await translateByProvider(provider, 'Hello, this is a test message', 'AUTO', 'RU');
-    if (!probe?.ok) return probe;
-    return {
-      ok: true,
-      provider,
-      translatedText: probe.translatedText,
-      detectedSourceLanguage: probe.detectedSourceLanguage,
-      targetLanguage: probe.targetLanguage,
-    };
   });
 
   ipcMain.handle('crm-load-contact', async (_event, payload) => {

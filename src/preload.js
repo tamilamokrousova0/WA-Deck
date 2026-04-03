@@ -11,8 +11,6 @@ contextBridge.exposeInMainWorld('waDeck', {
   setAccountIcon: (payload) => ipcRenderer.invoke('set-account-icon', payload),
   setAccountColor: (payload) => ipcRenderer.invoke('set-account-color', payload),
   saveSettings: (payload) => ipcRenderer.invoke('save-settings', payload),
-  translateText: (payload) => ipcRenderer.invoke('translate-text', payload),
-  testTranslateApi: (payload) => ipcRenderer.invoke('test-translate-api', payload),
   crmLoadContact: (payload) => ipcRenderer.invoke('crm-load-contact', payload),
   crmSaveContact: (payload) => ipcRenderer.invoke('crm-save-contact', payload),
   listTemplates: () => ipcRenderer.invoke('list-templates'),

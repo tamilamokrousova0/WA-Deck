@@ -1,4 +1,4 @@
-/* Encode UTF-8 string to base64 — used by webview inject scripts (insert-text, hover-translate-apply) */
+/* Encode UTF-8 string to base64 — used by webview inject scripts (insert-text) */
 function encodeBase64Utf8(str) {
   const bytes = new TextEncoder().encode(String(str || ''));
   let binary = '';
@@ -28,8 +28,6 @@ const state = {
   dockBadgeTimer: null,
   autoUpdateUnsubscribe: null,
   hostEscapeUnsubscribe: null,
-  translateTargetLang: 'RU',
-  translateSourceLang: 'AUTO',
   accountMenuAccountId: '',
   accountMenuDraftIconPath: '',
   accountMenuDraftColor: '',
@@ -45,27 +43,10 @@ const state = {
   startupHubTimeoutId: null,
   weatherGeoCache: new Map(),
   weatherRefreshTimer: null,
-  hoverTranslatePending: new Set(),
   unreadPollBusy: false,
   zoomByAccount: new Map(),
   _hubClockTimer: null,
 };
-
-const HOVER_TRANSLATE_LANG_OPTIONS = [
-  { value: 'RU', label: 'Русский' },
-  { value: 'DE', label: 'Немецкий' },
-  { value: 'EN-US', label: 'Английский (US)' },
-  { value: 'EN-GB', label: 'Английский (UK)' },
-  { value: 'UK', label: 'Украинский' },
-  { value: 'FR', label: 'Французский' },
-  { value: 'ES', label: 'Испанский' },
-  { value: 'IT', label: 'Итальянский' },
-  { value: 'NL', label: 'Нидерландский' },
-  { value: 'PL', label: 'Польский' },
-  { value: 'PT-PT', label: 'Португальский' },
-  { value: 'TR', label: 'Турецкий' },
-];
-window._waDeckLangOptions = HOVER_TRANSLATE_LANG_OPTIONS;
 
 const els = {
   appRoot: document.getElementById('app-root'),
@@ -103,16 +84,7 @@ const els = {
   themeToggle: document.getElementById('theme-toggle'),
   panelStatus: document.getElementById('panel-status'),
 
-  translateProviderDeepl: document.getElementById('translate-provider-deepl'),
-  translateProviderLibre: document.getElementById('translate-provider-libre'),
-  deeplApiKey: document.getElementById('deepl-api-key'),
-  toggleDeeplApiKey: document.getElementById('toggle-deepl-api-key'),
-  libreTranslateUrl: document.getElementById('libretranslate-url'),
-  libreTranslateApiKey: document.getElementById('libretranslate-api-key'),
-  toggleLibreTranslateApiKey: document.getElementById('toggle-libretranslate-api-key'),
   saveSettings: document.getElementById('save-settings'),
-  testTranslateApiDeepl: document.getElementById('test-translate-api-deepl'),
-  testTranslateApiLibre: document.getElementById('test-translate-api-libre'),
   templateSelect: document.getElementById('template-select'),
   templateSearch: document.getElementById('template-search'),
   templateSearchRow: document.getElementById('template-search-row'),
@@ -154,17 +126,6 @@ const els = {
   accountMenuFreeze: document.getElementById('account-menu-freeze'),
   accountMenuDelete: document.getElementById('account-menu-delete'),
   sidebarResizeHandle: document.getElementById('sidebar-resize-handle'),
-
-  translateModal: document.getElementById('translate-modal'),
-  translateSourceLang: document.getElementById('translate-source-lang'),
-  translateTargetLang: document.getElementById('translate-target-lang'),
-  translateInput: document.getElementById('translate-input'),
-  translateOutput: document.getElementById('translate-output'),
-  fillSelectedText: document.getElementById('fill-selected-text'),
-  doTranslate: document.getElementById('do-translate'),
-  copyTranslate: document.getElementById('copy-translate'),
-  clearTranslate: document.getElementById('clear-translate'),
-  closeTranslateModal: document.getElementById('close-translate-modal'),
 
   updateAvailableModal: document.getElementById('update-available-modal'),
   updateVersionText: document.getElementById('update-version-text'),
@@ -1310,8 +1271,6 @@ function ensureWebview(account) {
         .executeJavaScript(bridgeScript(), true)
         .catch((e) => console.warn('[bridge]', e));
 
-      webview.executeJavaScript(hoverTranslateBridgeScript(state.translateTargetLang), true).catch((e) => console.warn('[hover-bridge]', e));
-
       if (typeof youtubeDetectScript === 'function') {
         webview.executeJavaScript(youtubeDetectScript(), true).catch((e) => console.warn('[youtube-detect]', e));
       }
@@ -1345,8 +1304,6 @@ function ensureWebview(account) {
       .executeJavaScript(bridgeScript(), true)
       .catch((e) => console.warn('[bridge]', e));
 
-    webview.executeJavaScript(hoverTranslateBridgeScript(state.translateTargetLang), true).catch((e) => console.warn('[hover-bridge]', e));
-
     if (typeof crmHoverBridgeScript === 'function') {
       webview.executeJavaScript(crmHoverBridgeScript(), true).catch((e) => console.warn('[crm-hover]', e));
     }
@@ -1364,10 +1321,6 @@ function ensureWebview(account) {
   if (isWhatsApp) {
     onConsoleMessage = (event) => {
       const message = String(event?.message || '');
-      if (message.startsWith('__WADECK_HOVER_TRANSLATE__')) {
-        WaDeckTranslateModule.handleHoverTranslateMessage(account.id, message).catch(console.error);
-        return;
-      }
       if (message.startsWith('__WADECK_YOUTUBE_PLAY__')) {
         try {
           const payload = JSON.parse(message.slice('__WADECK_YOUTUBE_PLAY__'.length));
@@ -1455,7 +1408,6 @@ function handleEscapeUiReset() {
   WaDeckWeatherModule.closeWeatherPopover();
   WaDeckScheduleModule.closeChatPicker();
   closeSettingsPanel();
-  WaDeckTranslateModule.closeTranslateModal();
   if (els.releaseNotesModal && !els.releaseNotesModal.classList.contains('hidden')) {
     WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(console.error);
   }
@@ -1509,26 +1461,11 @@ function _setActiveAccountInner(accountId) {
   WaDeckScheduleModule.renderScheduled().catch(console.error);
 }
 
-function syncTranslateProviderVisibility() {
-  const provider = WaDeckTranslateModule.getSelectedTranslateProvider();
-  const deeplBlock = document.getElementById('deepl-settings-block');
-  const libreBlock = document.getElementById('libre-settings-block');
-  if (deeplBlock) deeplBlock.classList.toggle('hidden', provider !== 'deepl');
-  if (libreBlock) libreBlock.classList.toggle('hidden', provider !== 'libre');
-}
-
 function applySettingsToForm() {
   state.settings.uiTheme = normalizeTheme(state.settings.uiTheme);
   state.settings.weatherCity = WaDeckWeatherModule.normalizeWeatherCity(state.settings.weatherCity);
   state.settings.weatherUnit = WaDeckWeatherModule.normalizeWeatherUnit(state.settings.weatherUnit);
   applyTheme(state.settings.uiTheme);
-  WaDeckTranslateModule.setSelectedTranslateProvider(state.settings.translateProvider || 'deepl');
-  syncTranslateProviderVisibility();
-  els.deeplApiKey.value = state.settings.deeplApiKey || '';
-  els.libreTranslateUrl.value = state.settings.libreTranslateUrl || 'https://libretranslate.com/translate';
-  els.libreTranslateApiKey.value = state.settings.libreTranslateApiKey || '';
-  resetPasswordFieldVisibility(els.deeplApiKey, els.toggleDeeplApiKey);
-  resetPasswordFieldVisibility(els.libreTranslateApiKey, els.toggleLibreTranslateApiKey);
   if (els.weatherCityInput) {
     els.weatherCityInput.value = state.settings.weatherCity;
   }
@@ -1537,7 +1474,6 @@ function applySettingsToForm() {
     unit: state.settings.weatherUnit,
     loading: false,
   });
-  WaDeckTranslateModule.syncHoverTranslateTargetLang();
   renderClocksSettings();
 }
 
@@ -1902,10 +1838,6 @@ async function saveSettings() {
   els.saveSettings?.classList.add('is-saving');
   const payload = {
     uiTheme: normalizeTheme(state.settings?.uiTheme || 'dark'),
-    translateProvider: WaDeckTranslateModule.getSelectedTranslateProvider(),
-    deeplApiKey: els.deeplApiKey.value.trim(),
-    libreTranslateUrl: els.libreTranslateUrl.value.trim(),
-    libreTranslateApiKey: els.libreTranslateApiKey.value.trim(),
     weatherCity: WaDeckWeatherModule.normalizeWeatherCity(state.settings?.weatherCity),
     weatherUnit: WaDeckWeatherModule.normalizeWeatherUnit(state.settings?.weatherUnit),
     lastSeenReleaseNotesVersion: String(state.settings?.lastSeenReleaseNotesVersion || '').trim(),
@@ -2260,11 +2192,6 @@ function bindActions() {
     const isInput = tag === 'input' || tag === 'textarea' || tag === 'select';
     if (isInput) return;
 
-    if (event.key === 't' && !event.shiftKey) {
-      event.preventDefault();
-      WaDeckTranslateModule.openTranslateModal();
-      return;
-    }
     if (event.key === ',' || event.key === '\u0431') {
       event.preventDefault();
       if (state.panelHidden) { openSettingsPanel(); } else { closeSettingsPanel(); }
@@ -2301,30 +2228,6 @@ function bindActions() {
   });
 
   els.saveSettings.addEventListener('click', () => saveSettings().catch(console.error));
-  els.testTranslateApiDeepl.addEventListener('click', () => {
-    runWithBusyButton(els.testTranslateApiDeepl, () => WaDeckTranslateModule.testTranslateApi('deepl'), {
-      text: 'Проверка...',
-      title: 'Проверка DeepL API',
-    }).catch(console.error);
-  });
-  els.testTranslateApiLibre.addEventListener('click', () => {
-    runWithBusyButton(els.testTranslateApiLibre, () => WaDeckTranslateModule.testTranslateApi('libre'), {
-      text: 'Проверка...',
-      title: 'Проверка LibreTranslate API',
-    }).catch(console.error);
-  });
-  bindPasswordToggle(els.deeplApiKey, els.toggleDeeplApiKey);
-  bindPasswordToggle(els.libreTranslateApiKey, els.toggleLibreTranslateApiKey);
-  els.translateProviderDeepl?.addEventListener('change', syncTranslateProviderVisibility);
-  els.translateProviderLibre?.addEventListener('change', syncTranslateProviderVisibility);
-  els.fillSelectedText.addEventListener('click', () => WaDeckTranslateModule.fillTranslateInputFromSelection().catch(console.error));
-  els.doTranslate.addEventListener('click', () => WaDeckTranslateModule.doModalTranslate().catch(console.error));
-  els.copyTranslate.addEventListener('click', () => WaDeckTranslateModule.copyTranslateOutput().catch(console.error));
-  els.clearTranslate.addEventListener('click', () => {
-    els.translateInput.value = '';
-    els.translateOutput.value = '';
-  });
-  els.closeTranslateModal.addEventListener('click', WaDeckTranslateModule.closeTranslateModal);
   els.closeReleaseNotes?.addEventListener('click', () => WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(console.error));
 
   /* Update available modal buttons */
@@ -2351,15 +2254,6 @@ function bindActions() {
     }
     updateSidebarScrollControls();
   });
-  els.translateTargetLang.addEventListener('change', () => {
-    state.translateTargetLang = WaDeckTranslateModule.normalizeTranslateTargetLang(els.translateTargetLang.value || 'RU');
-    WaDeckTranslateModule.syncHoverTranslateTargetLang();
-  });
-  els.translateSourceLang.addEventListener('change', () => {
-    state.translateSourceLang = String(els.translateSourceLang.value || 'AUTO').toUpperCase();
-  });
-
-
   els.pickAttachments.addEventListener('click', () => WaDeckScheduleModule.pickAttachments().catch(console.error));
   els.clearAttachments.addEventListener('click', WaDeckScheduleModule.clearAttachments);
   els.openChatPicker.addEventListener('click', () => WaDeckScheduleModule.openChatPicker().catch(console.error));
@@ -2493,7 +2387,6 @@ async function init() {
   WaDeckAutoUpdateModule.init(moduleCtx);
   WaDeckUnreadModule.init({ ...moduleCtx, renderAccounts, isWebviewReady, safeExecuteInWebview, updateHubDashboard });
   WaDeckCrmModule.init({ ...moduleCtx, activeAccount, selectedWebview });
-  WaDeckTranslateModule.init({ ...moduleCtx, runWithBusyButton, safeExecuteInWebview, selectedWebview });
   WaDeckScheduleModule.init({ ...moduleCtx, trimMapSize, runWithBusyButton, accountById, ensureWebview, isWebviewReady, sendWebviewInput, delay, formatDateTime, nextSendAtLocal });
   if (typeof window.waDeck.onAutoUpdateStatus === 'function' && !state.autoUpdateUnsubscribe) {
     state.autoUpdateUnsubscribe = window.waDeck.onAutoUpdateStatus((payload) => {
@@ -2511,10 +2404,6 @@ async function init() {
   state.accounts = Array.isArray(boot.accounts) ? boot.accounts : [];
   state.settings = {
     uiTheme: normalizeTheme(boot.settings?.uiTheme || 'dark'),
-    translateProvider: String(boot.settings?.translateProvider || 'deepl').toLowerCase() === 'libre' ? 'libre' : 'deepl',
-    deeplApiKey: String(boot.settings?.deeplApiKey || ''),
-    libreTranslateApiKey: String(boot.settings?.libreTranslateApiKey || boot.settings?.googleTranslateApiKey || ''),
-    libreTranslateUrl: String(boot.settings?.libreTranslateUrl || 'https://libretranslate.com/translate'),
     weatherCity: WaDeckWeatherModule.normalizeWeatherCity(boot.settings?.weatherCity || 'Moscow'),
     weatherUnit: WaDeckWeatherModule.normalizeWeatherUnit(boot.settings?.weatherUnit || 'celsius'),
     lastSeenReleaseNotesVersion: String(boot.settings?.lastSeenReleaseNotesVersion || ''),
@@ -2551,10 +2440,6 @@ async function init() {
   applySettingsToForm();
   WaDeckScheduleModule.renderAttachmentsDraft();
   WaDeckScheduleModule.renderScheduleTarget();
-  els.translateTargetLang.value = state.translateTargetLang;
-  els.translateSourceLang.value = state.translateSourceLang;
-  els.translateInput.value = '';
-  els.translateOutput.value = '';
   els.crmContactName.value = '';
   els.crmFullName.value = '';
   els.crmCountryCity.value = '';

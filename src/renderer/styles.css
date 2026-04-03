@@ -1567,11 +1567,7 @@ textarea[readonly] {
   gap: 7px;
 }
 
-.translate-settings-top {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-}
+
 
 .btn-save-settings {
   width: 34px;

@@ -1,6 +1,7 @@
 (function setupAutoUpdateModule() {
   const RELEASE_NOTES = {
     '0.4.5': [
+      'Удалён встроенный переводчик (DeepL/LibreTranslate) — упрощение интерфейса и снижение нагрузки.',
       'Windows: исправлен сломанный layout sidebar (карточки по центру) — защита от NaN в --sidebar-width.',
       'Windows: отложенная отправка работает при Режиме эффективности — автопробуждение webview.',
       'Авто-сброс повреждённого sidebar width при запуске вместо ручного удаления настроек.',
