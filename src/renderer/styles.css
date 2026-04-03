@@ -3001,6 +3001,22 @@ html[data-theme='light'] .color-dot.active {
   font-size: 11px;
   padding: 4px 12px;
 }
+.hub-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.hub-action-btn svg {
+  flex-shrink: 0;
+}
+.hub-action-wa:hover {
+  border-color: rgba(37, 211, 102, 0.4);
+  color: #25D366;
+}
+.hub-action-tg:hover {
+  border-color: rgba(42, 171, 238, 0.4);
+  color: #2AABEE;
+}
 
 /* ── Hub World Clocks ── */
 .hub-clocks {

@@ -149,6 +149,15 @@
       schedBtn.title = items.length > 0 ? `Отложенная отправка (${items.length})` : 'Отложенная отправка';
     }
 
+    /* Update scheduled-list-card summary with count */
+    const listCard = document.getElementById('scheduled-list-card');
+    if (listCard) {
+      const summary = listCard.querySelector('summary');
+      if (summary) summary.textContent = items.length > 0
+        ? `Запланированные сообщения (${items.length})`
+        : 'Запланированные сообщения';
+    }
+
     if (!items.length) {
       const empty = document.createElement('div');
       empty.className = 'scheduled-item scheduled-meta';
