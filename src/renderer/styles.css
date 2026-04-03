@@ -248,7 +248,19 @@ html[data-theme='light'] .sidebar-resize-handle.active {
 
 .account-item.active {
   border-radius: 12px;
-  box-shadow: 0 0 0 2.5px rgba(61, 214, 140, 0.8), 0 0 10px rgba(61, 214, 140, 0.35);
+  transform: scale(1.08);
+  box-shadow: 0 0 12px rgba(61, 214, 140, 0.4);
+}
+.account-item.active::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 4px;
+  bottom: 4px;
+  width: 3.5px;
+  border-radius: 2px;
+  background: #fff;
+  z-index: 2;
 }
 
 .account-item.frozen {
@@ -383,6 +395,13 @@ html[data-theme='light'] .sidebar-resize-handle.active {
 .toolbar-left {
   flex-wrap: nowrap;
   overflow: visible;
+}
+/* Thin separator between toolbar icon groups */
+.toolbar-left .btn-crm,
+.toolbar-left .btn-template {
+  margin-left: 4px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
 }
 
 .toolbar-right {
@@ -1980,7 +1999,10 @@ textarea[readonly] {
   margin-bottom: 8px;
   padding-bottom: 6px;
   border-bottom: 1px solid rgba(43, 49, 59, 0.5);
+  cursor: grab;
+  user-select: none;
 }
+.crm-hover-header:active { cursor: grabbing; }
 
 .crm-hover-contact {
   font: 600 14px/1.3 'Segoe UI', system-ui, sans-serif;
@@ -2064,7 +2086,10 @@ html[data-theme='light'] .account-item {
 }
 
 html[data-theme='light'] .account-item.active {
-  box-shadow: 0 0 0 2.5px rgba(42, 180, 110, 0.75), 0 0 10px rgba(42, 180, 110, 0.25);
+  box-shadow: 0 0 12px rgba(42, 180, 110, 0.3);
+}
+html[data-theme='light'] .account-item.active::before {
+  background: #1a7a4c;
 }
 
 html[data-theme='light'] .account-unread {
@@ -3594,6 +3619,19 @@ textarea:focus {
   font-weight: 700;
   color: var(--text, #e4e8f1);
   margin: 0;
+}
+.tq-context {
+  font-size: 11px;
+  color: rgba(228, 232, 241, 0.5);
+  margin-left: 8px;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+.tq-context.no-chat {
+  color: rgba(249, 115, 115, 0.7);
 }
 
 .tq-header .btn-close-round {

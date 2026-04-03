@@ -426,6 +426,29 @@ function showCrmHoverPopover(contactName, record, webview, rect) {
   popover.style.left = left + 'px';
   popover.style.top = top + 'px';
   _crmHoverVisible = true;
+
+  /* Make popover draggable by header */
+  if (!popover._dragBound) {
+    popover._dragBound = true;
+    const header = popover.querySelector('.crm-hover-header');
+    if (header) {
+      let dragging = false, startX = 0, startY = 0, origLeft = 0, origTop = 0;
+      header.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.crm-hover-badge')) return; // don't drag on CRM badge click
+        dragging = true;
+        startX = e.clientX; startY = e.clientY;
+        origLeft = parseInt(popover.style.left, 10) || 0;
+        origTop = parseInt(popover.style.top, 10) || 0;
+        e.preventDefault();
+      });
+      document.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        popover.style.left = (origLeft + e.clientX - startX) + 'px';
+        popover.style.top = (origTop + e.clientY - startY) + 'px';
+      });
+      document.addEventListener('mouseup', () => { dragging = false; });
+    }
+  }
 }
 
 function escapeHtml(text) {
@@ -2594,9 +2617,17 @@ async function init() {
   }
 
   async function insertAndClose(tpl) {
-    closePalette();
     const text = String(tpl.text || '').trim();
     if (!text) return;
+
+    /* Block insert if no active WhatsApp/Telegram account */
+    const account = state.accounts.find((a) => a.id === state.activeAccountId);
+    if (!account) {
+      setStatus('Шаблон: выберите аккаунт и откройте чат');
+      return; /* keep palette open */
+    }
+
+    closePalette();
     const result = await insertTextIntoActiveChat(text);
     if (result?.ok) {
       setStatus(`Шаблон «${truncate(tpl.title, 20)}» вставлен`);
@@ -2610,6 +2641,19 @@ async function init() {
     searchInput.value = '';
     renderList('');
     searchInput.focus();
+
+    /* Update context indicator */
+    const ctxEl = document.getElementById('tq-context');
+    if (ctxEl) {
+      const account = state.accounts.find((a) => a.id === state.activeAccountId);
+      if (account) {
+        ctxEl.textContent = '→ ' + account.name;
+        ctxEl.classList.remove('no-chat');
+      } else {
+        ctxEl.textContent = 'нет активного чата';
+        ctxEl.classList.add('no-chat');
+      }
+    }
   }
 
   function closePalette() {
