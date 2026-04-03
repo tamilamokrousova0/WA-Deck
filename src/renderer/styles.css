@@ -3513,6 +3513,26 @@ textarea:focus {
   100% { transform: scale(1); }
 }
 
+.btn-schedule:hover .icon-schedule {
+  animation: schedulePulse 0.5s ease;
+}
+@keyframes schedulePulse {
+  0%   { transform: rotate(0deg) scale(1); }
+  30%  { transform: rotate(12deg) scale(1.1); }
+  60%  { transform: rotate(-6deg) scale(1.05); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+.btn-schedule.has-pending {
+  color: var(--green);
+}
+.btn-schedule.has-pending .icon-schedule {
+  animation: scheduleActive 2s ease-in-out infinite;
+}
+@keyframes scheduleActive {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.5; }
+}
+
 /* ── Template Quick Access Palette ── */
 .tq-overlay {
   position: fixed;

@@ -184,6 +184,7 @@ const els = {
   tqEmpty: document.getElementById('tq-empty'),
   tqClose: document.getElementById('tq-close'),
   openTemplateQuick: document.getElementById('open-template-quick'),
+  openScheduleToolbar: document.getElementById('open-schedule-toolbar'),
 };
 
 let templateController = null;
@@ -337,19 +338,6 @@ function playBrandClickAnimation() {
   void els.brandHub.offsetWidth;
   els.brandHub.classList.add('is-clicked');
   setTimeout(() => els.brandHub?.classList.remove('is-clicked'), 750);
-}
-
-/* ── YouTube Mini-Player (via BrowserWindow) ── */
-function openYoutubeMiniPlayer(videoId) {
-  const safeId = String(videoId || '').replace(/[^a-zA-Z0-9_-]/g, '');
-  if (!safeId) return;
-  window.waDeck.openYoutubePlayer({ videoId: safeId }).catch(() => {
-    setStatus('Не удалось открыть YouTube плеер');
-  });
-}
-
-function closeYoutubeMiniPlayer() {
-  window.waDeck.closeYoutubePlayer().catch(() => {});
 }
 
 /* ── CRM Hover Popover (read-only on contact hover) ── */
@@ -1271,10 +1259,6 @@ function ensureWebview(account) {
         .executeJavaScript(bridgeScript(), true)
         .catch((e) => console.warn('[bridge]', e));
 
-      if (typeof youtubeDetectScript === 'function') {
-        webview.executeJavaScript(youtubeDetectScript(), true).catch((e) => console.warn('[youtube-detect]', e));
-      }
-
       if (typeof crmHoverBridgeScript === 'function') {
         webview.executeJavaScript(crmHoverBridgeScript(), true).catch((e) => console.warn('[crm-hover]', e));
       }
@@ -1321,13 +1305,6 @@ function ensureWebview(account) {
   if (isWhatsApp) {
     onConsoleMessage = (event) => {
       const message = String(event?.message || '');
-      if (message.startsWith('__WADECK_YOUTUBE_PLAY__')) {
-        try {
-          const payload = JSON.parse(message.slice('__WADECK_YOUTUBE_PLAY__'.length));
-          openYoutubeMiniPlayer(payload.videoId);
-        } catch { /* ignore parse errors */ }
-        return;
-      }
       if (message.startsWith('__WADECK_CRM_HOVER__')) {
         try {
           const payload = JSON.parse(message.slice('__WADECK_CRM_HOVER__'.length));
@@ -1413,7 +1390,6 @@ function handleEscapeUiReset() {
   }
   WaDeckCrmModule.closeCrmModal();
   closeAccountMenu();
-  closeYoutubeMiniPlayer();
 }
 
 let _switchingAccount = false;
@@ -2257,6 +2233,23 @@ function bindActions() {
   els.pickAttachments.addEventListener('click', () => WaDeckScheduleModule.pickAttachments().catch(console.error));
   els.clearAttachments.addEventListener('click', WaDeckScheduleModule.clearAttachments);
   els.openChatPicker.addEventListener('click', () => WaDeckScheduleModule.openChatPicker().catch(console.error));
+
+  /* Toolbar schedule button — open panel and scroll to schedule card */
+  if (els.openScheduleToolbar) {
+    els.openScheduleToolbar.addEventListener('click', () => {
+      const panel = document.querySelector('.panel');
+      if (panel?.classList.contains('hidden')) {
+        document.getElementById('toggle-panel')?.click();
+      }
+      setTimeout(() => {
+        const card = document.getElementById('schedule-settings-card');
+        if (card) {
+          card.open = true;
+          card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 100);
+    });
+  }
   els.pickerAccount.addEventListener('change', () => WaDeckScheduleModule.refreshPickerChats(true).catch(console.error));
   els.pickerRefresh.addEventListener('click', () => WaDeckScheduleModule.refreshPickerChats(true).catch(console.error));
   els.closeChatPicker?.addEventListener('click', WaDeckScheduleModule.closeChatPicker);

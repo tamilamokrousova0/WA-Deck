@@ -25,8 +25,6 @@ contextBridge.exposeInMainWorld('waDeck', {
   openDataDir: () => ipcRenderer.invoke('open-data-dir'),
   getClipboardText: () => ipcRenderer.invoke('get-clipboard-text'),
   setClipboardText: (text) => ipcRenderer.invoke('set-clipboard-text', text),
-  openYoutubePlayer: (payload) => ipcRenderer.invoke('open-youtube-player', payload),
-  closeYoutubePlayer: () => ipcRenderer.invoke('close-youtube-player'),
   setDockBadge: (payload) => ipcRenderer.invoke('set-dock-badge', payload),
   checkForUpdates: (payload) => ipcRenderer.invoke('check-for-updates', payload),
   installDownloadedUpdate: () => ipcRenderer.invoke('install-downloaded-update'),

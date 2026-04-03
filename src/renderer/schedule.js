@@ -142,6 +142,13 @@
     const response = await window.waDeck.listScheduled({ limit: 120 });
     const items = Array.isArray(response?.items) ? response.items : [];
 
+    /* Update toolbar schedule button indicator */
+    const schedBtn = document.getElementById('open-schedule-toolbar');
+    if (schedBtn) {
+      schedBtn.classList.toggle('has-pending', items.length > 0);
+      schedBtn.title = items.length > 0 ? `Отложенная отправка (${items.length})` : 'Отложенная отправка';
+    }
+
     if (!items.length) {
       const empty = document.createElement('div');
       empty.className = 'scheduled-item scheduled-meta';

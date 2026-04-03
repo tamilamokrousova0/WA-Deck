@@ -9,7 +9,7 @@ const { pathToFileURL } = require('url');
 
 const APP_ID = 'com.local.wadeck';
 const APP_TITLE = 'WA Deck';
-const FALLBACK_CHROME_VERSION = '136.0.0.0';
+const FALLBACK_CHROME_VERSION = '146.0.7680.166';
 const APP_ICON_PNG_PATH = path.join(__dirname, '..', 'assets', 'icon', 'wadeck-icon-512.png');
 const RELEASES_LATEST_URL = 'https://github.com/tamilamokrousova0/WA-Deck/releases/latest';
 
@@ -1463,79 +1463,6 @@ function registerIpc() {
 
   ipcMain.handle('set-clipboard-text', async (_event, text) => {
     clipboard.writeText(String(text || ''));
-    return { ok: true };
-  });
-
-  /* ── YouTube Mini-Player Window ── */
-  let ytPlayerWindow = null;
-
-  function loadYoutubeVideo(videoId) {
-    if (!ytPlayerWindow || ytPlayerWindow.isDestroyed()) return;
-    ytPlayerWindow.loadURL(`https://www.youtube.com/watch?v=${videoId}`);
-  }
-
-  ipcMain.handle('open-youtube-player', async (_event, payload) => {
-    const videoId = String(payload?.videoId || '').replace(/[^a-zA-Z0-9_-]/g, '');
-    if (!videoId) return { ok: false, error: 'invalid_video_id' };
-
-    if (ytPlayerWindow && !ytPlayerWindow.isDestroyed()) {
-      loadYoutubeVideo(videoId);
-      ytPlayerWindow.show();
-      ytPlayerWindow.focus();
-      return { ok: true };
-    }
-
-    const isMac = process.platform === 'darwin';
-    const isWin = process.platform === 'win32';
-
-    ytPlayerWindow = new BrowserWindow({
-      width: 480,
-      height: 320,
-      minWidth: 320,
-      minHeight: 200,
-      title: 'YouTube — WA Deck',
-      alwaysOnTop: true,
-      frame: isWin,
-      titleBarStyle: isMac ? 'hidden' : 'default',
-      titleBarOverlay: isMac ? {
-        color: '#0f1720',
-        symbolColor: '#8ea8c8',
-        height: 28,
-      } : isWin ? {
-        color: '#0f1720',
-        symbolColor: '#8ea8c8',
-        height: 32,
-      } : false,
-      backgroundColor: '#000000',
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    });
-
-    // Allow YouTube embeds to navigate within the window
-    ytPlayerWindow.webContents.setWindowOpenHandler(({ url }) => {
-      if (url.includes('youtube.com') || url.includes('youtu.be')) {
-        return { action: 'deny' };
-      }
-      shell.openExternal(url).catch(() => {});
-      return { action: 'deny' };
-    });
-
-    loadYoutubeVideo(videoId);
-
-    ytPlayerWindow.on('closed', () => {
-      ytPlayerWindow = null;
-    });
-
-    return { ok: true };
-  });
-
-  ipcMain.handle('close-youtube-player', async () => {
-    if (ytPlayerWindow && !ytPlayerWindow.isDestroyed()) {
-      ytPlayerWindow.close();
-      ytPlayerWindow = null;
-    }
     return { ok: true };
   });
 
