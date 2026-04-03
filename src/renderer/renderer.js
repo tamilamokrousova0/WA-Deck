@@ -2430,12 +2430,17 @@ function bindActions() {
     const appRoot = document.getElementById('app-root');
     let resizing = false;
 
-    // Restore saved width
+    // Restore saved width (with NaN protection — corrupted value breaks CSS grid)
     const savedWidth = localStorage.getItem('sidebarWidth');
     if (savedWidth) {
-      const w = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Number(savedWidth)));
-      appRoot.style.setProperty('--sidebar-width', w + 'px');
-      els.sidebarResizeHandle.style.left = w + 'px';
+      const parsed = Number(savedWidth);
+      if (Number.isFinite(parsed)) {
+        const w = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, parsed));
+        appRoot.style.setProperty('--sidebar-width', w + 'px');
+        els.sidebarResizeHandle.style.left = w + 'px';
+      } else {
+        localStorage.removeItem('sidebarWidth');
+      }
     }
 
     els.sidebarResizeHandle.addEventListener('mousedown', (e) => {
@@ -2459,13 +2464,30 @@ function bindActions() {
       els.sidebarResizeHandle.classList.remove('active');
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      const currentWidth = getComputedStyle(appRoot).getPropertyValue('--sidebar-width').trim();
-      localStorage.setItem('sidebarWidth', parseInt(currentWidth, 10));
+      const currentWidth = parseInt(getComputedStyle(appRoot).getPropertyValue('--sidebar-width'), 10);
+      if (Number.isFinite(currentWidth) && currentWidth >= SIDEBAR_MIN && currentWidth <= SIDEBAR_MAX) {
+        localStorage.setItem('sidebarWidth', currentWidth);
+      }
     });
   }
 }
 
 async function init() {
+  /* Guard: detect broken CSS grid from corrupted --sidebar-width (NaNpx etc.) */
+  const appRoot = document.getElementById('app-root');
+  if (appRoot) {
+    const sidebarEl = appRoot.querySelector('.sidebar');
+    if (sidebarEl) {
+      const sidebarRect = sidebarEl.getBoundingClientRect();
+      const appRect = appRoot.getBoundingClientRect();
+      if (sidebarRect.width < 40 || sidebarRect.width > 300 || sidebarRect.width >= appRect.width * 0.8) {
+        console.warn('[layout] Corrupted sidebar width detected, resetting to default');
+        appRoot.style.removeProperty('--sidebar-width');
+        localStorage.removeItem('sidebarWidth');
+      }
+    }
+  }
+
   const moduleCtx = { state, els, setStatus, trimMapSize, runWithBusyButton };
   WaDeckWeatherModule.init(moduleCtx);
   WaDeckAutoUpdateModule.init(moduleCtx);
