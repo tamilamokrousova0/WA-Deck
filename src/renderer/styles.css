@@ -397,11 +397,20 @@ html[data-theme='light'] .sidebar-resize-handle.active {
   overflow: visible;
 }
 /* Thin separator between toolbar icon groups */
-.toolbar-left .btn-crm,
-.toolbar-left .btn-template {
-  margin-left: 4px;
-  padding-left: 8px;
-  border-left: 1px solid var(--line);
+.toolbar-left .btn-crm::before,
+.toolbar-left .btn-template::before {
+  content: '';
+  display: inline-block;
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.15);
+  margin-right: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+html[data-theme='light'] .toolbar-left .btn-crm::before,
+html[data-theme='light'] .toolbar-left .btn-template::before {
+  background: rgba(0, 0, 0, 0.12);
 }
 
 .toolbar-right {

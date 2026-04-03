@@ -368,7 +368,7 @@ function getCrmHoverPopover() {
       if (_crmHoverTimer) { clearTimeout(_crmHoverTimer); _crmHoverTimer = null; }
     });
     el.addEventListener('mouseleave', () => {
-      _crmHoverTimer = setTimeout(() => hideCrmHoverPopover(), 300);
+      _crmHoverTimer = setTimeout(() => hideCrmHoverPopover(), 600);
     });
     // Capture wheel events so scrolling works over webview
     el.addEventListener('wheel', (e) => {
@@ -382,7 +382,10 @@ function getCrmHoverPopover() {
 
 function hideCrmHoverPopover() {
   const el = document.getElementById('crm-hover-popover');
-  if (el) el.classList.add('hidden');
+  if (!el) return;
+  /* Don't hide if mouse is over the popover or user is dragging it */
+  if (el.matches(':hover') || el._dragging) return;
+  el.classList.add('hidden');
   _crmHoverVisible = false;
 }
 
@@ -434,11 +437,13 @@ function showCrmHoverPopover(contactName, record, webview, rect) {
     if (header) {
       let dragging = false, startX = 0, startY = 0, origLeft = 0, origTop = 0;
       header.addEventListener('mousedown', (e) => {
-        if (e.target.closest('.crm-hover-badge')) return; // don't drag on CRM badge click
+        if (e.target.closest('.crm-hover-badge')) return;
         dragging = true;
+        popover._dragging = true;
         startX = e.clientX; startY = e.clientY;
         origLeft = parseInt(popover.style.left, 10) || 0;
         origTop = parseInt(popover.style.top, 10) || 0;
+        if (_crmHoverTimer) { clearTimeout(_crmHoverTimer); _crmHoverTimer = null; }
         e.preventDefault();
       });
       document.addEventListener('mousemove', (e) => {
@@ -446,7 +451,7 @@ function showCrmHoverPopover(contactName, record, webview, rect) {
         popover.style.left = (origLeft + e.clientX - startX) + 'px';
         popover.style.top = (origTop + e.clientY - startY) + 'px';
       });
-      document.addEventListener('mouseup', () => { dragging = false; });
+      document.addEventListener('mouseup', () => { dragging = false; popover._dragging = false; });
     }
   }
 }
@@ -459,7 +464,7 @@ async function handleCrmHover(account, webview, payload) {
   if (payload.type === 'hide') {
     _crmHoverShowName = '';
     if (_crmHoverTimer) clearTimeout(_crmHoverTimer);
-    _crmHoverTimer = setTimeout(() => hideCrmHoverPopover(), 150);
+    _crmHoverTimer = setTimeout(() => hideCrmHoverPopover(), 600);
     return;
   }
   if (payload.type !== 'show') return;
