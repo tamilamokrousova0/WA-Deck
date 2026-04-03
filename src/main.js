@@ -889,6 +889,14 @@ async function cancelScheduled(id) {
   return { ok: true };
 }
 
+/* Security: only allow http/https URLs in shell.openExternal */
+function safeOpenExternal(url) {
+  const str = String(url || '').trim();
+  if (/^https?:\/\//i.test(str)) {
+    shell.openExternal(str).catch(() => {});
+  }
+}
+
 function addSingleInstanceGuard() {
   const lock = app.requestSingleInstanceLock();
   if (!lock) {
@@ -919,6 +927,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
       webviewTag: true,
     },
   });
@@ -982,6 +991,17 @@ function setupWebviewGuards() {
         }
       }
     });
+    /* Webview crash recovery — notify renderer to show error and allow reload */
+    contents.on('render-process-gone', (_event, details) => {
+      console.error('[webview] render-process-gone:', details?.reason, 'exitCode:', details?.exitCode);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('webview-crashed', {
+          reason: String(details?.reason || 'unknown'),
+          exitCode: details?.exitCode || 0,
+        });
+      }
+    });
+
     contents.on('context-menu', (_event, params) => {
       const template = [];
       const selectionText = String(params?.selectionText || '').trim();
@@ -1020,7 +1040,7 @@ function setupWebviewGuards() {
         if (srcURL && !srcURL.startsWith('blob:') && !srcURL.startsWith('data:')) {
           template.push({
             label: 'Открыть изображение',
-            click: () => shell.openExternal(srcURL).catch(() => {}),
+            click: () => safeOpenExternal(srcURL),
           });
         }
       }
@@ -1029,7 +1049,7 @@ function setupWebviewGuards() {
         template.push(
           {
             label: 'Открыть ссылку',
-            click: () => shell.openExternal(linkURL).catch(() => {}),
+            click: () => safeOpenExternal(linkURL),
           },
           {
             label: 'Копировать ссылку',
@@ -1099,7 +1119,7 @@ async function checkForUpdatesNow(source = 'manual') {
     const message = 'Для macOS эта сборка без Developer ID. Обновите вручную через Releases.';
     sendAutoUpdateStatus({ status: 'error', source, message });
     if (String(source || '').startsWith('manual')) {
-      shell.openExternal(RELEASES_LATEST_URL).catch(() => {});
+      safeOpenExternal(RELEASES_LATEST_URL);
     }
     return { ok: false, error: 'mac_signature_required', source, message };
   }
@@ -1503,15 +1523,34 @@ async function bootstrap() {
   setupAutoUpdater();
 }
 
-// Windows: prevent OS from suspending webview renderer processes (Efficiency Mode)
-if (process.platform === 'win32') {
-  app.commandLine.appendSwitch('disable-renderer-backgrounding');
-}
+// Note: disable-renderer-backgrounding removed for performance (30 processes = extreme CPU).
+// Scheduled sends use targeted webview.reload() wake-up when needed (schedule.js).
+
+/* Global error handlers — prevent silent crashes and data loss */
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] uncaughtException:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[UNHANDLED] promise rejection:', reason);
+});
 
 if (addSingleInstanceGuard()) {
   app.whenReady().then(bootstrap).catch((error) => {
     console.error('[bootstrap]', error);
     app.quit();
+  });
+
+  /* Flush pending store writes before exit */
+  app.on('before-quit', async (event) => {
+    if (app._quitting) return;
+    app._quitting = true;
+    event.preventDefault();
+    try {
+      await _saveStoreQueue;
+    } catch (err) {
+      console.error('[before-quit] save flush failed:', err);
+    }
+    app.exit(0);
   });
 
   app.on('window-all-closed', () => {

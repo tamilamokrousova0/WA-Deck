@@ -1,5 +1,6 @@
 (function setupUnreadModule() {
   let state, els, renderAccounts, isWebviewReady, safeExecuteInWebview, updateHubDashboard;
+  let _hubDashboardDebounceTimer = null;
 
   function init(ctx) {
     state = ctx.state;
@@ -89,32 +90,48 @@
     }
     updateActiveUnreadIndicator();
     scheduleDockBadgeSync();
+    /* Debounce hub dashboard updates — prevents 30 rebuilds per poll cycle */
     if (typeof updateHubDashboard === 'function') {
-      updateHubDashboard();
+      if (_hubDashboardDebounceTimer) clearTimeout(_hubDashboardDebounceTimer);
+      _hubDashboardDebounceTimer = setTimeout(() => {
+        _hubDashboardDebounceTimer = null;
+        updateHubDashboard();
+      }, 200);
     }
   }
+
+  /* Helper: sleep for ms */
+  const _delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
   async function pollUnreadCounts() {
     if (state.unreadPollBusy) return;
     state.unreadPollBusy = true;
     try {
-      const tasks = state.accounts.map(async (account) => {
-        if (account.frozen) {
-          setUnreadCount(account.id, 0);
-          return;
-        }
-        const webview = state.webviews.get(account.id);
-        if (!isWebviewReady(webview)) return;
-        let count = 0;
-        try {
-          const raw = await safeExecuteInWebview(webview, collectUnreadCountScript(), true);
-          count = Number(raw || 0) || 0;
-        } catch {
-          count = Number(state.unreadByAccount.get(account.id) || 0);
-        }
-        setUnreadCount(account.id, count);
-      });
-      await Promise.allSettled(tasks);
+      /* Stagger polling in batches of 6 to avoid 30 concurrent IPC calls */
+      const BATCH_SIZE = 6;
+      const accounts = state.accounts.filter((a) => !a.frozen);
+      for (let i = 0; i < accounts.length; i += BATCH_SIZE) {
+        const batch = accounts.slice(i, i + BATCH_SIZE);
+        const tasks = batch.map(async (account) => {
+          const webview = state.webviews.get(account.id);
+          if (!isWebviewReady(webview)) return;
+          let count = 0;
+          try {
+            const raw = await safeExecuteInWebview(webview, collectUnreadCountScript(), true);
+            count = Number(raw || 0) || 0;
+          } catch {
+            count = Number(state.unreadByAccount.get(account.id) || 0);
+          }
+          setUnreadCount(account.id, count);
+        });
+        await Promise.allSettled(tasks);
+        /* Pause between batches to spread CPU load */
+        if (i + BATCH_SIZE < accounts.length) await _delay(500);
+      }
+      /* Handle frozen accounts */
+      for (const account of state.accounts) {
+        if (account.frozen) setUnreadCount(account.id, 0);
+      }
     } finally {
       state.unreadPollBusy = false;
     }

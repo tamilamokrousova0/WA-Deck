@@ -40,4 +40,10 @@ contextBridge.exposeInMainWorld('waDeck', {
     ipcRenderer.on('host-escape-pressed', listener);
     return () => ipcRenderer.removeListener('host-escape-pressed', listener);
   },
+  onWebviewCrashed: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, payload) => callback(payload || {});
+    ipcRenderer.on('webview-crashed', listener);
+    return () => ipcRenderer.removeListener('webview-crashed', listener);
+  },
 });

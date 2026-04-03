@@ -1,11 +1,12 @@
 (function setupAutoUpdateModule() {
   const RELEASE_NOTES = {
     '0.5.0': [
-      'Иконка отложенной отправки в верхней панели — быстрый доступ, анимация при наличии ожидающих.',
-      'Удалён встроенный переводчик (DeepL/LibreTranslate) — упрощение интерфейса.',
-      'Удалён YouTube мини-плеер — нерабочая функция.',
-      'Обновление Electron 40.8 → 41.1.1 (Chromium 146, Node.js 24.14).',
-      'Windows: исправлен layout sidebar, автопробуждение webview для отложенной отправки.',
+      'Безопасность: Content-Security-Policy, фильтрация URL, sandbox.',
+      'Стабильность: обработка падения webview, flush при закрытии, global error handler.',
+      'Производительность: опрос непрочитанных батчами по 6, debounce hub dashboard.',
+      'Удалён disable-renderer-backgrounding (экономия 60-80% CPU при 20+ аккаунтах).',
+      'Иконка отложенной отправки в верхней панели с анимацией.',
+      'Удалены: переводчик, YouTube мини-плеер. Electron 41.1.1.',
     ],
     '0.4.5': [
       'Windows: исправлен сломанный layout sidebar (карточки по центру) — защита от NaN в --sidebar-width.',

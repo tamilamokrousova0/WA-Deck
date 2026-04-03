@@ -1,3 +1,7 @@
+/* Global error handlers for renderer process */
+window.addEventListener('error', (e) => console.error('[renderer] error:', e.error || e.message));
+window.addEventListener('unhandledrejection', (e) => console.error('[renderer] unhandled rejection:', e.reason));
+
 /* Encode UTF-8 string to base64 — used by webview inject scripts (insert-text) */
 function encodeBase64Utf8(str) {
   const bytes = new TextEncoder().encode(String(str || ''));
@@ -2390,6 +2394,25 @@ async function init() {
     if (state.hostEscapeUnsubscribe) state.hostEscapeUnsubscribe();
     state.hostEscapeUnsubscribe = window.waDeck.onHostEscape(() => {
       handleEscapeUiReset();
+    });
+  }
+
+  /* Webview crash recovery — reload crashed webview and update status */
+  if (typeof window.waDeck.onWebviewCrashed === 'function') {
+    window.waDeck.onWebviewCrashed((payload) => {
+      console.warn('[webview-crashed]', payload.reason);
+      setStatus(`Webview упал (${payload.reason}). Перезагрузка...`);
+      // Find and reload any crashed webviews
+      for (const [accountId, webview] of state.webviews) {
+        try {
+          if (webview && webview.isConnected && webview.getWebContentsId) {
+            webview.getWebContentsId(); // throws if crashed
+          }
+        } catch {
+          console.warn('[webview-crashed] reloading', accountId);
+          try { webview.reload(); } catch { /* already dead */ }
+        }
+      }
     });
   }
 
