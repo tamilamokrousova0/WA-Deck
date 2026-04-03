@@ -1,5 +1,13 @@
 (function setupAutoUpdateModule() {
   const RELEASE_NOTES = {
+    '0.5.1': [
+      'UX: активный аккаунт — белая полоса + масштаб, CRM popover перетаскивается.',
+      'UX: разделители toolbar, иконка отложенной отправки, контекст в шаблонах.',
+      'UX: подтверждение отмены расписания, безопасное редактирование.',
+      'UX: loading spinner на кнопках, backdrop модалок, focus management.',
+      'UX: light theme badges, unread badge пульсация, hub type icons.',
+      'Fix: дубликат «Активных сообщений нет» при загрузке.',
+    ],
     '0.5.0': [
       'Безопасность: Content-Security-Policy, фильтрация URL, sandbox.',
       'Стабильность: обработка падения webview, flush при закрытии, global error handler.',

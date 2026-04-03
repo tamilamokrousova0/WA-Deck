@@ -2527,7 +2527,7 @@ async function init() {
   }
 
   els.scheduleAt.value = nextSendAtLocal(5);
-  await WaDeckScheduleModule.renderScheduled();
+  /* renderScheduled() already called via setActiveAccount → _setActiveAccountInner */
 
   bindActions();
   WaDeckWeatherModule.startWeatherRefreshLoop();
