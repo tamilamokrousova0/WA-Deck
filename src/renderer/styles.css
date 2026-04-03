@@ -280,17 +280,17 @@ html[data-theme='light'] .sidebar-resize-handle.active {
 
 .account-unread {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  min-width: 18px;
-  height: 18px;
+  top: -5px;
+  right: -5px;
+  min-width: 20px;
+  height: 20px;
   border-radius: 999px;
   border: 2px solid #0f1319;
-  background: #d94040;
+  background: #e53e3e;
   color: #fff;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
-  line-height: 14px;
+  line-height: 16px;
   text-align: center;
   padding: 0 3px;
   z-index: 2;
@@ -397,20 +397,16 @@ html[data-theme='light'] .sidebar-resize-handle.active {
   overflow: visible;
 }
 /* Thin separator between toolbar icon groups */
-.toolbar-left .btn-crm::before,
-.toolbar-left .btn-template::before {
-  content: '';
-  display: inline-block;
+.toolbar-separator {
   width: 1px;
-  height: 16px;
+  height: 18px;
   background: rgba(255, 255, 255, 0.15);
-  margin-right: 6px;
-  vertical-align: middle;
   flex-shrink: 0;
+  margin: 0 3px;
+  align-self: center;
 }
-html[data-theme='light'] .toolbar-left .btn-crm::before,
-html[data-theme='light'] .toolbar-left .btn-template::before {
-  background: rgba(0, 0, 0, 0.12);
+html[data-theme='light'] .toolbar-separator {
+  background: rgba(0, 0, 0, 0.13);
 }
 
 .toolbar-right {
@@ -1613,6 +1609,10 @@ textarea[readonly] {
 
 .btn-save-settings.is-saving .icon-save {
   animation: savePulse 0.52s ease;
+}
+.btn-save-settings.is-saved {
+  color: var(--green, #3dd68c);
+  transition: color 0.3s ease;
 }
 
 .btn-refresh.is-spinning .icon-refresh {
@@ -2957,6 +2957,13 @@ html[data-theme='light'] .color-dot.active {
   flex-shrink: 0;
 }
 
+.hub-stat-type {
+  display: flex;
+  align-items: center;
+  margin-right: 5px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
 .hub-stat-name {
   flex: 1;
   min-width: 0;
@@ -3411,7 +3418,11 @@ html[data-theme='light'] .update-progress {
 }
 
 .account-unread {
-  animation: badgePop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: badgePop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), badgePulse 2s ease-in-out 0.5s infinite;
+}
+@keyframes badgePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
 }
 
 /* Unread indicator in toolbar */
