@@ -278,7 +278,12 @@ function showConfirm(title, message, okText) {
     if (els.confirmTitle) els.confirmTitle.textContent = title || 'Подтверждение';
     if (els.confirmMessage) els.confirmMessage.textContent = message || '';
     if (els.confirmOk) els.confirmOk.textContent = okText || 'OK';
-    if (els.confirmModal) els.confirmModal.classList.remove('hidden');
+    if (els.confirmModal) {
+      els.confirmModal.classList.remove('hidden');
+      els.confirmModal.setAttribute('role', 'dialog');
+      els.confirmModal.setAttribute('aria-modal', 'true');
+      setTimeout(() => els.confirmOk?.focus(), 50);
+    }
   });
 }
 
@@ -1627,6 +1632,9 @@ function openAccountMenu(accountId) {
   }
 
   els.accountMenuModal.classList.remove('hidden');
+  els.accountMenuModal.setAttribute('role', 'dialog');
+  els.accountMenuModal.setAttribute('aria-modal', 'true');
+  setTimeout(() => els.accountMenuName?.focus(), 50);
 }
 
 function closeAccountMenu() {
@@ -2419,12 +2427,17 @@ async function init() {
     }
   }
 
+  /* Accessibility: copy title → aria-label for all icon-only buttons */
+  document.querySelectorAll('.btn-icon[title]').forEach((btn) => {
+    if (!btn.getAttribute('aria-label')) btn.setAttribute('aria-label', btn.title);
+  });
+
   const moduleCtx = { state, els, setStatus, trimMapSize, runWithBusyButton };
   WaDeckWeatherModule.init(moduleCtx);
   WaDeckAutoUpdateModule.init(moduleCtx);
   WaDeckUnreadModule.init({ ...moduleCtx, renderAccounts, isWebviewReady, safeExecuteInWebview, updateHubDashboard });
   WaDeckCrmModule.init({ ...moduleCtx, activeAccount, selectedWebview });
-  WaDeckScheduleModule.init({ ...moduleCtx, trimMapSize, runWithBusyButton, accountById, ensureWebview, isWebviewReady, sendWebviewInput, delay, formatDateTime, nextSendAtLocal });
+  WaDeckScheduleModule.init({ ...moduleCtx, trimMapSize, runWithBusyButton, accountById, ensureWebview, isWebviewReady, sendWebviewInput, delay, formatDateTime, nextSendAtLocal, showConfirm });
   if (typeof window.waDeck.onAutoUpdateStatus === 'function' && !state.autoUpdateUnsubscribe) {
     state.autoUpdateUnsubscribe = window.waDeck.onAutoUpdateStatus((payload) => {
       WaDeckAutoUpdateModule.handleAutoUpdateStatus(payload);

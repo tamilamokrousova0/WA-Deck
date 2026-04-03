@@ -3,7 +3,7 @@
 
   let state, els, setStatus, trimMapSize, runWithBusyButton;
   let accountById, ensureWebview, isWebviewReady, sendWebviewInput, delay;
-  let formatDateTime, nextSendAtLocal;
+  let formatDateTime, nextSendAtLocal, showConfirm;
 
   function init(ctx) {
     state = ctx.state;
@@ -18,6 +18,7 @@
     delay = ctx.delay;
     formatDateTime = ctx.formatDateTime;
     nextSendAtLocal = ctx.nextSendAtLocal;
+    showConfirm = ctx.showConfirm;
   }
 
   function renderScheduleTarget() {
@@ -67,6 +68,13 @@
       els.pickerChat.appendChild(option);
       return;
     }
+    /* Show loading state while fetching */
+    els.pickerChat.innerHTML = '';
+    const loadingOpt = document.createElement('option');
+    loadingOpt.value = '';
+    loadingOpt.textContent = 'Загрузка чатов...';
+    els.pickerChat.appendChild(loadingOpt);
+
     const chats = await fetchChatsForAccount(accountId, force);
 
     els.pickerChat.innerHTML = '';
@@ -209,6 +217,10 @@
         cancel.className = 'btn';
         cancel.textContent = 'Отменить';
         cancel.addEventListener('click', async () => {
+          const confirmed = typeof showConfirm === 'function'
+            ? await showConfirm('Отмена сообщения', `Отменить отправку для «${item.chatName}»?`, 'Отменить')
+            : true;
+          if (!confirmed) return;
           const res = await window.waDeck.cancelScheduled(item.id);
           if (!res?.ok) {
             setStatus(`Не удалось отменить: ${res?.error || 'error'}`);
@@ -271,21 +283,15 @@
     state.attachmentsDraft = Array.isArray(item.attachments) ? item.attachments.map((a) => ({ ...a })) : [];
     renderAttachmentsDraft();
 
-    // Отменить старое сообщение
-    const res = await window.waDeck.cancelScheduled(item.id);
-    if (!res?.ok) {
-      setStatus('Не удалось отменить старое сообщение для редактирования');
-      return;
-    }
-    await renderScheduled();
+    /* Store old item id — will be cancelled ONLY after new one is saved */
+    state._editingScheduleId = item.id;
 
-    // Открыть секцию и дать фокус
     const detailsCard = document.getElementById('schedule-settings-card');
     if (detailsCard && !detailsCard.open) {
       detailsCard.open = true;
     }
     els.scheduleText.focus();
-    setStatus('Редактирование: измените и нажмите «Запланировать»');
+    setStatus('Редактирование: измените и нажмите «Запланировать» (старое сохранится до сохранения нового)');
   }
 
   async function createScheduledMessage() {
@@ -321,6 +327,12 @@
       };
       setStatus(`Отложенная отправка: ${map[response?.error] || response?.error || 'ошибка'}`);
       return;
+    }
+
+    /* If editing — cancel old item now that new one is saved */
+    if (state._editingScheduleId) {
+      await window.waDeck.cancelScheduled(state._editingScheduleId).catch(() => {});
+      state._editingScheduleId = null;
     }
 
     els.scheduleText.value = '';

@@ -1524,7 +1524,13 @@ textarea:focus {
 
 input[readonly],
 textarea[readonly] {
-  opacity: 0.9;
+  opacity: 0.85;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: default;
+}
+html[data-theme='light'] input[readonly],
+html[data-theme='light'] textarea[readonly] {
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .password-field {
@@ -1717,13 +1723,32 @@ textarea[readonly] {
 }
 
 .btn.is-busy {
-  opacity: 0.76;
+  opacity: 0.7;
   cursor: progress;
+  pointer-events: none;
+  position: relative;
+}
+.btn.is-busy::after {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: btnSpin 0.6s linear infinite;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+@keyframes btnSpin {
+  to { transform: rotate(360deg); }
 }
 
 .btn:disabled {
-  opacity: 0.6;
-  cursor: default;
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+  filter: grayscale(0.3);
 }
 
 .btn-icon {
@@ -1830,9 +1855,9 @@ textarea[readonly] {
 .modal {
   position: absolute;
   inset: 0;
-  background: rgba(1, 6, 14, 0.68);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  background: rgba(1, 6, 14, 0.75);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: grid;
   place-items: center;
   z-index: 40;
@@ -2342,6 +2367,22 @@ html[data-theme='light'] .attachment-item,
 html[data-theme='light'] .scheduled-item {
   border-color: #c8d8ec;
   background: #f8fbff;
+}
+html[data-theme='light'] .badge {
+  border-color: #c0cfe0;
+  color: #5d7597;
+}
+html[data-theme='light'] .badge.pending {
+  border-color: #2db36e;
+  color: #1a7a4c;
+}
+html[data-theme='light'] .badge.processing {
+  border-color: #2d8cf0;
+  color: #1a5eb0;
+}
+html[data-theme='light'] .badge.failed {
+  border-color: #d94040;
+  color: #b02020;
 }
 
 html[data-theme='light'] .scheduled-meta,
