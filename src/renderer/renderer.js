@@ -2955,8 +2955,12 @@ async function init() {
       return raw ? new Map(JSON.parse(raw)) : new Map();
     } catch { return new Map(); }
   })();
+  let _tqCategorySaveTimer = null;
   function saveTqCategoryState() {
-    try { localStorage.setItem(TQ_CATEGORY_KEY, JSON.stringify([...tqCategoryState])); } catch {}
+    clearTimeout(_tqCategorySaveTimer);
+    _tqCategorySaveTimer = setTimeout(() => {
+      try { localStorage.setItem(TQ_CATEGORY_KEY, JSON.stringify([...tqCategoryState])); } catch {}
+    }, 300);
   }
 
   function getTemplates() {
