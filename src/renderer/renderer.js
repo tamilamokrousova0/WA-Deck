@@ -189,6 +189,19 @@ const els = {
   tqClose: document.getElementById('tq-close'),
   openTemplateQuick: document.getElementById('open-template-quick'),
   openScheduleToolbar: document.getElementById('open-schedule-toolbar'),
+  schedulePopover: document.getElementById('schedule-popover'),
+  schedulePopoverClose: document.getElementById('schedule-popover-close'),
+  spCreateDetails: document.getElementById('sp-create-details'),
+  spTarget: document.getElementById('sp-target'),
+  spPickChat: document.getElementById('sp-pick-chat'),
+  spText: document.getElementById('sp-text'),
+  spAt: document.getElementById('sp-at'),
+  spPickAttachments: document.getElementById('sp-pick-attachments'),
+  spClearAttachments: document.getElementById('sp-clear-attachments'),
+  spAttachmentsList: document.getElementById('sp-attachments-list'),
+  spCreate: document.getElementById('sp-create'),
+  spList: document.getElementById('sp-list'),
+  spListSummary: document.getElementById('sp-list-summary'),
   sendVoiceMsg: document.getElementById('send-voice-msg'),
 };
 
@@ -2393,23 +2406,55 @@ function bindActions() {
   els.clearAttachments?.addEventListener('click', WaDeckScheduleModule.clearAttachments);
   els.openChatPicker?.addEventListener('click', () => WaDeckScheduleModule.openChatPicker().catch(console.error));
 
-  /* Toolbar schedule button — open panel and scroll to schedule card */
+  /* ── Schedule Popover ── */
+  function openSchedulePopover() {
+    if (!els.schedulePopover) return;
+    els.schedulePopover.classList.remove('hidden');
+    if (els.spAt) els.spAt.value = nextSendAtLocal(0);
+    renderSchedulePopoverList();
+  }
+
+  function closeSchedulePopover() {
+    if (!els.schedulePopover) return;
+    els.schedulePopover.classList.add('hidden');
+  }
+
+  function toggleSchedulePopover() {
+    if (!els.schedulePopover) return;
+    if (els.schedulePopover.classList.contains('hidden')) {
+      openSchedulePopover();
+    } else {
+      closeSchedulePopover();
+    }
+  }
+
   if (els.openScheduleToolbar) {
-    els.openScheduleToolbar.addEventListener('click', () => {
-      const panel = document.querySelector('.panel');
-      if (panel?.classList.contains('hidden')) {
-        document.getElementById('toggle-panel')?.click();
-      }
-      setTimeout(() => {
-        const card = document.getElementById('schedule-settings-card');
-        if (card) {
-          card.open = true;
-          els.scheduleAt.value = nextSendAtLocal(0);
-          card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      }, 100);
+    els.openScheduleToolbar.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleSchedulePopover();
     });
   }
+  els.schedulePopoverClose?.addEventListener('click', closeSchedulePopover);
+
+  /* Close popover on outside click */
+  document.addEventListener('click', (e) => {
+    if (els.schedulePopover && !els.schedulePopover.classList.contains('hidden')) {
+      const widget = els.schedulePopover.closest('.schedule-widget');
+      if (widget && !widget.contains(e.target)) {
+        closeSchedulePopover();
+      }
+    }
+  });
+
+  /* Reset datetime when "Create" details expands */
+  els.spCreateDetails?.addEventListener('toggle', () => {
+    if (els.spCreateDetails.open && els.spAt) {
+      els.spAt.value = nextSendAtLocal(0);
+    }
+  });
+
+  /* Keep settings card toggle handler for datetime reset */
   const scheduleCard = document.getElementById('schedule-settings-card');
   if (scheduleCard) {
     scheduleCard.addEventListener('toggle', () => {
@@ -2418,6 +2463,157 @@ function bindActions() {
       }
     });
   }
+
+  /* ── Schedule Popover Form Handlers ── */
+  /*
+   * The popover chat picker reuses the existing chat picker modal from schedule.js.
+   * WaDeckScheduleModule.openChatPicker() opens the modal and writes to state.scheduleTarget.
+   * After confirming, the popover reads state.scheduleTarget to populate sp-target.
+   * We observe the modal close to sync the target field.
+   */
+  let spAttachments = [];
+  let spUsingChatPicker = false;
+
+  els.spPickChat?.addEventListener('click', async () => {
+    spUsingChatPicker = true;
+    await WaDeckScheduleModule.openChatPicker();
+  });
+
+  /* Watch for chat picker modal closing to sync popover target */
+  const chatPickerModal = document.getElementById('chat-picker-modal');
+  if (chatPickerModal) {
+    const observer = new MutationObserver(() => {
+      if (spUsingChatPicker && chatPickerModal.classList.contains('hidden')) {
+        spUsingChatPicker = false;
+        /* Read selected target from schedule module state */
+        const target = WaDeckScheduleModule.getScheduleTarget?.();
+        if (target?.accountId && target?.chatName && els.spTarget) {
+          els.spTarget.value = `${target.accountName || target.accountId} / ${target.chatName}`;
+          els.spTarget.dataset.accountId = target.accountId;
+          els.spTarget.dataset.chatName = target.chatName;
+        }
+      }
+    });
+    observer.observe(chatPickerModal, { attributes: true, attributeFilter: ['class'] });
+  }
+
+  els.spPickAttachments?.addEventListener('click', async () => {
+    const files = await window.waDeck.pickAttachments();
+    if (!files || !Array.isArray(files) || !files.length) return;
+    spAttachments.push(...files);
+    renderSpAttachments();
+  });
+
+  els.spClearAttachments?.addEventListener('click', () => {
+    spAttachments = [];
+    renderSpAttachments();
+  });
+
+  function renderSpAttachments() {
+    if (!els.spAttachmentsList) return;
+    els.spAttachmentsList.innerHTML = '';
+    for (const f of spAttachments) {
+      const div = document.createElement('div');
+      div.className = 'attachment-item';
+      div.textContent = f.name || 'file';
+      els.spAttachmentsList.appendChild(div);
+    }
+  }
+
+  els.spCreate?.addEventListener('click', async () => {
+    const text = String(els.spText?.value || '').trim();
+    const sendAt = String(els.spAt?.value || '');
+    const accountId = els.spTarget?.dataset.accountId || '';
+    const chatName = els.spTarget?.dataset.chatName || '';
+
+    if (!accountId || !chatName) {
+      showToast('Выберите аккаунт и чат', 'warn');
+      return;
+    }
+    if (!text && !spAttachments.length) {
+      showToast('Введите текст или добавьте вложения', 'warn');
+      return;
+    }
+    if (!sendAt) {
+      showToast('Укажите время отправки', 'warn');
+      return;
+    }
+
+    const payload = {
+      accountId,
+      chatName,
+      text,
+      sendAt: new Date(sendAt).toISOString(),
+      attachments: spAttachments.map((f) => ({ ...f })),
+    };
+
+    const response = await window.waDeck.scheduleMessage(payload);
+    if (!response?.ok) {
+      showToast(response?.error || 'Ошибка планирования', 'error');
+      return;
+    }
+
+    showToast('Сообщение запланировано', 'success');
+    if (els.spText) els.spText.value = '';
+    if (els.spTarget) {
+      els.spTarget.value = '';
+      delete els.spTarget.dataset.accountId;
+      delete els.spTarget.dataset.chatName;
+    }
+    spAttachments = [];
+    renderSpAttachments();
+    if (els.spAt) els.spAt.value = nextSendAtLocal(0);
+    await WaDeckScheduleModule.renderScheduled();
+  });
+
+  async function renderSchedulePopoverList() {
+    if (!els.spList) return;
+    els.spList.innerHTML = '';
+    const response = await window.waDeck.listScheduled({ limit: 120 });
+    const items = Array.isArray(response?.items) ? response.items : [];
+
+    if (els.spListSummary) {
+      els.spListSummary.textContent = `Запланированные (${items.length})`;
+    }
+
+    if (!items.length) {
+      els.spList.innerHTML = '<div class="sp-empty">Нет запланированных сообщений</div>';
+      return;
+    }
+
+    for (const item of items) {
+      const row = document.createElement('div');
+      row.className = 'sp-item';
+
+      const statusClass = item.status === 'failed' ? 'badge-failed' : item.status === 'sent' ? 'badge-sent' : 'badge-pending';
+      const statusLabel = item.status === 'failed' ? 'ошибка' : item.status === 'sent' ? 'отправлено' : item.status === 'processing' ? 'отправка...' : 'ожидает';
+
+      const sendAtStr = new Date(item.sendAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      const textPreview = String(item.text || '').slice(0, 40) || '(вложения)';
+
+      row.innerHTML = `
+        <div class="sp-item-info">
+          <span class="sp-badge ${statusClass}">${statusLabel}</span>
+          <span class="sp-item-time">${sendAtStr}</span>
+        </div>
+        <div class="sp-item-text">${textPreview}</div>
+        <div class="sp-item-actions">
+          <button class="btn btn-small sp-cancel" data-id="${item.id}" title="Отменить">✕</button>
+        </div>
+      `;
+      row.querySelector('.sp-cancel')?.addEventListener('click', async () => {
+        await window.waDeck.cancelScheduled(item.id);
+        await WaDeckScheduleModule.renderScheduled();
+        renderSchedulePopoverList();
+      });
+
+      els.spList.appendChild(row);
+    }
+  }
+
+  document.addEventListener('schedule-list-updated', () => {
+    renderSchedulePopoverList();
+  });
   els.pickerAccount?.addEventListener('change', () => WaDeckScheduleModule.refreshPickerChats(true).catch(console.error));
   els.pickerRefresh?.addEventListener('click', () => WaDeckScheduleModule.refreshPickerChats(true).catch(console.error));
   els.closeChatPicker?.addEventListener('click', WaDeckScheduleModule.closeChatPicker);

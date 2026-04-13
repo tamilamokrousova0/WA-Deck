@@ -157,6 +157,17 @@
       schedBtn.title = items.length > 0 ? `Отложенная отправка (${items.length})` : 'Отложенная отправка';
     }
 
+    /* Update popover list if open */
+    const spListSummary = document.getElementById('sp-list-summary');
+    if (spListSummary) {
+      spListSummary.textContent = `Запланированные (${items.length})`;
+    }
+    const spList = document.getElementById('sp-list');
+    if (spList && !document.getElementById('schedule-popover')?.classList.contains('hidden')) {
+      /* Trigger popover list re-render via custom event */
+      document.dispatchEvent(new CustomEvent('schedule-list-updated'));
+    }
+
     /* Update scheduled-list-card summary with count */
     const listCard = document.getElementById('scheduled-list-card');
     if (listCard) {
@@ -615,12 +626,17 @@
     setTimeout(() => processDueSchedules().catch((e) => console.warn('[schedule]', e)), 5000);
   }
 
+  function getScheduleTarget() {
+    return { ...state.scheduleTarget };
+  }
+
   window.WaDeckScheduleModule = {
     init,
     renderScheduleTarget,
     refreshPickerChats,
     openChatPicker,
     closeChatPicker,
+    getScheduleTarget,
     renderAttachmentsDraft,
     renderScheduled,
     pickAttachments,

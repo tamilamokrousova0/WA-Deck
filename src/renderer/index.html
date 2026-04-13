@@ -94,14 +94,52 @@
                 <path d="M9 9v12" stroke="currentColor" stroke-width="1.8"/>
               </svg>
             </button>
-            <button type="button" id="open-schedule-toolbar" class="btn btn-icon btn-toolbar-icon btn-schedule" title="Отложенная отправка">
-              <svg class="icon icon-schedule" viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="2" y="5" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/>
-                <path d="M2 9h14" stroke="currentColor" stroke-width="1.7"/>
-                <circle cx="18.5" cy="16.5" r="4.5" fill="none" stroke="currentColor" stroke-width="1.7"/>
-                <path d="M18.5 14.5v2l1.5 1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              </svg>
-            </button>
+            <div class="schedule-widget">
+              <button type="button" id="open-schedule-toolbar" class="btn btn-icon btn-toolbar-icon btn-schedule" title="Отложенная отправка">
+                <svg class="icon icon-schedule" viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="2" y="5" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/>
+                  <path d="M2 9h14" stroke="currentColor" stroke-width="1.7"/>
+                  <circle cx="18.5" cy="16.5" r="4.5" fill="none" stroke="currentColor" stroke-width="1.7"/>
+                  <path d="M18.5 14.5v2l1.5 1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </button>
+              <div id="schedule-popover" class="schedule-popover hidden">
+                <div class="schedule-popover-head">
+                  <span class="schedule-popover-title">Отложенная отправка</span>
+                  <button type="button" id="schedule-popover-close" class="weather-close-btn" title="Закрыть">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+                <details id="sp-create-details">
+                  <summary>Создать сообщение</summary>
+                  <div class="sp-form">
+                    <label>
+                      Цель отправки
+                      <input id="sp-target" type="text" placeholder="Выберите WhatsApp и чат" readonly />
+                    </label>
+                    <button type="button" id="sp-pick-chat" class="btn btn-small full">Выбрать WhatsApp и чат</button>
+                    <label>
+                      Сообщение
+                      <textarea id="sp-text" rows="3" placeholder="Текст сообщения"></textarea>
+                    </label>
+                    <label>
+                      Время отправки
+                      <input id="sp-at" type="datetime-local" step="1" />
+                    </label>
+                    <div class="row">
+                      <button type="button" id="sp-pick-attachments" class="btn btn-small">Вложения</button>
+                      <button type="button" id="sp-clear-attachments" class="btn btn-small">Очистить</button>
+                    </div>
+                    <div id="sp-attachments-list" class="attachments-list"></div>
+                    <button type="button" id="sp-create" class="btn btn-primary full">Запланировать</button>
+                  </div>
+                </details>
+                <details id="sp-list-details" open>
+                  <summary id="sp-list-summary">Запланированные (0)</summary>
+                  <div id="sp-list" class="sp-list"></div>
+                </details>
+              </div>
+            </div>
             <div class="toolbar-separator"></div>
             <button type="button" id="send-voice-msg" class="btn btn-icon btn-toolbar-icon btn-voice" title="Отправить аудио как голосовое">
               <svg class="icon icon-voice" viewBox="0 0 24 24" aria-hidden="true">
