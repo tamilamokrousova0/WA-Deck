@@ -634,6 +634,7 @@
     init,
     renderScheduleTarget,
     refreshPickerChats,
+    fetchChatsForAccount,
     openChatPicker,
     closeChatPicker,
     getScheduleTarget,

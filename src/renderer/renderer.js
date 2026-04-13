@@ -194,8 +194,8 @@ const els = {
   schedulePopover: document.getElementById('schedule-popover'),
   schedulePopoverClose: document.getElementById('schedule-popover-close'),
   spCreateDetails: document.getElementById('sp-create-details'),
-  spTarget: document.getElementById('sp-target'),
-  spPickChat: document.getElementById('sp-pick-chat'),
+  spAccount: document.getElementById('sp-account'),
+  spChat: document.getElementById('sp-chat'),
   spText: document.getElementById('sp-text'),
   spAt: document.getElementById('sp-at'),
   spPickAttachments: document.getElementById('sp-pick-attachments'),
@@ -2413,6 +2413,9 @@ function bindActions() {
     if (!els.schedulePopover) return;
     els.schedulePopover.classList.remove('hidden');
     if (els.spAt) els.spAt.value = nextSendAtLocal(0);
+    populateSpAccounts();
+    const selectedAccount = els.spAccount?.value || '';
+    if (selectedAccount) populateSpChats(selectedAccount);
     renderSchedulePopoverList();
   }
 
@@ -2439,12 +2442,9 @@ function bindActions() {
   }
   els.schedulePopoverClose?.addEventListener('click', closeSchedulePopover);
 
-  /* Close popover on outside click (but not when modal is open) */
+  /* Close popover on outside click */
   document.addEventListener('click', (e) => {
     if (els.schedulePopover && !els.schedulePopover.classList.contains('hidden')) {
-      /* Don't close if a modal is open (e.g. chat picker) */
-      const openModal = document.querySelector('.modal:not(.hidden)');
-      if (openModal) return;
       const widget = els.schedulePopover.closest('.schedule-widget');
       if (widget && !widget.contains(e.target)) {
         closeSchedulePopover();
@@ -2470,37 +2470,64 @@ function bindActions() {
   }
 
   /* ── Schedule Popover Form Handlers ── */
-  /*
-   * The popover chat picker reuses the existing chat picker modal from schedule.js.
-   * WaDeckScheduleModule.openChatPicker() opens the modal and writes to state.scheduleTarget.
-   * After confirming, the popover reads state.scheduleTarget to populate sp-target.
-   * We observe the modal close to sync the target field.
-   */
   let spAttachments = [];
-  let spUsingChatPicker = false;
 
-  els.spPickChat?.addEventListener('click', async () => {
-    spUsingChatPicker = true;
-    await WaDeckScheduleModule.openChatPicker();
-  });
-
-  /* Watch for chat picker modal closing to sync popover target */
-  const chatPickerModal = document.getElementById('chat-picker-modal');
-  if (chatPickerModal) {
-    const observer = new MutationObserver(() => {
-      if (spUsingChatPicker && chatPickerModal.classList.contains('hidden')) {
-        spUsingChatPicker = false;
-        /* Read selected target from schedule module state */
-        const target = WaDeckScheduleModule.getScheduleTarget?.();
-        if (target?.accountId && target?.chatName && els.spTarget) {
-          els.spTarget.value = `${target.accountName || target.accountId} / ${target.chatName}`;
-          els.spTarget.dataset.accountId = target.accountId;
-          els.spTarget.dataset.chatName = target.chatName;
-        }
-      }
-    });
-    observer.observe(chatPickerModal, { attributes: true, attributeFilter: ['class'] });
+  /* Populate account select with WhatsApp accounts */
+  function populateSpAccounts() {
+    if (!els.spAccount) return;
+    els.spAccount.innerHTML = '';
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = '— Выберите аккаунт —';
+    els.spAccount.appendChild(defaultOpt);
+    for (const account of state.accounts) {
+      if (account.type === 'telegram') continue;
+      const opt = document.createElement('option');
+      opt.value = account.id;
+      opt.textContent = account.frozen ? `${account.name} (заморожен)` : account.name;
+      els.spAccount.appendChild(opt);
+    }
+    const active = activeAccount();
+    if (active && active.type !== 'telegram') {
+      els.spAccount.value = active.id;
+    }
   }
+
+  async function populateSpChats(accountId) {
+    if (!els.spChat) return;
+    els.spChat.innerHTML = '';
+    if (!accountId) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '— Сначала выберите аккаунт —';
+      els.spChat.appendChild(opt);
+      return;
+    }
+    const loadOpt = document.createElement('option');
+    loadOpt.value = '';
+    loadOpt.textContent = 'Загрузка чатов...';
+    els.spChat.appendChild(loadOpt);
+
+    const chats = await WaDeckScheduleModule.fetchChatsForAccount(accountId);
+    els.spChat.innerHTML = '';
+    if (!chats.length) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Чаты не найдены';
+      els.spChat.appendChild(opt);
+      return;
+    }
+    for (const chat of chats) {
+      const opt = document.createElement('option');
+      opt.value = chat;
+      opt.textContent = chat;
+      els.spChat.appendChild(opt);
+    }
+  }
+
+  els.spAccount?.addEventListener('change', () => {
+    populateSpChats(els.spAccount.value);
+  });
 
   els.spPickAttachments?.addEventListener('click', async () => {
     const files = await window.waDeck.pickAttachments();
@@ -2528,8 +2555,8 @@ function bindActions() {
   els.spCreate?.addEventListener('click', async () => {
     const text = String(els.spText?.value || '').trim();
     const sendAt = String(els.spAt?.value || '');
-    const accountId = els.spTarget?.dataset.accountId || '';
-    const chatName = els.spTarget?.dataset.chatName || '';
+    const accountId = String(els.spAccount?.value || '').trim();
+    const chatName = String(els.spChat?.value || '').trim();
 
     if (!accountId || !chatName) {
       showToast('Выберите аккаунт и чат', 'warn');
@@ -2565,11 +2592,6 @@ function bindActions() {
 
     showToast('Сообщение запланировано', 'success');
     if (els.spText) els.spText.value = '';
-    if (els.spTarget) {
-      els.spTarget.value = '';
-      delete els.spTarget.dataset.accountId;
-      delete els.spTarget.dataset.chatName;
-    }
     spAttachments = [];
     renderSpAttachments();
     if (els.spAt) els.spAt.value = nextSendAtLocal(0);

@@ -114,10 +114,13 @@
                   <summary>Создать сообщение</summary>
                   <div class="sp-form">
                     <label>
-                      Цель отправки
-                      <input id="sp-target" type="text" placeholder="Выберите WhatsApp и чат" readonly />
+                      WhatsApp
+                      <select id="sp-account"></select>
                     </label>
-                    <button type="button" id="sp-pick-chat" class="btn btn-small full">Выбрать WhatsApp и чат</button>
+                    <label>
+                      Чат
+                      <select id="sp-chat"></select>
+                    </label>
                     <label>
                       Сообщение
                       <textarea id="sp-text" rows="3" placeholder="Текст сообщения"></textarea>
