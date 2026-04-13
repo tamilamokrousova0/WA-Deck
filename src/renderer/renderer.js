@@ -2984,7 +2984,7 @@ async function init() {
       if (allExpanded || q) details.open = true;
       else {
         const savedState = tqCategoryState.get(cat);
-        details.open = savedState !== undefined ? savedState : true;
+        details.open = savedState !== undefined ? savedState : false;
       }
 
       details.addEventListener('toggle', () => {
