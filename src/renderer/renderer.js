@@ -2439,9 +2439,12 @@ function bindActions() {
   }
   els.schedulePopoverClose?.addEventListener('click', closeSchedulePopover);
 
-  /* Close popover on outside click */
+  /* Close popover on outside click (but not when modal is open) */
   document.addEventListener('click', (e) => {
     if (els.schedulePopover && !els.schedulePopover.classList.contains('hidden')) {
+      /* Don't close if a modal is open (e.g. chat picker) */
+      const openModal = document.querySelector('.modal:not(.hidden)');
+      if (openModal) return;
       const widget = els.schedulePopover.closest('.schedule-widget');
       if (widget && !widget.contains(e.target)) {
         closeSchedulePopover();
@@ -2917,7 +2920,17 @@ async function init() {
 
   let activeIndex = -1;
   let visibleItems = [];
-  const tqCategoryState = new Map();
+  /* Persist category expand/collapse state in localStorage */
+  const TQ_CATEGORY_KEY = 'wa-deck-tq-category-state';
+  const tqCategoryState = (() => {
+    try {
+      const raw = localStorage.getItem(TQ_CATEGORY_KEY);
+      return raw ? new Map(JSON.parse(raw)) : new Map();
+    } catch { return new Map(); }
+  })();
+  function saveTqCategoryState() {
+    try { localStorage.setItem(TQ_CATEGORY_KEY, JSON.stringify([...tqCategoryState])); } catch {}
+  }
 
   function getTemplates() {
     return Array.isArray(state.templates) ? state.templates : [];
@@ -2975,20 +2988,20 @@ async function init() {
       list.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'ru'));
     }
 
-    const allExpanded = sortedKeys.length <= 1 || filtered.length <= 8;
-
     for (const cat of sortedKeys) {
       const catTemplates = groups.get(cat);
       const details = document.createElement('details');
       details.className = 'tq-category';
-      if (allExpanded || q) details.open = true;
-      else {
+      if (q) {
+        details.open = true;
+      } else {
         const savedState = tqCategoryState.get(cat);
         details.open = savedState !== undefined ? savedState : false;
       }
 
       details.addEventListener('toggle', () => {
         tqCategoryState.set(cat, details.open);
+        saveTqCategoryState();
       });
 
       const summary = document.createElement('summary');
