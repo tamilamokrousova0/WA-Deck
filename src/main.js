@@ -493,7 +493,7 @@ async function migrateLegacyCrmContactFile({
     const parsed = parseCrmText(content);
     const sourceContact = String(parsed.contactName || '').trim();
     const sourceAccount = String(parsed.accountName || '').trim();
-    if (!isBlockedCrmContactName(sourceContact)) continue;
+    if (isBlockedCrmContactName(sourceContact)) continue;
     if (sourceAccount && accountName && sourceAccount !== accountName) continue;
 
     const payloadSize =
