@@ -7,6 +7,12 @@
   --muted: #7e8ea0;
   --green: #3dd68c;
   --green-deep: #2db36e;
+  --red: #d94040;
+  --blue: #2d8cf0;
+  --focus-ring: 0 0 0 2px rgba(61, 214, 140, 0.35);
+  --z-popover: 100;
+  --z-dropdown: 150;
+  --z-modal: 1100;
   --app-bg:
     radial-gradient(900px 500px at 12% -15%, #1e2d3f 0%, transparent 55%),
     radial-gradient(900px 500px at 98% -20%, #2a1f3d 0%, transparent 50%),
@@ -23,6 +29,12 @@ html[data-theme='light'] {
   --muted: #58708f;
   --green: #22c16f;
   --green-deep: #179458;
+  --red: #c03030;
+  --blue: #2a6ef5;
+  --focus-ring: 0 0 0 2px rgba(34, 193, 111, 0.35);
+  --z-popover: 100;
+  --z-dropdown: 150;
+  --z-modal: 1100;
   --app-bg:
     radial-gradient(800px 460px at 10% -25%, #d8efff 0%, transparent 60%),
     radial-gradient(860px 520px at 100% -30%, #e9ddff 0%, transparent 54%),
@@ -59,7 +71,7 @@ body {
 
 .sidebar {
   border-right: 1px solid var(--line);
-  background: linear-gradient(180deg, #121820 0%, #0f1319 100%);
+  background: linear-gradient(180deg, var(--bg-soft) 0%, var(--bg) 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -82,11 +94,11 @@ body {
 }
 .sidebar-resize-handle:hover,
 .sidebar-resize-handle.active {
-  background: rgba(61, 214, 140, 0.3);
+  background: rgba(61, 214, 140, 0.5);
 }
 html[data-theme='light'] .sidebar-resize-handle:hover,
 html[data-theme='light'] .sidebar-resize-handle.active {
-  background: rgba(42, 110, 245, 0.2);
+  background: rgba(42, 110, 245, 0.4);
 }
 
 .brand {
@@ -95,8 +107,8 @@ html[data-theme='light'] .sidebar-resize-handle.active {
   flex: 0 0 40px;
   border-radius: 11px;
   overflow: visible;
-  border: 1px solid #2b313b;
-  background: linear-gradient(180deg, #1b2233 0%, #181e2b 100%);
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--bg-soft) 0%, var(--panel) 100%);
   box-shadow: 0 6px 16px rgba(5, 14, 29, 0.42);
   position: relative;
   cursor: pointer;
@@ -196,9 +208,9 @@ html[data-theme='light'] .sidebar-resize-handle.active {
   border-radius: 9px;
   display: grid;
   place-items: center;
-  border-color: #2b313b;
-  background: linear-gradient(180deg, #1b2233 0%, #181e2b 100%);
-  color: #7e8ea0;
+  border-color: var(--line);
+  background: linear-gradient(180deg, var(--bg-soft) 0%, var(--panel) 100%);
+  color: var(--muted);
   margin-top: -2px;
 }
 
@@ -208,8 +220,8 @@ html[data-theme='light'] .sidebar-resize-handle.active {
 }
 
 .sidebar-scroll-btn:not(.hidden):hover {
-  border-color: #3a4555;
-  color: #e5eaf0;
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--text);
 }
 
 /* ── Account Items (Lovable square card style) ── */
@@ -285,8 +297,8 @@ html[data-theme='light'] .sidebar-resize-handle.active {
   min-width: 20px;
   height: 20px;
   border-radius: 999px;
-  border: 2px solid #0f1319;
-  background: #e53e3e;
+  border: 2px solid var(--bg);
+  background: var(--red);
   color: #fff;
   font-size: 10px;
   font-weight: 800;
@@ -295,7 +307,7 @@ html[data-theme='light'] .sidebar-resize-handle.active {
   padding: 0 3px;
   z-index: 2;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
-  box-shadow: 0 2px 6px rgba(217, 64, 64, 0.4);
+  box-shadow: 0 2px 6px rgba(217, 64, 64, 0.35);
 }
 
 .account-remove {
@@ -305,8 +317,8 @@ html[data-theme='light'] .sidebar-resize-handle.active {
   width: 16px;
   height: 16px;
   border-radius: 999px;
-  border: 2px solid #0f1319;
-  background: #d94040;
+  border: 2px solid var(--bg);
+  background: var(--red);
   color: #fff;
   font-size: 10px;
   line-height: 1;
@@ -335,24 +347,20 @@ html[data-theme='light'] .sidebar-resize-handle.active {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 2px solid #0f1319;
+  border: 2px solid var(--bg);
   z-index: 2;
 }
 
 .account-status-dot.status-ready {
-  background: #3dd68c;
-}
-
-.account-status-dot.status-loading {
-  background: #f0c040;
+  background: var(--green);
 }
 
 .account-status-dot.status-offline {
-  background: #d94040;
+  background: var(--red);
 }
 
 .account-status-dot.status-frozen {
-  background: #7e8ea0;
+  background: var(--muted);
 }
 
 .account-frozen-tag {
@@ -376,7 +384,7 @@ html[data-theme='light'] .sidebar-resize-handle.active {
   border-bottom: 1px solid var(--line);
   background:
     radial-gradient(460px 100px at 18% 0%, rgba(61, 214, 140, 0.12), transparent 70%),
-    linear-gradient(180deg, #1b2233 0%, #151a24 100%);
+    linear-gradient(180deg, var(--bg-soft) 0%, var(--bg) 100%);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -440,8 +448,8 @@ html[data-theme='light'] .toolbar-separator {
 }
 
 .btn-toolbar-icon:hover {
-  border-color: rgba(45, 140, 240, 0.5);
-  box-shadow: 0 0 8px rgba(45, 140, 240, 0.15);
+  border-color: rgba(45, 140, 240, 0.45);
+  box-shadow: 0 0 8px rgba(45, 140, 240, 0.12);
   transform: scale(1.12);
 }
 
@@ -450,7 +458,7 @@ html[data-theme='light'] .toolbar-separator {
 }
 
 .btn-toolbar-icon.is-active {
-  border-color: #2d8cf0;
+  border-color: var(--blue);
   box-shadow: 0 0 0 1px rgba(45, 140, 240, 0.35) inset, 0 0 10px rgba(45, 140, 240, 0.12);
 }
 
@@ -460,10 +468,6 @@ html[data-theme='light'] .toolbar-separator {
   display: block;
   margin: 0 auto;
   transition: transform 0.2s ease;
-}
-
-.btn-toolbar-icon .icon {
-  transform: none;
 }
 
 .icon-snow {
@@ -529,7 +533,7 @@ html[data-theme='light'] .toolbar-separator {
   border-radius: 8px;
   font-size: 11px;
   font-weight: 600;
-  color: #c0c8d4;
+  color: var(--muted);
   transition: background 0.15s ease;
   z-index: 10;
 }
@@ -539,7 +543,7 @@ html[data-theme='light'] .toolbar-separator {
 .toolbar-clock .icon-clock {
   width: 14px;
   height: 14px;
-  color: #8a95a5;
+  color: var(--muted);
   flex-shrink: 0;
 }
 .toolbar-clock-time {
@@ -551,17 +555,18 @@ html[data-theme='light'] .toolbar-separator {
   top: calc(100% + 6px);
   right: 0;
   min-width: 180px;
-  background: linear-gradient(180deg, #1e2533 0%, #181d28 100%);
+  background: linear-gradient(180deg, var(--bg-soft) 0%, var(--panel) 100%);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   padding: 10px 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  z-index: 100;
+  z-index: var(--z-popover);
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.15s ease;
 }
-.toolbar-clock:hover .toolbar-clock-popover {
+.toolbar-clock:hover .toolbar-clock-popover,
+.toolbar-clock:focus-within .toolbar-clock-popover {
   pointer-events: auto;
   opacity: 1;
 }
@@ -573,7 +578,7 @@ html[data-theme='light'] .toolbar-separator {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #6b7a8d;
+  color: var(--muted);
   margin-bottom: 8px;
 }
 .toolbar-clock-zones {
@@ -589,13 +594,13 @@ html[data-theme='light'] .toolbar-separator {
 }
 .toolbar-clock-zone-label {
   font-size: 11px;
-  color: #a0aab8;
+  color: var(--muted);
   white-space: nowrap;
 }
 .toolbar-clock-zone-time {
   font-size: 12px;
   font-weight: 700;
-  color: #e5eaf0;
+  color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
@@ -638,10 +643,10 @@ html[data-theme='light'] .toolbar-separator {
 }
 
 .weather-toggle {
-  border: 1px solid #2b313b;
+  border: 1px solid var(--line);
   border-radius: 999px;
   background: linear-gradient(180deg, rgba(27, 34, 51, 0.94) 0%, rgba(24, 30, 43, 0.96) 100%);
-  color: #e5eaf0;
+  color: var(--text);
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
@@ -664,7 +669,7 @@ html[data-theme='light'] .toolbar-separator {
 }
 
 .weather-temp {
-  color: #e5eaf0;
+  color: var(--text);
   font-weight: 800;
 }
 
@@ -673,7 +678,7 @@ html[data-theme='light'] .toolbar-separator {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: #7e8ea0;
+  color: var(--muted);
   font-weight: 600;
 }
 
@@ -682,11 +687,11 @@ html[data-theme='light'] .toolbar-separator {
   top: calc(100% + 6px);
   left: 0;
   min-width: 260px;
-  border: 1px solid #2b313b;
+  border: 1px solid var(--line);
   border-radius: 14px;
   background:
     radial-gradient(160% 120% at 0% 0%, rgba(61, 214, 140, 0.07), transparent 62%),
-    linear-gradient(180deg, #1a2030 0%, #181e2b 100%);
+    linear-gradient(180deg, var(--bg-soft) 0%, var(--panel) 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     0 14px 26px rgba(0, 0, 0, 0.48);
@@ -704,7 +709,7 @@ html[data-theme='light'] .toolbar-separator {
 .weather-popover-title {
   font-size: 11px;
   font-weight: 700;
-  color: #e5eaf0;
+  color: var(--text);
   letter-spacing: 0.02em;
 }
 
@@ -714,7 +719,7 @@ html[data-theme='light'] .toolbar-separator {
   border: none;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.06);
-  color: #7e8ea0;
+  color: var(--muted);
   display: grid;
   place-items: center;
   cursor: pointer;
@@ -722,7 +727,7 @@ html[data-theme='light'] .toolbar-separator {
 }
 .weather-close-btn:hover {
   background: rgba(255, 255, 255, 0.12);
-  color: #e5eaf0;
+  color: var(--text);
   transform: scale(1.1);
 }
 .weather-close-btn:active {
@@ -733,7 +738,7 @@ html[data-theme='light'] .toolbar-separator {
   display: grid;
   gap: 4px;
   font-size: 9px;
-  color: #7e8ea0;
+  color: var(--muted);
 }
 
 .weather-label input {
@@ -756,7 +761,7 @@ html[data-theme='light'] .toolbar-separator {
 
 .weather-meta {
   font-size: 9px;
-  color: #7e8ea0;
+  color: var(--muted);
   line-height: 1.25;
   min-height: 24px;
 }
@@ -799,9 +804,9 @@ html[data-theme='light'] .toolbar-separator {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  border: 1px solid #2b313b;
-  background: #1a2030;
-  color: #d94040;
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--red);
   border-radius: 999px;
   padding: 3px 7px;
   font-size: 10px;
@@ -814,7 +819,7 @@ html[data-theme='light'] .toolbar-separator {
 }
 
 .unread-icon {
-  color: #d94040;
+  color: var(--red);
   font-size: 11px;
 }
 
@@ -827,10 +832,10 @@ html[data-theme='light'] .toolbar-separator {
   padding: 0;
   display: grid;
   place-items: center;
-  border-color: #2b313b;
+  border-color: var(--line);
   background:
     radial-gradient(80% 80% at 30% 20%, rgba(61, 214, 140, 0.14), transparent 70%),
-    linear-gradient(180deg, #1b2233 0%, #181e2b 100%);
+    linear-gradient(180deg, var(--bg-soft) 0%, var(--panel) 100%);
 }
 
 /* ── Add-account popover (WhatsApp / Telegram choice) ── */
@@ -925,12 +930,12 @@ html[data-theme='light'] .add-account-option:hover {
 
 .account-type-wa {
   background: #25D366;
-  box-shadow: 0 0 0 2px #0f1319;
+  box-shadow: 0 0 0 2px var(--bg);
 }
 
 .account-type-tg {
   background: #2AABEE;
-  box-shadow: 0 0 0 2px #0f1319;
+  box-shadow: 0 0 0 2px var(--bg);
 }
 
 html[data-theme='light'] .account-type-wa {
@@ -945,7 +950,7 @@ html[data-theme='light'] .account-type-tg {
   position: relative;
   min-width: 0;
   min-height: 0;
-  background: #0f1319;
+  background: var(--bg);
 }
 
 .webview-loading-overlay {
@@ -982,7 +987,7 @@ html[data-theme='light'] .account-type-tg {
   position: absolute;
   inset: 0;
   display: none;
-  background-color: #0f1319;
+  background-color: var(--bg);
   background-image: var(--hub-bg, none);
   background-size: cover;
   background-position: center center;
@@ -1458,8 +1463,8 @@ html[data-theme='light'] .hub-subtitle {
   right: 12px;
   width: 7px;
   height: 7px;
-  border-right: 2px solid #7e8ea0;
-  border-bottom: 2px solid #7e8ea0;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
   transform: rotate(45deg);
   transition: transform 0.25s ease;
 }
@@ -1469,7 +1474,7 @@ html[data-theme='light'] .hub-subtitle {
 }
 
 .card-collapsible[open] > summary {
-  border-bottom: 1px solid #2b313b;
+  border-bottom: 1px solid var(--line);
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
 }
@@ -1501,8 +1506,8 @@ label {
 input,
 select,
 textarea {
-  border: 1px solid #2b313b;
-  background: #151a24;
+  border: 1px solid var(--line);
+  background: var(--bg);
   color: var(--text);
   border-radius: 12px;
   padding: 8px;
@@ -1577,8 +1582,8 @@ html[data-theme='light'] textarea[readonly] {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid #2b313b;
-  background: #151a24;
+  border: 1px solid var(--line);
+  background: var(--bg);
   border-radius: 12px;
   padding: 7px 10px;
   cursor: pointer;
@@ -1665,7 +1670,7 @@ html[data-theme='light'] textarea[readonly] {
 
 .btn {
   border-radius: 12px;
-  border: 1px solid #2b313b;
+  border: 1px solid var(--line);
   background: linear-gradient(180deg, #252d3a 0%, #222933 100%);
   color: var(--text);
   padding: 7px 11px;
@@ -1767,7 +1772,7 @@ html[data-theme='light'] textarea[readonly] {
 }
 
 .btn-ghost {
-  background: linear-gradient(180deg, #1a2030 0%, #181e2b 100%);
+  background: linear-gradient(180deg, var(--bg-soft) 0%, var(--panel) 100%);
 }
 
 .full {
@@ -1792,7 +1797,7 @@ html[data-theme='light'] textarea[readonly] {
 }
 
 .hint {
-  color: #7e8ea0;
+  color: var(--muted);
   font-size: 11px;
   line-height: 1.35;
 }
@@ -1807,9 +1812,9 @@ html[data-theme='light'] textarea[readonly] {
 
 .attachment-item,
 .scheduled-item {
-  border: 1px solid #2b313b;
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: #181e2b;
+  background: var(--panel);
   padding: 8px;
   font-size: 12px;
   line-height: 1.4;
@@ -1817,7 +1822,7 @@ html[data-theme='light'] textarea[readonly] {
 
 .scheduled-meta,
 .attachment-meta {
-  color: #7e8ea0;
+  color: var(--muted);
   font-size: 11px;
 }
 
@@ -1830,11 +1835,11 @@ html[data-theme='light'] textarea[readonly] {
 
 .badge {
   border-radius: 999px;
-  border: 1px solid #2b313b;
+  border: 1px solid var(--line);
   padding: 2px 8px;
   font-size: 10px;
   text-transform: uppercase;
-  color: #7e8ea0;
+  color: var(--muted);
 }
 
 .badge.pending {
@@ -1855,12 +1860,12 @@ html[data-theme='light'] textarea[readonly] {
 .modal {
   position: absolute;
   inset: 0;
-  background: rgba(1, 6, 14, 0.75);
+  background: rgba(1, 6, 14, 0.65);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   display: grid;
   place-items: center;
-  z-index: 1100;
+  z-index: var(--z-modal);
   overflow-y: auto;
   padding: 24px 0;
 }
@@ -1873,9 +1878,11 @@ html[data-theme='light'] textarea[readonly] {
   width: min(560px, 92vw);
   max-height: calc(100vh - 48px);
   overflow-y: auto;
-  border: 1px solid #2b313b;
+  border: 1px solid var(--line);
   border-radius: 16px;
-  background: linear-gradient(180deg, #1a2030 0%, #181e2b 100%);
+  background: linear-gradient(180deg, var(--bg-soft) 0%, var(--panel) 100%);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(126, 142, 160, 0.3) transparent;
   padding: 16px;
   display: grid;
   gap: 10px;
@@ -2452,7 +2459,7 @@ html[data-theme='light'] .account-menu-status {
   position: fixed;
   bottom: 12px;
   right: 12px;
-  z-index: 100;
+  z-index: var(--z-popover);
   display: flex;
   flex-direction: column-reverse;
   gap: 6px;
@@ -2562,9 +2569,9 @@ html[data-theme='light'] .account-menu-status {
   width: 28px;
   height: 28px;
   border-radius: 10px;
-  border: 1px solid #2b313b;
+  border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.05);
-  color: #7e8ea0;
+  color: var(--muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2576,7 +2583,7 @@ html[data-theme='light'] .account-menu-status {
 .btn-close-round:hover {
   transform: scale(1.1) rotate(90deg);
   background: rgba(255, 255, 255, 0.1);
-  color: #e5eaf0;
+  color: var(--text);
 }
 
 .account-menu-hero {
@@ -2982,9 +2989,9 @@ html[data-theme='light'] .color-dot.active {
   padding: 4px 8px;
   border-radius: 6px;
   font-size: 11px;
-  color: #7e8ea0;
+  color: var(--muted);
   background: rgba(255, 255, 255, 0.04);
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, transform 0.15s ease;
   flex-shrink: 0;
 }
 .hub-stat-row:hover {
@@ -3262,7 +3269,7 @@ html[data-theme='light'] .color-dot.active {
 .update-progress {
   width: 100%;
   height: 6px;
-  background: #222933;
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 3px;
   overflow: hidden;
   margin-bottom: 8px;
@@ -3370,9 +3377,6 @@ html[data-theme='light'] .update-progress {
   transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.hub-stat-row {
-  transition: background 0.15s ease, transform 0.15s ease;
-}
 .hub-stat-row:hover {
   transform: scale(1.01);
 }
@@ -3518,10 +3522,8 @@ html[data-theme='light'] .update-progress {
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 .card:hover {
-  border-color: #3a4555;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 8px 20px rgba(2, 10, 20, 0.32);
+  border-color: rgba(61, 214, 140, 0.25);
+  box-shadow: 0 4px 16px rgba(2, 10, 20, 0.25);
 }
 
 /* ── Scheduled/Attachment Items Hover ── */
@@ -3587,13 +3589,6 @@ html[data-theme='light'] .update-progress {
   to   { transform: translateY(0) scale(1); opacity: 1; }
 }
 
-/* Focus Ring (static, accessible) */
-input:focus,
-select:focus,
-textarea:focus {
-  box-shadow: 0 0 0 2px rgba(61, 214, 140, 0.25);
-}
-
 /* ── Weather Toggle Hover ── */
 .weather-toggle {
   transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
@@ -3647,7 +3642,7 @@ textarea:focus {
   width: 370px;
   max-height: 70vh;
   overflow-y: auto;
-  border: 1px solid #2b313b;
+  border: 1px solid var(--line);
   border-radius: 14px;
   background:
     radial-gradient(160% 120% at 0% 0%, rgba(61, 214, 140, 0.07), transparent 62%),
@@ -3658,7 +3653,7 @@ textarea:focus {
   padding: 12px;
   display: grid;
   gap: 8px;
-  z-index: 1000;
+  z-index: var(--z-modal);
 }
 .schedule-popover.hidden { display: none; }
 
@@ -3671,7 +3666,7 @@ textarea:focus {
 .schedule-popover-title {
   font-size: 11px;
   font-weight: 700;
-  color: #e5eaf0;
+  color: var(--text);
   letter-spacing: 0.02em;
 }
 
@@ -3685,10 +3680,11 @@ textarea:focus {
   padding: 8px 12px;
   font-size: 11px;
   font-weight: 600;
-  color: #e5eaf0;
+  color: var(--text);
   cursor: pointer;
   user-select: none;
   background: rgba(255, 255, 255, 0.03);
+  transition: background 0.15s ease;
 }
 .schedule-popover summary:hover {
   background: rgba(255, 255, 255, 0.06);
@@ -3701,7 +3697,7 @@ textarea:focus {
 }
 .sp-form label {
   font-size: 10px;
-  color: rgba(229, 234, 240, 0.7);
+  color: var(--muted);
 }
 .sp-form input,
 .sp-form textarea {
@@ -3742,7 +3738,7 @@ textarea:focus {
 .sp-item-text {
   grid-column: 1;
   font-size: 11px;
-  color: rgba(229, 234, 240, 0.6);
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3757,7 +3753,8 @@ textarea:focus {
 
 .sp-item-time {
   font-size: 10px;
-  color: rgba(229, 234, 240, 0.5);
+  color: var(--muted);
+  opacity: 0.7;
 }
 
 .sp-badge {
@@ -3776,7 +3773,8 @@ textarea:focus {
   padding: 12px;
   text-align: center;
   font-size: 11px;
-  color: rgba(229, 234, 240, 0.4);
+  color: var(--muted);
+  opacity: 0.6;
 }
 
 .sp-cancel {
@@ -4129,11 +4127,215 @@ html[data-theme='light'] .tq-kbd {
   animation-play-state: paused !important;
 }
 
+/* ══════════════════════════════════════════════════
+   Focus-Visible States (Accessibility)
+   ══════════════════════════════════════════════════ */
+.btn:focus-visible,
+.btn-toolbar-icon:focus-visible,
+.btn-panel-icon:focus-visible,
+.btn-close-round:focus-visible,
+.modal-close-btn:focus-visible,
+.weather-close-btn:focus-visible,
+.add-account-btn:focus-visible,
+.add-account-option:focus-visible,
+.sidebar-scroll-btn:focus-visible,
+.account-item:focus-visible,
+.sp-cancel:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.card-collapsible > summary:focus-visible,
+.tq-category > summary:focus-visible,
+.schedule-popover summary:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+.tq-item:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 10px;
+}
+
+.context-menu-item:focus-visible {
+  outline: none;
+  background: rgba(61, 214, 140, 0.12);
+}
+
+.toolbar-clock-zone-row {
+  transition: background 0.12s ease;
+  border-radius: 6px;
+  padding: 3px 4px;
+  margin: -3px -4px;
+}
+.toolbar-clock-zone-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ══════════════════════════════════════════════════
+   Global Placeholder Styles
+   ══════════════════════════════════════════════════ */
+input::placeholder,
+textarea::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+html[data-theme='light'] input::placeholder,
+html[data-theme='light'] textarea::placeholder {
+  color: rgba(0, 0, 0, 0.35);
+}
+
+/* ══════════════════════════════════════════════════
+   Schedule Popover — Item Hover
+   ══════════════════════════════════════════════════ */
+.sp-item {
+  transition: background 0.15s ease;
+}
+.sp-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+html[data-theme='light'] .sp-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* ══════════════════════════════════════════════════
+   Light Theme — Missing Overrides
+   ══════════════════════════════════════════════════ */
+
+/* Light theme input focus */
+html[data-theme='light'] input:focus,
+html[data-theme='light'] select:focus,
+html[data-theme='light'] textarea:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px rgba(34, 193, 111, 0.2);
+}
+
+/* Light theme primary button */
+html[data-theme='light'] .btn-primary {
+  border-color: var(--green);
+  background: linear-gradient(180deg, var(--green) 0%, var(--green-deep) 100%);
+  color: #fff;
+}
+html[data-theme='light'] .btn-primary:hover {
+  box-shadow: 0 4px 16px rgba(34, 193, 111, 0.25);
+}
+
+/* Light theme card hover */
+html[data-theme='light'] .card:hover {
+  border-color: #b0c4df;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+/* Light theme card summary hover */
+html[data-theme='light'] .card-collapsible > summary:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+/* Light theme focus rings */
+html[data-theme='light'] .btn:focus-visible,
+html[data-theme='light'] .btn-toolbar-icon:focus-visible,
+html[data-theme='light'] .btn-panel-icon:focus-visible,
+html[data-theme='light'] .btn-close-round:focus-visible,
+html[data-theme='light'] .modal-close-btn:focus-visible,
+html[data-theme='light'] .account-item:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+/* Light theme toolbar clock zone row hover */
+html[data-theme='light'] .toolbar-clock-zone-row:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* Light theme provider option hover */
+.provider-option {
+  transition: border-color 0.15s ease;
+  cursor: pointer;
+}
+.provider-option:hover {
+  border-color: rgba(61, 214, 140, 0.4);
+}
+html[data-theme='light'] .provider-option:hover {
+  border-color: rgba(34, 193, 111, 0.4);
+}
+
+/* ══════════════════════════════════════════════════
+   Modal Close Animation
+   ══════════════════════════════════════════════════ */
+@keyframes modalBackdropOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes modalCardOut {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to   { opacity: 0; transform: scale(0.95) translateY(10px); }
+}
+
+.modal.is-closing {
+  animation: modalBackdropOut 0.18s ease forwards;
+  pointer-events: none;
+}
+.modal.is-closing .modal-card {
+  animation: modalCardOut 0.18s ease forwards;
+}
+
+/* ══════════════════════════════════════════════════
+   Toast Responsive Width
+   ══════════════════════════════════════════════════ */
+.toast {
+  max-width: min(340px, calc(100vw - 24px));
+}
+
+/* ══════════════════════════════════════════════════
+   Scrollbar Consistency
+   ══════════════════════════════════════════════════ */
+.schedule-popover,
+.sp-list,
+.tq-list {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(126, 142, 160, 0.3) transparent;
+}
+
+.schedule-popover::-webkit-scrollbar,
+.sp-list::-webkit-scrollbar,
+.tq-list::-webkit-scrollbar,
+.modal-card::-webkit-scrollbar {
+  width: 6px;
+}
+.schedule-popover::-webkit-scrollbar-track,
+.sp-list::-webkit-scrollbar-track,
+.tq-list::-webkit-scrollbar-track,
+.modal-card::-webkit-scrollbar-track {
+  background: transparent;
+}
+.schedule-popover::-webkit-scrollbar-thumb,
+.sp-list::-webkit-scrollbar-thumb,
+.tq-list::-webkit-scrollbar-thumb,
+.modal-card::-webkit-scrollbar-thumb {
+  background: rgba(126, 142, 160, 0.3);
+  border-radius: 3px;
+}
+.schedule-popover::-webkit-scrollbar-thumb:hover,
+.sp-list::-webkit-scrollbar-thumb:hover,
+.tq-list::-webkit-scrollbar-thumb:hover,
+.modal-card::-webkit-scrollbar-thumb:hover {
+  background: rgba(126, 142, 160, 0.5);
+}
+
+html[data-theme='light'] .schedule-popover,
+html[data-theme='light'] .sp-list,
+html[data-theme='light'] .tq-list,
+html[data-theme='light'] .modal-card {
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+}
+
 /* ── Accessibility: reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
   }
 }
