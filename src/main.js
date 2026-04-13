@@ -13,6 +13,8 @@ const FALLBACK_CHROME_VERSION = '146.0.7680.179';
 const APP_ICON_PNG_PATH = path.join(__dirname, '..', 'assets', 'icon', 'wadeck-icon-512.png');
 const RELEASES_LATEST_URL = 'https://github.com/tamilamokrousova0/WA-Deck/releases/latest';
 
+let _appIsQuitting = false;
+
 const DEFAULT_SETTINGS = {
   uiTheme: 'dark',
   weatherCity: 'Moscow',
@@ -1586,8 +1588,8 @@ if (addSingleInstanceGuard()) {
 
   /* Flush pending store writes before exit */
   app.on('before-quit', async (event) => {
-    if (app._quitting) return;
-    app._quitting = true;
+    if (_appIsQuitting) return;
+    _appIsQuitting = true;
     event.preventDefault();
     try {
       await _saveStoreQueue;
