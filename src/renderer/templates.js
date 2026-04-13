@@ -54,19 +54,39 @@
       if (!els.templateTitle || !els.templateText) return;
       if (!template) {
         els.templateTitle.value = '';
+        if (els.templateCategory) els.templateCategory.value = '';
         els.templateText.value = '';
+        updateCategoryDatalist();
         return;
       }
       els.templateTitle.value = String(template.title || '');
+      if (els.templateCategory) els.templateCategory.value = String(template.category || '');
       els.templateText.value = String(template.text || '');
+      updateCategoryDatalist();
     }
 
     function readEditorPayload() {
       return {
         id: selectedTemplateId,
         title: String(els.templateTitle?.value || '').trim(),
+        category: String(els.templateCategory?.value || '').trim(),
         text: normalizeText(els.templateText?.value || ''),
       };
+    }
+
+    function updateCategoryDatalist() {
+      if (!els.templateCategoryList) return;
+      const categories = [...new Set(
+        state.templates
+          .map((tpl) => String(tpl.category || '').trim())
+          .filter(Boolean)
+      )].sort();
+      els.templateCategoryList.innerHTML = '';
+      for (const cat of categories) {
+        const option = document.createElement('option');
+        option.value = cat;
+        els.templateCategoryList.appendChild(option);
+      }
     }
 
     function upsertStateTemplates(nextTemplates) {
@@ -321,6 +341,7 @@
       renderSelect();
       fillEditorFromTemplate(byId(selectedTemplateId));
       setTemplateSearchVisible(false);
+      updateCategoryDatalist();
     }
 
     return {

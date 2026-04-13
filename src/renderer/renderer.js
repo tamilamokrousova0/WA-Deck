@@ -96,6 +96,8 @@ const els = {
   templateSearchResultsRow: document.getElementById('template-search-results-row'),
   templateSearchResults: document.getElementById('template-search-results'),
   templateTitle: document.getElementById('template-title'),
+  templateCategory: document.getElementById('template-category'),
+  templateCategoryList: document.getElementById('template-category-list'),
   templateText: document.getElementById('template-text'),
   templateSave: document.getElementById('template-save'),
   templateNew: document.getElementById('template-new'),
@@ -2538,12 +2540,17 @@ function bindActions() {
       showToast('Укажите время отправки', 'warn');
       return;
     }
+    const parsedDate = new Date(sendAt);
+    if (isNaN(parsedDate.getTime())) {
+      showToast('Неверный формат времени', 'warn');
+      return;
+    }
 
     const payload = {
       accountId,
       chatName,
       text,
-      sendAt: new Date(sendAt).toISOString(),
+      sendAt: parsedDate.toISOString(),
       attachments: spAttachments.map((f) => ({ ...f })),
     };
 
@@ -2569,7 +2576,18 @@ function bindActions() {
   async function renderSchedulePopoverList() {
     if (!els.spList) return;
     els.spList.innerHTML = '';
-    const response = await window.waDeck.listScheduled({ limit: 120 });
+
+    let response;
+    try {
+      response = await window.waDeck.listScheduled({ limit: 120 });
+    } catch (err) {
+      const errDiv = document.createElement('div');
+      errDiv.className = 'sp-empty sp-error';
+      errDiv.textContent = 'Ошибка загрузки: ' + (err.message || 'неизвестная ошибка');
+      els.spList.appendChild(errDiv);
+      return;
+    }
+
     const items = Array.isArray(response?.items) ? response.items : [];
 
     if (els.spListSummary) {
@@ -2577,7 +2595,10 @@ function bindActions() {
     }
 
     if (!items.length) {
-      els.spList.innerHTML = '<div class="sp-empty">Нет запланированных сообщений</div>';
+      const emptyDiv = document.createElement('div');
+      emptyDiv.className = 'sp-empty';
+      emptyDiv.textContent = 'Нет запланированных сообщений';
+      els.spList.appendChild(emptyDiv);
       return;
     }
 
@@ -2591,17 +2612,38 @@ function bindActions() {
       const sendAtStr = new Date(item.sendAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
       const textPreview = String(item.text || '').slice(0, 40) || '(вложения)';
 
-      row.innerHTML = `
-        <div class="sp-item-info">
-          <span class="sp-badge ${statusClass}">${statusLabel}</span>
-          <span class="sp-item-time">${sendAtStr}</span>
-        </div>
-        <div class="sp-item-text">${textPreview}</div>
-        <div class="sp-item-actions">
-          <button class="btn btn-small sp-cancel" data-id="${item.id}" title="Отменить">✕</button>
-        </div>
-      `;
-      row.querySelector('.sp-cancel')?.addEventListener('click', async () => {
+      const infoDiv = document.createElement('div');
+      infoDiv.className = 'sp-item-info';
+
+      const badgeSpan = document.createElement('span');
+      badgeSpan.className = 'sp-badge ' + statusClass;
+      badgeSpan.textContent = statusLabel;
+      infoDiv.appendChild(badgeSpan);
+
+      const timeSpan = document.createElement('span');
+      timeSpan.className = 'sp-item-time';
+      timeSpan.textContent = sendAtStr;
+      infoDiv.appendChild(timeSpan);
+
+      const textDiv = document.createElement('div');
+      textDiv.className = 'sp-item-text';
+      textDiv.textContent = textPreview;
+
+      const actionsDiv = document.createElement('div');
+      actionsDiv.className = 'sp-item-actions';
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn btn-small sp-cancel';
+      cancelBtn.dataset.id = String(item.id);
+      cancelBtn.title = 'Отменить';
+      cancelBtn.textContent = '\u2715';
+      actionsDiv.appendChild(cancelBtn);
+
+      row.appendChild(infoDiv);
+      row.appendChild(textDiv);
+      row.appendChild(actionsDiv);
+
+      cancelBtn.addEventListener('click', async () => {
         await window.waDeck.cancelScheduled(item.id);
         await WaDeckScheduleModule.renderScheduled();
         renderSchedulePopoverList();
@@ -2875,6 +2917,7 @@ async function init() {
 
   let activeIndex = -1;
   let visibleItems = [];
+  const tqCategoryState = new Map();
 
   function getTemplates() {
     return Array.isArray(state.templates) ? state.templates : [];
@@ -2892,7 +2935,8 @@ async function init() {
       ? templates.filter(t => {
           const title = String(t.title || '').toLowerCase();
           const text = String(t.text || '').toLowerCase();
-          return title.includes(q) || text.includes(q);
+          const category = String(t.category || '').toLowerCase();
+          return title.includes(q) || text.includes(q) || category.includes(q);
         })
       : templates;
 
@@ -2911,36 +2955,80 @@ async function init() {
     }
     if (emptyEl) emptyEl.classList.add('hidden');
 
-    filtered.forEach((tpl, i) => {
-      const item = document.createElement('div');
-      item.className = 'tq-item';
-      item.dataset.index = i;
-      item.dataset.templateId = tpl.id;
+    /* Group by category */
+    const groups = new Map();
+    for (const tpl of filtered) {
+      const cat = String(tpl.category || '').trim() || '';
+      if (!groups.has(cat)) groups.set(cat, []);
+      groups.get(cat).push(tpl);
+    }
 
-      const icon = document.createElement('div');
-      icon.className = 'tq-item-icon';
-      icon.textContent = String(tpl.title || '?').slice(0, 1).toUpperCase();
-
-      const body = document.createElement('div');
-      body.className = 'tq-item-body';
-
-      const title = document.createElement('div');
-      title.className = 'tq-item-title';
-      title.textContent = tpl.title || 'Без названия';
-
-      const preview = document.createElement('div');
-      preview.className = 'tq-item-preview';
-      preview.textContent = truncate(tpl.text, 60);
-
-      body.appendChild(title);
-      body.appendChild(preview);
-      item.appendChild(icon);
-      item.appendChild(body);
-
-      item.addEventListener('click', () => insertAndClose(tpl));
-      listEl.appendChild(item);
-      visibleItems.push({ el: item, tpl });
+    /* Sort categories alphabetically, empty ("Без категории") last */
+    const sortedKeys = [...groups.keys()].sort((a, b) => {
+      if (!a) return 1;
+      if (!b) return -1;
+      return a.localeCompare(b, 'ru');
     });
+
+    /* Sort templates within each group alphabetically */
+    for (const [, list] of groups) {
+      list.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'ru'));
+    }
+
+    const allExpanded = sortedKeys.length <= 1 || filtered.length <= 8;
+
+    for (const cat of sortedKeys) {
+      const catTemplates = groups.get(cat);
+      const details = document.createElement('details');
+      details.className = 'tq-category';
+      if (allExpanded || q) details.open = true;
+      else {
+        const savedState = tqCategoryState.get(cat);
+        details.open = savedState !== undefined ? savedState : true;
+      }
+
+      details.addEventListener('toggle', () => {
+        tqCategoryState.set(cat, details.open);
+      });
+
+      const summary = document.createElement('summary');
+      summary.className = 'tq-category-title';
+      summary.textContent = cat || 'Без категории';
+      details.appendChild(summary);
+
+      for (const tpl of catTemplates) {
+        const item = document.createElement('div');
+        item.className = 'tq-item';
+        item.dataset.index = visibleItems.length;
+        item.dataset.templateId = tpl.id;
+
+        const icon = document.createElement('div');
+        icon.className = 'tq-item-icon';
+        icon.textContent = String(tpl.title || '?').slice(0, 1).toUpperCase();
+
+        const body = document.createElement('div');
+        body.className = 'tq-item-body';
+
+        const title = document.createElement('div');
+        title.className = 'tq-item-title';
+        title.textContent = tpl.title || 'Без названия';
+
+        const preview = document.createElement('div');
+        preview.className = 'tq-item-preview';
+        preview.textContent = truncate(tpl.text, 60);
+
+        body.appendChild(title);
+        body.appendChild(preview);
+        item.appendChild(icon);
+        item.appendChild(body);
+
+        item.addEventListener('click', () => insertAndClose(tpl));
+        details.appendChild(item);
+        visibleItems.push({ el: item, tpl });
+      }
+
+      listEl.appendChild(details);
+    }
 
     setActive(0);
   }

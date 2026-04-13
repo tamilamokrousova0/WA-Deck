@@ -1232,6 +1232,7 @@ async function saveTemplate(payload = {}) {
   const id = String(payload?.id || '').trim();
   const title = String(payload?.title || '').trim() || nextTemplateTitle();
   const text = String(payload?.text || '').replace(/\r/g, '');
+  const category = String(payload?.category || '').trim().slice(0, 60);
 
   if (!text.trim()) {
     return { ok: false, error: 'template_text_required' };
@@ -1243,6 +1244,7 @@ async function saveTemplate(payload = {}) {
 
     existing.title = title.slice(0, 120);
     existing.text = text;
+    existing.category = category;
     existing.updatedAt = new Date().toISOString();
     await saveStore();
     return { ok: true, template: { ...existing }, templates: state.store.templates.map((tpl) => ({ ...tpl })) };
@@ -1252,6 +1254,7 @@ async function saveTemplate(payload = {}) {
     id: `tpl_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
     title: title.slice(0, 120),
     text,
+    category,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
