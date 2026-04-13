@@ -233,10 +233,12 @@ function sanitizeStore(raw) {
       const title = String(item?.title || '').trim();
       const createdAt = String(item?.createdAt || new Date().toISOString());
       const updatedAt = String(item?.updatedAt || createdAt);
+      const category = String(item?.category || '').trim().slice(0, 60);
       return {
         id: String(item?.id || `tpl_${Date.now()}_${index}_${crypto.randomBytes(2).toString('hex')}`),
         title: title || `Шаблон ${index + 1}`,
         text,
+        category,
         createdAt,
         updatedAt,
       };
