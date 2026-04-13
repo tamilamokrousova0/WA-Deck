@@ -189,6 +189,7 @@ const els = {
   tqClose: document.getElementById('tq-close'),
   openTemplateQuick: document.getElementById('open-template-quick'),
   openScheduleToolbar: document.getElementById('open-schedule-toolbar'),
+  sendVoiceMsg: document.getElementById('send-voice-msg'),
 };
 
 let templateController = null;
@@ -2297,9 +2298,18 @@ function bindActions() {
         const card = document.getElementById('schedule-settings-card');
         if (card) {
           card.open = true;
+          els.scheduleAt.value = nextSendAtLocal(0);
           card.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
       }, 100);
+    });
+  }
+  const scheduleCard = document.getElementById('schedule-settings-card');
+  if (scheduleCard) {
+    scheduleCard.addEventListener('toggle', () => {
+      if (scheduleCard.open) {
+        els.scheduleAt.value = nextSendAtLocal(0);
+      }
     });
   }
   els.pickerAccount?.addEventListener('change', () => WaDeckScheduleModule.refreshPickerChats(true).catch(console.error));
@@ -2526,7 +2536,7 @@ async function init() {
     await templateController.init(state.templates);
   }
 
-  els.scheduleAt.value = nextSendAtLocal(5);
+  els.scheduleAt.value = nextSendAtLocal(0);
   /* renderScheduled() already called via setActiveAccount → _setActiveAccountInner */
 
   bindActions();

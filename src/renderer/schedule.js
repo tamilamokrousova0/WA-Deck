@@ -336,7 +336,7 @@
     }
 
     els.scheduleText.value = '';
-    els.scheduleAt.value = nextSendAtLocal(5);
+    els.scheduleAt.value = nextSendAtLocal(0);
     clearAttachments();
     await renderScheduled();
     setStatus('Сообщение запланировано');
