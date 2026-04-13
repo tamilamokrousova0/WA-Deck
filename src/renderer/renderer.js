@@ -1052,12 +1052,9 @@ function showAccountContextMenu(event, account) {
   const closeOnEsc = (e) => {
     if (e.key === 'Escape') closeAccountContextMenu();
   };
-  const bindTimer = setTimeout(() => {
-    document.addEventListener('click', closeOnClick, { capture: true });
-    document.addEventListener('keydown', closeOnEsc);
-  }, 0);
+  document.addEventListener('click', closeOnClick, { capture: true });
+  document.addEventListener('keydown', closeOnEsc);
   menu._cleanup = () => {
-    clearTimeout(bindTimer);
     document.removeEventListener('click', closeOnClick, { capture: true });
     document.removeEventListener('keydown', closeOnEsc);
   };
@@ -2067,12 +2064,9 @@ function showRefreshContextMenu(event) {
 
   const closeOnClick = (e) => { if (!menu.contains(e.target)) closeAccountContextMenu(); };
   const closeOnEsc = (e) => { if (e.key === 'Escape') closeAccountContextMenu(); };
-  const bindTimer = setTimeout(() => {
-    document.addEventListener('click', closeOnClick, { capture: true });
-    document.addEventListener('keydown', closeOnEsc);
-  }, 0);
+  document.addEventListener('click', closeOnClick, { capture: true });
+  document.addEventListener('keydown', closeOnEsc);
   menu._cleanup = () => {
-    clearTimeout(bindTimer);
     document.removeEventListener('click', closeOnClick, { capture: true });
     document.removeEventListener('keydown', closeOnEsc);
   };
