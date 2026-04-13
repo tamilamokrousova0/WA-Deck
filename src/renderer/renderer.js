@@ -532,10 +532,7 @@ async function handleCrmHover(account, webview, payload) {
       record = res.record || {};
       _crmHoverCache.set(cacheKey, { data: record, ts: now });
       // Limit cache size
-      if (_crmHoverCache.size > 50) {
-        const firstKey = _crmHoverCache.keys().next().value;
-        _crmHoverCache.delete(firstKey);
-      }
+      trimMapSize(_crmHoverCache, 50);
     } catch (err) {
       console.warn('[CRM Hover] Failed to load contact:', contactName, err);
       return;
