@@ -673,6 +673,7 @@ function updateToolbarState() {
   if (els.refreshActive) els.refreshActive.disabled = !hasActive;
   if (els.freezeActive) { els.freezeActive.disabled = !isWa; els.freezeActive.style.display = isWa || !hasActive ? '' : 'none'; }
   if (els.openCrmModal) { els.openCrmModal.disabled = !isWa; els.openCrmModal.style.display = isWa || !hasActive ? '' : 'none'; }
+  if (els.sendVoiceMsg) { els.sendVoiceMsg.disabled = !isWa; els.sendVoiceMsg.style.display = isWa || !hasActive ? '' : 'none'; }
 }
 
 function updateFreezeButtonState() {
@@ -2071,6 +2072,110 @@ async function insertTextIntoActiveChat(text) {
   }
 }
 
+async function sendAudioAsVoiceMessage() {
+  const account = activeAccount();
+  if (!account) {
+    showToast('Нет активного аккаунта', 'warn');
+    return;
+  }
+  if (account.type === 'telegram') {
+    showToast('Голосовые сообщения доступны только для WhatsApp', 'warn');
+    return;
+  }
+  if (account.frozen) {
+    showToast('Аккаунт заморожен', 'warn');
+    return;
+  }
+  const webview = selectedWebview();
+  if (!webview || !isWebviewReady(webview)) {
+    showToast('WhatsApp ещё не загружен', 'warn');
+    return;
+  }
+
+  /* Pick audio file */
+  let picked;
+  try {
+    picked = await window.waDeck.pickAudioFile();
+  } catch (err) {
+    console.error('[voice-msg] pick failed', err);
+    showToast('Не удалось открыть диалог выбора файла', 'error');
+    return;
+  }
+  if (!picked || picked.canceled) return;
+  if (!picked.ok) {
+    const errMap = {
+      file_too_large: 'Файл слишком большой (макс. 16 МБ)',
+      read_failed: 'Не удалось прочитать файл',
+    };
+    showToast(errMap[picked.error] || 'Ошибка загрузки файла', 'error');
+    return;
+  }
+
+  /* Show recording state */
+  if (els.sendVoiceMsg) {
+    els.sendVoiceMsg.classList.add('is-recording');
+    els.sendVoiceMsg.disabled = true;
+  }
+
+  const _delay = (ms) => new Promise((r) => setTimeout(r, ms));
+  const errMessages = {
+    ptt_button_not_found: 'Кнопка записи не найдена. Откройте чат в WhatsApp.',
+    getUserMedia_not_called: 'WhatsApp не запросил микрофон. Попробуйте снова.',
+    audio_decode_failed: 'Не удалось декодировать аудиофайл.',
+    audio_too_short: 'Аудиофайл слишком короткий (менее 0.3 сек).',
+    no_voice_state: 'Внутренняя ошибка состояния.',
+  };
+
+  try {
+    /* ── Phase 1: Setup — decode audio, override getUserMedia, find PTT button ── */
+    const setup = await webview.executeJavaScript(
+      voiceMessageSetupScript(picked.dataBase64, picked.mime),
+      true
+    );
+    if (!setup?.ok) {
+      const key = setup?.error || 'unknown';
+      showToast(errMessages[key] || `Ошибка: ${key}`, 'error', 5000);
+      return;
+    }
+
+    /* ── Phase 2: Trusted mouseDown via sendInputEvent (isTrusted: true) ── */
+    webview.sendInputEvent({ type: 'mouseDown', x: setup.x, y: setup.y, button: 'left', clickCount: 1 });
+    await _delay(80);
+
+    /* ── Phase 3: Wait for getUserMedia + audio duration ── */
+    const waitResult = await webview.executeJavaScript(voiceMessageWaitScript(), true);
+
+    if (!waitResult?.ok) {
+      /* getUserMedia not called — release and cleanup */
+      webview.sendInputEvent({ type: 'mouseUp', x: setup.x, y: setup.y, button: 'left' });
+      await webview.executeJavaScript(voiceMessageCleanupScript(), true).catch(() => {});
+      const key = waitResult?.error || 'unknown';
+      showToast(errMessages[key] || `Ошибка: ${key}`, 'error', 5000);
+      return;
+    }
+
+    /* ── Phase 4: Trusted mouseUp — WhatsApp finalizes & sends the voice message ── */
+    webview.sendInputEvent({ type: 'mouseUp', x: setup.x, y: setup.y, button: 'left' });
+    await _delay(600);
+
+    /* ── Phase 5: Cleanup ── */
+    await webview.executeJavaScript(voiceMessageCleanupScript(), true).catch(() => {});
+
+    const dur = waitResult.duration ? ` (${Math.round(waitResult.duration)}с)` : '';
+    showToast(`Голосовое сообщение отправлено${dur}`, 'success');
+  } catch (error) {
+    console.error('[voice-msg]', error);
+    /* Emergency cleanup */
+    webview.executeJavaScript(voiceMessageCleanupScript(), true).catch(() => {});
+    showToast('Ошибка отправки голосового сообщения', 'error', 5000);
+  } finally {
+    if (els.sendVoiceMsg) {
+      els.sendVoiceMsg.classList.remove('is-recording');
+      els.sendVoiceMsg.disabled = false;
+    }
+  }
+}
+
 function bindActions() {
   // ── Add-account popover (WhatsApp / Telegram choice) ──
   const addPopover = document.getElementById('add-account-popover');
@@ -2103,6 +2208,7 @@ function bindActions() {
   });
   els.freezeActive?.addEventListener('click', () => toggleActiveFreeze().catch(console.error));
   els.openCrmModal?.addEventListener('click', () => WaDeckCrmModule.openCrmModal().catch(console.error));
+  els.sendVoiceMsg?.addEventListener('click', () => sendAudioAsVoiceMessage().catch(console.error));
 
   els.togglePanel.addEventListener('click', () => {
     openSettingsPanel();

@@ -3635,6 +3635,29 @@ textarea:focus {
   50%      { opacity: 0.5; }
 }
 
+/* ── Voice Message Button ── */
+.btn-voice:hover .icon-voice {
+  animation: voicePulse 0.5s ease;
+}
+@keyframes voicePulse {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+.btn-voice.is-recording {
+  color: var(--green, #22c55e);
+  border-color: rgba(34, 197, 94, 0.5);
+  animation: voiceRecording 1.2s ease-in-out infinite;
+}
+@keyframes voiceRecording {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2), 0 0 12px rgba(34, 197, 94, 0.15); }
+  50%      { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.4), 0 0 20px rgba(34, 197, 94, 0.25); }
+}
+html[data-theme='light'] .btn-voice.is-recording {
+  border-color: rgba(34, 197, 94, 0.4);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.15), 0 0 10px rgba(34, 197, 94, 0.1);
+}
+
 /* ── Template Quick Access Palette ── */
 .tq-overlay {
   position: fixed;

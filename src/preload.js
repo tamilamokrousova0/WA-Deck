@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('waDeck', {
   saveTemplate: (payload) => ipcRenderer.invoke('save-template', payload),
   deleteTemplate: (id) => ipcRenderer.invoke('delete-template', id),
   pickAttachments: () => ipcRenderer.invoke('pick-attachments'),
+  pickAudioFile: () => ipcRenderer.invoke('pick-audio-file'),
   scheduleMessage: (payload) => ipcRenderer.invoke('schedule-message', payload),
   listScheduled: (payload) => ipcRenderer.invoke('list-scheduled', payload),
   claimDueScheduled: (payload) => ipcRenderer.invoke('claim-due-scheduled', payload),

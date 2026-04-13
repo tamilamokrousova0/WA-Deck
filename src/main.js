@@ -813,6 +813,13 @@ function guessMime(filePath) {
   if (ext === '.xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   if (ext === '.txt') return 'text/plain';
   if (ext === '.zip') return 'application/zip';
+  if (ext === '.ogg') return 'audio/ogg';
+  if (ext === '.opus') return 'audio/opus';
+  if (ext === '.mp3') return 'audio/mpeg';
+  if (ext === '.wav') return 'audio/wav';
+  if (ext === '.m4a') return 'audio/mp4';
+  if (ext === '.aac') return 'audio/aac';
+  if (ext === '.weba') return 'audio/webm';
   return 'application/octet-stream';
 }
 
@@ -1399,6 +1406,38 @@ function registerIpc() {
         name: path.basename(filePath),
       })),
     };
+  });
+
+  /* ── Pick audio file for voice message ── */
+  const MAX_VOICE_FILE_SIZE = 16 * 1024 * 1024; // 16 MB
+  ipcMain.handle('pick-audio-file', async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, error: 'no_window' };
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Выберите аудиофайл для голосового сообщения',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Audio', extensions: ['ogg', 'opus', 'mp3', 'wav', 'm4a', 'aac', 'weba'] },
+      ],
+    });
+    if (result.canceled || !result.filePaths?.length) return { canceled: true };
+    const filePath = result.filePaths[0];
+    try {
+      const stat = await fs.stat(filePath);
+      if (stat.size > MAX_VOICE_FILE_SIZE) {
+        return { ok: false, error: 'file_too_large' };
+      }
+      const buff = await fs.readFile(filePath);
+      return {
+        ok: true,
+        name: path.basename(filePath),
+        size: stat.size,
+        dataBase64: buff.toString('base64'),
+        mime: guessMime(filePath),
+      };
+    } catch (err) {
+      console.error('[pick-audio-file]', err);
+      return { ok: false, error: 'read_failed' };
+    }
   });
 
   ipcMain.handle('schedule-message', async (_event, payload) => {

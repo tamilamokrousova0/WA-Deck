@@ -102,6 +102,15 @@
                 <path d="M18.5 14.5v2l1.5 1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
               </svg>
             </button>
+            <div class="toolbar-separator"></div>
+            <button type="button" id="send-voice-msg" class="btn btn-icon btn-toolbar-icon btn-voice" title="Отправить аудио как голосовое">
+              <svg class="icon icon-voice" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                <line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <line x1="8" y1="23" x2="16" y2="23" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              </svg>
+            </button>
           </div>
           <div id="weather-widget" class="weather-widget">
             <button type="button" id="weather-toggle" class="weather-toggle" title="Погода">
@@ -569,6 +578,7 @@
     <script src="webview-scripts/crm-chat-boundary.js"></script>
     <script src="webview-scripts/crm-hover-bridge.js"></script>
     <script src="webview-scripts/insert-text.js"></script>
+    <script src="webview-scripts/voice-message.js"></script>
     <script src="weather.js"></script>
     <script src="auto-update.js"></script>
     <script src="unread.js"></script>
