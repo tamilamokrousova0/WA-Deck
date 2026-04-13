@@ -119,3 +119,15 @@ jobs:
             dist-artifacts/**/latest-mac.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Ensure updater metadata assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mapfile -t metadata_files < <(find dist-artifacts -type f \( -name 'latest.yml' -o -name 'latest-mac.yml' -o -name '*.blockmap' \))
+          if [ ${#metadata_files[@]} -eq 0 ]; then
+            echo "No updater metadata files found" >&2
+            exit 1
+          fi
+          gh release upload "${GITHUB_REF_NAME}" "${metadata_files[@]}" --clobber

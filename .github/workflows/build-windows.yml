@@ -25,16 +25,24 @@ jobs:
 
       - name: Upload to release
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/WA-Deck-Setup-*.exe
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          files=(dist/WA-Deck-Setup-*.exe dist/WA-Deck-Setup-*.exe.blockmap dist/latest.yml)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No Windows release files found" >&2
+            exit 1
+          fi
+          gh release upload "${{ github.event.release.tag_name }}" "${files[@]}" --clobber
 
       - name: Upload artifact
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: WA-Deck-Windows
-          path: dist/WA-Deck-Setup-*.exe
+          path: |
+            dist/WA-Deck-Setup-*.exe
+            dist/WA-Deck-Setup-*.exe.blockmap
+            dist/latest.yml
