@@ -283,19 +283,15 @@ function showToast(text, type, duration) {
 
 // ── Animated modal close ──
 function closeModalAnimated(modalEl) {
-  if (!modalEl || modalEl.classList.contains('hidden')) return;
+  if (!modalEl || modalEl.classList.contains('hidden') || modalEl.classList.contains('is-closing')) return;
   modalEl.classList.add('is-closing');
-  modalEl.addEventListener('animationend', function handler() {
-    modalEl.removeEventListener('animationend', handler);
+  const cleanup = () => {
     modalEl.classList.remove('is-closing');
     modalEl.classList.add('hidden');
-  }, { once: true });
-  // Fallback if animation doesn't fire
+  };
+  modalEl.addEventListener('animationend', cleanup, { once: true });
   setTimeout(() => {
-    if (modalEl.classList.contains('is-closing')) {
-      modalEl.classList.remove('is-closing');
-      modalEl.classList.add('hidden');
-    }
+    if (modalEl.classList.contains('is-closing')) cleanup();
   }, 250);
 }
 
