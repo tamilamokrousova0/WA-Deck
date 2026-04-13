@@ -285,7 +285,8 @@ async function loadStore() {
     const content = await fs.readFile(state.paths.storePath, 'utf8');
     const parsed = JSON.parse(content);
     state.store = sanitizeStore(parsed);
-  } catch {
+  } catch (err) {
+    console.warn('[WA-Deck] Failed to load store, resetting:', err?.message || err);
     state.store = sanitizeStore(null);
   }
 }
