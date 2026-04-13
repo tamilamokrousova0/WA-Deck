@@ -9,7 +9,7 @@ const { pathToFileURL } = require('url');
 
 const APP_ID = 'com.local.wadeck';
 const APP_TITLE = 'WA Deck';
-const FALLBACK_CHROME_VERSION = '146.0.7680.166';
+const FALLBACK_CHROME_VERSION = '146.0.7680.179';
 const APP_ICON_PNG_PATH = path.join(__dirname, '..', 'assets', 'icon', 'wadeck-icon-512.png');
 const RELEASES_LATEST_URL = 'https://github.com/tamilamokrousova0/WA-Deck/releases/latest';
 
