@@ -281,6 +281,24 @@ function showToast(text, type, duration) {
   }, duration);
 }
 
+// ── Animated modal close ──
+function closeModalAnimated(modalEl) {
+  if (!modalEl || modalEl.classList.contains('hidden')) return;
+  modalEl.classList.add('is-closing');
+  modalEl.addEventListener('animationend', function handler() {
+    modalEl.removeEventListener('animationend', handler);
+    modalEl.classList.remove('is-closing');
+    modalEl.classList.add('hidden');
+  }, { once: true });
+  // Fallback if animation doesn't fire
+  setTimeout(() => {
+    if (modalEl.classList.contains('is-closing')) {
+      modalEl.classList.remove('is-closing');
+      modalEl.classList.add('hidden');
+    }
+  }, 250);
+}
+
 // ── Confirm модал ──
 let _confirmResolve = null;
 function showConfirm(title, message, okText) {
@@ -304,7 +322,7 @@ function showConfirm(title, message, okText) {
 }
 
 function closeConfirm(result) {
-  if (els.confirmModal) els.confirmModal.classList.add('hidden');
+  closeModalAnimated(els.confirmModal);
   if (_confirmResolve) {
     _confirmResolve(Boolean(result));
     _confirmResolve = null;
@@ -1660,7 +1678,7 @@ function closeAccountMenu() {
   state.accountMenuDraftColor = '';
   const colorPop = document.getElementById('account-color-popover');
   if (colorPop) colorPop.classList.add('hidden');
-  els.accountMenuModal.classList.add('hidden');
+  closeModalAnimated(els.accountMenuModal);
 }
 
 async function saveAccountFromMenu() {

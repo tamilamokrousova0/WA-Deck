@@ -167,7 +167,11 @@
 
   function closeCrmModal() {
     setCrmEditable(false);
-    els.crmModal.classList.add('hidden');
+    if (typeof closeModalAnimated === 'function') {
+      closeModalAnimated(els.crmModal);
+    } else {
+      els.crmModal.classList.add('hidden');
+    }
     els.crmModal.style.removeProperty('--crm-modal-left');
   }
 

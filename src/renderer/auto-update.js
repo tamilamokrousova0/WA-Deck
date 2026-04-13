@@ -257,7 +257,11 @@
 
   function closeUpdateModal() {
     if (els.updateAvailableModal) {
-      els.updateAvailableModal.classList.add('hidden');
+      if (typeof closeModalAnimated === 'function') {
+        closeModalAnimated(els.updateAvailableModal);
+      } else {
+        els.updateAvailableModal.classList.add('hidden');
+      }
     }
   }
 
@@ -356,7 +360,11 @@
   }
 
   async function closeReleaseNotesModal() {
-    els.releaseNotesModal.classList.add('hidden');
+    if (typeof closeModalAnimated === 'function') {
+      closeModalAnimated(els.releaseNotesModal);
+    } else {
+      els.releaseNotesModal.classList.add('hidden');
+    }
     await markReleaseNotesSeen(String(state.runtime?.appVersion || '').trim());
   }
 

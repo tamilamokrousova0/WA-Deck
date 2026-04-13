@@ -115,7 +115,11 @@
   }
 
   function closeChatPicker() {
-    els.chatPickerModal.classList.add('hidden');
+    if (typeof closeModalAnimated === 'function') {
+      closeModalAnimated(els.chatPickerModal);
+    } else {
+      els.chatPickerModal.classList.add('hidden');
+    }
   }
 
   function renderAttachmentsDraft() {
