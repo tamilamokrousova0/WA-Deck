@@ -1332,6 +1332,9 @@ function ensureWebview(account) {
       if (typeof crmHoverBridgeScript === 'function') {
         webview.executeJavaScript(crmHoverBridgeScript(), true).catch((e) => console.warn('[crm-hover]', e));
       }
+      if (typeof translatorBarScript === 'function') {
+        webview.executeJavaScript(translatorBarScript(), true).catch((e) => console.warn('[translator]', e));
+      }
     }
 
     // Debounced status update on initial load (no full sidebar rebuild)
@@ -1361,6 +1364,9 @@ function ensureWebview(account) {
     if (typeof crmHoverBridgeScript === 'function') {
       webview.executeJavaScript(crmHoverBridgeScript(), true).catch((e) => console.warn('[crm-hover]', e));
     }
+    if (typeof translatorBarScript === 'function') {
+      webview.executeJavaScript(translatorBarScript(), true).catch((e) => console.warn('[translator]', e));
+    }
 
     // Debounced status update — prevents excessive re-renders on SPA navigation
     if (_bindDomTimer) clearTimeout(_bindDomTimer);
@@ -1379,6 +1385,24 @@ function ensureWebview(account) {
         try {
           const payload = JSON.parse(message.slice('__WADECK_CRM_HOVER__'.length));
           handleCrmHover(account, webview, payload);
+        } catch { /* ignore parse errors */ }
+        return;
+      }
+      if (message.startsWith('__WADECK_TRANSLATE__')) {
+        try {
+          const payload = JSON.parse(message.slice('__WADECK_TRANSLATE__'.length));
+          window.waDeck.translateText(payload).then((result) => {
+            if (result?.ok && result.translated) {
+              const escaped = result.translated
+                .replace(/\\/g, '\\\\')
+                .replace(/'/g, "\\'")
+                .replace(/\n/g, '\\n');
+              webview.executeJavaScript(
+                `window.__waDeckInsertTranslation('${escaped}');`,
+                true
+              ).catch(() => {});
+            }
+          }).catch(() => {});
         } catch { /* ignore parse errors */ }
         return;
       }

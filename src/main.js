@@ -1560,6 +1560,35 @@ function registerIpc() {
       return { ok: false, error: String(error?.message || error || 'install_failed') };
     }
   });
+
+  ipcMain.handle('translate-text', async (_event, payload) => {
+    const text = String(payload?.text || '');
+    const from = String(payload?.from || 'auto');
+    const to = String(payload?.to || 'en');
+    if (!text.trim()) return { ok: false, error: 'empty_text' };
+    try {
+      const https = require('https');
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(from)}&tl=${encodeURIComponent(to)}&dt=t&q=${encodeURIComponent(text)}`;
+      const result = await new Promise((resolve, reject) => {
+        https.get(url, (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            try {
+              const parsed = JSON.parse(data);
+              const translated = (parsed[0] || []).map((s) => s[0]).filter(Boolean).join('');
+              resolve(translated);
+            } catch (e) {
+              reject(new Error('parse_failed'));
+            }
+          });
+        }).on('error', reject);
+      });
+      return { ok: true, translated: result };
+    } catch (e) {
+      return { ok: false, error: String(e?.message || 'translate_failed') };
+    }
+  });
 }
 
 async function bootstrap() {

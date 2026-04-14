@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('waDeck', {
   setDockBadge: (payload) => ipcRenderer.invoke('set-dock-badge', payload),
   checkForUpdates: (payload) => ipcRenderer.invoke('check-for-updates', payload),
   installDownloadedUpdate: () => ipcRenderer.invoke('install-downloaded-update'),
+  translateText: (payload) => ipcRenderer.invoke('translate-text', payload),
   onAutoUpdateStatus: (callback) => {
     if (typeof callback !== 'function') return () => {};
     const listener = (_event, payload) => callback(payload || {});
