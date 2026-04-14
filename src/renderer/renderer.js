@@ -1287,6 +1287,12 @@ function ensureWebview(account) {
       refreshWebviewVisibility();
       setStatus(`${currentAccount().name}: готово`);
     }
+    // Re-inject translator bar after full page reload (account re-auth, manual reload)
+    if (isWhatsApp && typeof translatorBarScript === 'function') {
+      webview.executeJavaScript('window.__waDeckTranslatorBound = false;', true)
+        .then(() => webview.executeJavaScript(translatorBarScript(), true))
+        .catch((e) => console.warn('[translator-reload]', e));
+    }
   };
 
   const onFailLoad = () => {
