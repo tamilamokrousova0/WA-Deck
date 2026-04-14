@@ -989,7 +989,10 @@ function setupWebviewGuards() {
     if (!isTelegram()) {
       contents.setUserAgent(WA_USER_AGENT);
     }
-    contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    contents.setWindowOpenHandler(({ url }) => {
+      safeOpenExternal(url);
+      return { action: 'deny' };
+    });
 
     contents.on('will-navigate', (event, url) => {
       const dest = String(url || '');
