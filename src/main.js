@@ -1546,17 +1546,28 @@ function registerIpc() {
       return { ok: false, error: 'not_packaged' };
     }
     try {
+      // Prevent before-quit handler from interfering
+      _appIsQuitting = true;
+
+      // Flush pending store writes before exiting
+      try { await _saveStoreQueue; } catch {}
+
+      // Disable auto-install-on-quit to prevent double install
+      autoUpdater.autoInstallOnAppQuit = false;
+
       // Close all windows before running the installer so NSIS does not
       // show a "please close the application" dialog in a loop.
       for (const win of BrowserWindow.getAllWindows()) {
         win.removeAllListeners('close');
         win.destroy();
       }
+
       // isSilent=true  — run NSIS silently (no "close app" dialog)
       // isForceRunAfter=true — relaunch the app after installation
-      setImmediate(() => autoUpdater.quitAndInstall(true, true));
+      autoUpdater.quitAndInstall(true, true);
       return { ok: true };
     } catch (error) {
+      _appIsQuitting = false;
       return { ok: false, error: String(error?.message || error || 'install_failed') };
     }
   });
