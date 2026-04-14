@@ -1546,7 +1546,15 @@ function registerIpc() {
       return { ok: false, error: 'not_packaged' };
     }
     try {
-      setImmediate(() => autoUpdater.quitAndInstall());
+      // Close all windows before running the installer so NSIS does not
+      // show a "please close the application" dialog in a loop.
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.removeAllListeners('close');
+        win.destroy();
+      }
+      // isSilent=true  — run NSIS silently (no "close app" dialog)
+      // isForceRunAfter=true — relaunch the app after installation
+      setImmediate(() => autoUpdater.quitAndInstall(true, true));
       return { ok: true };
     } catch (error) {
       return { ok: false, error: String(error?.message || error || 'install_failed') };
