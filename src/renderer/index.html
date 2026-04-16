@@ -537,16 +537,6 @@
             Контакт
             <input id="crm-contact-name" type="text" readonly />
           </label>
-          <div class="crm-row-2">
-            <label class="crm-label">
-              Имя фамилия
-              <input id="crm-full-name" type="text" readonly />
-            </label>
-            <label class="crm-label">
-              Страна город
-              <input id="crm-country-city" type="text" readonly />
-            </label>
-          </div>
           <label class="crm-label">
             О контакте
             <textarea id="crm-about" readonly></textarea>
@@ -561,8 +551,12 @@
         </div>
         <div class="crm-modal-actions">
           <button type="button" id="crm-edit" class="btn hidden">Изменить</button>
-          <button type="button" id="crm-save" class="btn btn-primary grow">Сохранить</button>
+          <button type="button" id="crm-save" class="btn btn-primary">Сохранить</button>
           <button type="button" id="crm-copy" class="btn">Копировать</button>
+          <label class="crm-hover-toggle" title="Показывать CRM при наведении на контакт в чате">
+            <input type="checkbox" id="crm-hover-enabled" checked>
+            <span>Hover</span>
+          </label>
         </div>
         <div id="crm-meta" class="crm-meta">Файл: —</div>
       </div>

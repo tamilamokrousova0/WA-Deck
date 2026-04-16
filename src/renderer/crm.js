@@ -12,8 +12,6 @@
   function setCrmEditable(editable) {
     const on = Boolean(editable);
     state.crmEditable = on;
-    if (els.crmFullName) els.crmFullName.readOnly = !on;
-    if (els.crmCountryCity) els.crmCountryCity.readOnly = !on;
     if (els.crmAbout) els.crmAbout.readOnly = !on;
     if (els.crmMyInfo) els.crmMyInfo.readOnly = !on;
     if (els.crmSave) els.crmSave.disabled = !on;
@@ -21,11 +19,11 @@
   }
 
   function crmFormPayload() {
+    const hoverCheckbox = document.getElementById('crm-hover-enabled');
     return {
-      fullName: String(els.crmFullName.value || '').trim(),
-      countryCity: String(els.crmCountryCity.value || '').trim(),
       about: String(els.crmAbout.value || '').trim(),
       myInfo: String(els.crmMyInfo.value || '').trim(),
+      hoverEnabled: hoverCheckbox ? hoverCheckbox.checked : true,
     };
   }
 
@@ -35,9 +33,6 @@
     return [
       `Контакт: ${target.contactName || ''}`,
       `WhatsApp: ${target.accountName || ''}`,
-      '',
-      `Имя фамилия: ${payload.fullName}`,
-      `Страна город: ${payload.countryCity}`,
       '',
       'О нём:',
       payload.about,
@@ -105,10 +100,9 @@
 
     const loaded = response.record || {};
     const nextRecord = {
-      fullName: String(loaded.fullName || ''),
-      countryCity: String(loaded.countryCity || ''),
       about: String(loaded.about || ''),
       myInfo: String(loaded.myInfo || ''),
+      hoverEnabled: loaded.hoverEnabled !== false, // default true
     };
 
     const contactMismatch = String(loaded.contactName || '').trim() !== contactName;
@@ -139,11 +133,11 @@
     };
 
     els.crmContactName.value = contactName;
-    els.crmFullName.value = nextRecord.fullName;
-    els.crmCountryCity.value = nextRecord.countryCity;
     els.crmAbout.value = nextRecord.about;
     els.crmMyInfo.value = nextRecord.myInfo;
     els.crmMeta.textContent = `Файл: ${filePath || '—'}`;
+    const hoverCheckbox = document.getElementById('crm-hover-enabled');
+    if (hoverCheckbox) hoverCheckbox.checked = nextRecord.hoverEnabled;
     setCrmEditable(true);
     await updateCrmModalPosition();
     els.crmModal.classList.remove('hidden');
@@ -204,6 +198,10 @@
 
     state.crmTarget.filePath = String(response.filePath || target.filePath || '');
     els.crmMeta.textContent = `Файл: ${state.crmTarget.filePath || '—'}`;
+    // Invalidate hover cache so new hoverEnabled takes effect
+    if (typeof window._invalidateCrmHoverCache === 'function') {
+      window._invalidateCrmHoverCache(target.accountId, target.contactName);
+    }
     setStatus('CRM: сохранено');
   }
 
@@ -218,12 +216,12 @@
     if (!el || el.readOnly) {
       setCrmEditable(true);
     }
+    const MONTHS_RU = [
+      'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+      'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
+    ];
     const now = new Date();
-    const dd = String(now.getDate()).padStart(2, '0');
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    const hh = String(now.getHours()).padStart(2, '0');
-    const mi = String(now.getMinutes()).padStart(2, '0');
-    const stamp = '[' + dd + '.' + mm + ' ' + hh + ':' + mi + '] ';
+    const stamp = now.getDate() + ' ' + MONTHS_RU[now.getMonth()] + ' - ';
     const prev = el.value ? '\n' + el.value : '';
     el.value = stamp + prev;
     el.focus();

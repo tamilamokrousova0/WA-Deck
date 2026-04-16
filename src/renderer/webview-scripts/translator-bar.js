@@ -3,6 +3,13 @@ function translatorBarScript() {
     if (window.__waDeckTranslatorBound) return true;
     window.__waDeckTranslatorBound = true;
 
+    // Clean up any stale bar/overlays from a prior init
+    try {
+      const staleBar = document.getElementById('__wadeck-translator-bar');
+      if (staleBar) staleBar.remove();
+      document.querySelectorAll('.__wadeck-tr-overlay').forEach((o) => o.remove());
+    } catch {}
+
     const LANGS = [
       { code: 'auto', label: '🔍 Авто' },
       { code: 'ru', label: 'Русский' },
@@ -14,13 +21,46 @@ function translatorBarScript() {
       { code: 'no', label: 'Norsk' },
       { code: 'sv', label: 'Svenska' },
     ];
-
     const TARGET_LANGS = LANGS.filter((l) => l.code !== 'auto');
+    const INCOMING_TARGET = 'ru'; // fixed: incoming always auto → ru
 
+    // In-moment state (global, session-only, not persisted, not per-contact)
     let bar = null;
-    let fromLang = 'auto';
-    let toLang = 'en';
+    let autoTranslate = false;
+    let outgoingFrom = 'auto';
+    let outgoingTo = 'en';
     let dropdownOpen = null;
+    let currentChatId = '';
+    let barHiddenByUser = false;
+    let translatedCache = new WeakMap();
+
+    function getChatId() {
+      // Primary: standard WhatsApp chat header
+      const selectors = [
+        '#main header span[title]',
+        '#main header [data-testid="conversation-header"] span[title]',
+        '#main header [role="button"] span[title]',
+        '#main header span[dir="auto"]',
+        '#main header ._amig span',
+        '#main header [data-testid="conversation-info-header"] span',
+      ];
+      for (let i = 0; i < selectors.length; i++) {
+        const el = document.querySelector(selectors[i]);
+        if (!el) continue;
+        const val = String(el.getAttribute('title') || el.textContent || '').trim();
+        if (val && val.length > 1 && !/^(online|last seen|typing|в сети|печатает|был)/i.test(val)) return val;
+      }
+      // Fallback: if #main exists, chat is open even if we can't read the name
+      if (document.querySelector('#main footer')) return '__unknown_chat__';
+      return '';
+    }
+
+    function getLangLabel(code) {
+      const lang = LANGS.find((l) => l.code === code);
+      return lang ? lang.label : code;
+    }
+
+    // ========== Bar ==========
 
     function createBar() {
       bar = document.createElement('div');
@@ -28,55 +68,62 @@ function translatorBarScript() {
       bar.style.cssText = [
         'display:none',
         'align-items:center',
-        'gap:10px',
-        'padding:5px 14px',
+        'gap:8px',
+        'padding:5px 12px',
         'background:#181e2b',
         'border-bottom:1px solid #2b313b',
         'font-family:Avenir Next,Segoe UI,system-ui,sans-serif',
-        'font-size:12px',
+        'font-size:12.5px',
         'color:#e5eaf0',
         'position:relative',
         'z-index:50',
-        'min-height:34px',
+        'min-height:38px',
         'box-sizing:border-box',
         'transition:opacity 0.2s ease',
       ].join(';');
 
-      // Globe icon
       const globe = document.createElement('span');
       globe.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7e8ea0" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z"/></svg>';
       globe.style.cssText = 'display:flex;align-items:center;flex-shrink:0;';
       bar.appendChild(globe);
 
-      // From dropdown
+      // ── Incoming section ──
+      bar.appendChild(createAutoToggle());
+
+      // ── Separator ──
+      const sep = document.createElement('span');
+      sep.textContent = '│';
+      sep.style.cssText = 'color:#3a404d;flex-shrink:0;padding:0 2px;';
+      bar.appendChild(sep);
+
+      // ── Outgoing section ──
       const fromBtn = createDropdownBtn('from');
+      fromBtn.title = 'Язык исходного текста';
       bar.appendChild(fromBtn);
 
-      // Arrow
       const arrow = document.createElement('span');
       arrow.textContent = '→';
       arrow.style.cssText = 'color:#7e8ea0;flex-shrink:0;';
       bar.appendChild(arrow);
 
-      // To dropdown
       const toBtn = createDropdownBtn('to');
+      toBtn.title = 'Язык, на который переводить';
       bar.appendChild(toBtn);
 
-      // Spacer
       const spacer = document.createElement('span');
       spacer.style.flex = '1';
       bar.appendChild(spacer);
 
-      // Translate button
       const translateBtn = document.createElement('button');
       translateBtn.textContent = 'Перевести';
+      translateBtn.title = 'Перевести выделенный текст в поле ввода';
       translateBtn.style.cssText = [
         'background:#2d8cf0',
         'color:#fff',
         'border:none',
         'border-radius:6px',
-        'padding:4px 14px',
-        'font-size:11px',
+        'padding:5px 16px',
+        'font-size:12px',
         'font-weight:600',
         'cursor:pointer',
         'flex-shrink:0',
@@ -91,11 +138,124 @@ function translatorBarScript() {
       });
       bar.appendChild(translateBtn);
 
+      const closeBtn = document.createElement('span');
+      closeBtn.textContent = '✕';
+      closeBtn.title = 'Скрыть панель переводчика';
+      closeBtn.style.cssText = [
+        'cursor:pointer',
+        'padding:0 4px',
+        'margin-left:2px',
+        'color:#7e8ea0',
+        'font-size:14px',
+        'line-height:1',
+        'flex-shrink:0',
+        'user-select:none',
+        'border-radius:4px',
+        'transition:all 0.15s',
+      ].join(';');
+      closeBtn.addEventListener('mouseenter', () => {
+        closeBtn.style.color = '#e5eaf0';
+        closeBtn.style.background = 'rgba(255,255,255,0.06)';
+      });
+      closeBtn.addEventListener('mouseleave', () => {
+        closeBtn.style.color = '#7e8ea0';
+        closeBtn.style.background = 'transparent';
+      });
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        barHiddenByUser = true;
+        hideBar();
+      });
+      bar.appendChild(closeBtn);
+
       return bar;
     }
 
+    function createAutoToggle() {
+      const wrap = document.createElement('div');
+      wrap.className = '__wadeck-auto-toggle';
+      wrap.title = 'Автоперевод входящих сообщений на русский';
+      wrap.style.cssText = [
+        'display:flex',
+        'align-items:center',
+        'gap:6px',
+        'padding:4px 10px',
+        'border-radius:6px',
+        'border:1px solid #2b313b',
+        'background:#151a24',
+        'cursor:pointer',
+        'user-select:none',
+        'font-size:12px',
+        'color:#e5eaf0',
+        'flex-shrink:0',
+        'transition:all 0.15s',
+      ].join(';');
+
+      const track = document.createElement('span');
+      track.style.cssText = [
+        'width:26px',
+        'height:13px',
+        'background:#2b313b',
+        'border-radius:999px',
+        'position:relative',
+        'flex-shrink:0',
+        'transition:background 0.15s',
+      ].join(';');
+
+      const knob = document.createElement('span');
+      knob.style.cssText = [
+        'width:11px',
+        'height:11px',
+        'border-radius:50%',
+        'background:#e5eaf0',
+        'position:absolute',
+        'top:1px',
+        'left:1px',
+        'transition:left 0.15s',
+      ].join(';');
+      track.appendChild(knob);
+
+      const labelEl = document.createElement('span');
+      labelEl.textContent = 'Авто вх. → Русский';
+
+      wrap.appendChild(track);
+      wrap.appendChild(labelEl);
+
+      function paint() {
+        if (autoTranslate) {
+          wrap.style.background = 'rgba(45,140,240,0.18)';
+          wrap.style.borderColor = 'rgba(45,140,240,0.5)';
+          wrap.style.color = '#9ec3f5';
+          track.style.background = '#2d8cf0';
+          knob.style.left = '14px';
+        } else {
+          wrap.style.background = '#151a24';
+          wrap.style.borderColor = '#2b313b';
+          wrap.style.color = '#e5eaf0';
+          track.style.background = '#2b313b';
+          knob.style.left = '1px';
+        }
+      }
+      wrap.__paint = paint;
+      paint();
+
+      wrap.addEventListener('click', (e) => {
+        e.stopPropagation();
+        autoTranslate = !autoTranslate;
+        paint();
+        if (autoTranslate) {
+          translatedCache = new WeakMap();
+          processAllVisibleIncoming();
+        } else {
+          clearAllOverlays();
+          translatedCache = new WeakMap();
+        }
+      });
+
+      return wrap;
+    }
+
     function createDropdownBtn(type) {
-      const isFrom = type === 'from';
       const btn = document.createElement('div');
       btn.dataset.translatorDropdown = type;
       btn.style.cssText = [
@@ -104,14 +264,15 @@ function translatorBarScript() {
         'border-radius:6px',
         'padding:4px 10px',
         'color:#e5eaf0',
-        'font-size:11px',
-        'min-width:74px',
+        'font-size:12px',
+        'min-width:82px',
         'text-align:center',
         'cursor:pointer',
         'position:relative',
         'user-select:none',
+        'flex-shrink:0',
       ].join(';');
-      btn.textContent = isFrom ? getLangLabel(fromLang) : getLangLabel(toLang);
+      btn.textContent = getLangLabel(type === 'from' ? outgoingFrom : outgoingTo);
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         toggleDropdown(type);
@@ -119,17 +280,12 @@ function translatorBarScript() {
       return btn;
     }
 
-    function getLangLabel(code) {
-      const lang = LANGS.find((l) => l.code === code);
-      return lang ? lang.label : code;
-    }
-
     function toggleDropdown(type) {
       closeDropdowns();
       const isFrom = type === 'from';
       const list = isFrom ? LANGS : TARGET_LANGS;
-      const current = isFrom ? fromLang : toLang;
-      const btn = bar.querySelector('[data-translator-dropdown="' + type + '"]');
+      const current = isFrom ? outgoingFrom : outgoingTo;
+      const btn = bar && bar.querySelector('[data-translator-dropdown="' + type + '"]');
       if (!btn) return;
 
       dropdownOpen = type;
@@ -145,7 +301,7 @@ function translatorBarScript() {
         'border-radius:8px',
         'padding:4px',
         'z-index:100',
-        'min-width:130px',
+        'min-width:145px',
         'box-shadow:0 8px 24px rgba(0,0,0,0.5)',
       ].join(';');
 
@@ -153,10 +309,10 @@ function translatorBarScript() {
         const item = document.createElement('div');
         item.textContent = lang.label;
         item.style.cssText = [
-          'padding:5px 10px',
-          'border-radius:4px',
+          'padding:7px 12px',
+          'border-radius:5px',
           'cursor:pointer',
-          'font-size:12px',
+          'font-size:12.5px',
           'color:' + (lang.code === current ? '#3dd68c' : '#e5eaf0'),
           'font-weight:' + (lang.code === current ? '600' : '400'),
         ].join(';');
@@ -164,9 +320,12 @@ function translatorBarScript() {
         item.addEventListener('mouseleave', () => { item.style.background = 'transparent'; });
         item.addEventListener('click', (e) => {
           e.stopPropagation();
-          if (isFrom) { fromLang = lang.code; } else { toLang = lang.code; }
+          if (isFrom) outgoingFrom = lang.code;
+          else outgoingTo = lang.code;
           btn.textContent = lang.label;
           closeDropdowns();
+          // Outgoing dropdowns do NOT affect incoming overlays — they are
+          // completely independent by design.
         });
         dd.appendChild(item);
       });
@@ -179,6 +338,8 @@ function translatorBarScript() {
       const dds = bar ? bar.querySelectorAll('.__wadeck-translator-dd') : [];
       dds.forEach((d) => d.remove());
     }
+
+    // ========== Composer helpers (for outgoing button) ==========
 
     function getComposer() {
       return (
@@ -194,29 +355,19 @@ function translatorBarScript() {
       return sel.toString().trim();
     }
 
-    function getComposerText() {
-      const composer = getComposer();
-      if (!composer) return '';
-      return (composer.innerText || composer.textContent || '').trim();
-    }
-
     function doTranslate() {
-      // Only translate selected text — user must select text first
       const text = getSelectedText();
       if (!text) return;
-      const payload = JSON.stringify({ text: text, from: fromLang, to: toLang });
+      const payload = JSON.stringify({ text: text, from: outgoingFrom, to: outgoingTo });
       console.log('__WADECK_TRANSLATE__' + payload);
     }
 
-    // Insert translated text — replaces current selection via execCommand
     window.__waDeckInsertTranslation = function (translated) {
       if (!translated) return;
       const composer = getComposer();
       if (!composer) return;
       composer.focus();
 
-      // Restore selection if it was lost when clicking translate button
-      // execCommand insertText replaces the current selection
       let inserted = false;
       try { inserted = document.execCommand('insertText', false, translated); } catch { inserted = false; }
       if (!inserted) {
@@ -228,75 +379,294 @@ function translatorBarScript() {
       }
     };
 
-    function injectBar() {
-      const footer = document.querySelector('footer');
-      if (!footer || document.getElementById('__wadeck-translator-bar')) return;
-
-      createBar();
-      footer.parentElement.insertBefore(bar, footer);
-    }
+    // ========== Bar visibility ==========
 
     function showBar() {
-      if (!bar) injectBar();
-      if (bar && bar.style.display === 'none') {
+      if (!bar || !bar.isConnected) return;
+      if (bar.style.display === 'none') {
         bar.style.display = 'flex';
         bar.style.opacity = '0';
         requestAnimationFrame(() => { bar.style.opacity = '1'; });
+      } else {
+        bar.style.opacity = '1';
       }
     }
 
     function hideBar() {
-      if (bar && bar.style.display !== 'none') {
+      if (!bar || !bar.isConnected) return;
+      if (bar.style.display !== 'none') {
         bar.style.opacity = '0';
-        setTimeout(() => { if (bar) bar.style.display = 'none'; }, 150);
+        setTimeout(() => { if (bar && bar.isConnected) bar.style.display = 'none'; }, 150);
       }
     }
 
-    // Close dropdowns on outside click
     document.addEventListener('click', () => {
       if (dropdownOpen) closeDropdowns();
     });
 
-    // Watch composer for text changes
-    let composerObserver = null;
-    let lastComposerEmpty = true;
+    // ========== Incoming auto-translate ==========
 
-    function watchComposer() {
-      const composer = getComposer();
-      if (!composer) {
-        setTimeout(watchComposer, 1000);
+    function getIncomingBubbles(node) {
+      const bubbles = [];
+      if (!node || node.nodeType !== 1) return bubbles;
+      if (node.matches && node.matches('.message-in')) bubbles.push(node);
+      if (node.querySelectorAll) {
+        const inner = node.querySelectorAll('.message-in');
+        for (let i = 0; i < inner.length; i++) {
+          if (bubbles.indexOf(inner[i]) === -1) bubbles.push(inner[i]);
+        }
+      }
+      return bubbles;
+    }
+
+    function getBubbleContainer(row) {
+      if (!row) return null;
+      return row.querySelector('.copyable-text') || row;
+    }
+
+    function getMessageText(bubble) {
+      if (!bubble) return '';
+      const span = bubble.querySelector('span.selectable-text');
+      const text = (span && span.innerText) ? span.innerText : (bubble.innerText || bubble.textContent || '');
+      return String(text || '').trim();
+    }
+
+    function renderOverlay(row, translated) {
+      if (!row || !row.isConnected || !translated) return;
+      const target = getBubbleContainer(row);
+      if (!target) return;
+
+      const existing = target.querySelector(':scope > .__wadeck-tr-overlay');
+      if (existing) existing.remove();
+
+      const ov = document.createElement('div');
+      ov.className = '__wadeck-tr-overlay';
+      ov.style.cssText = [
+        'position:absolute',
+        'top:0',
+        'left:0',
+        'right:0',
+        'min-height:100%',
+        'background:rgba(24,30,43,0.96)',
+        'border:1px solid rgba(45,140,240,0.55)',
+        'border-radius:8px',
+        'padding:24px 12px 10px 12px',
+        'color:#e5eaf0',
+        'font-size:13px',
+        'line-height:1.4',
+        'z-index:9999',
+        'box-sizing:border-box',
+        'pointer-events:auto',
+        'box-shadow:0 2px 10px rgba(0,0,0,0.4)',
+      ].join(';');
+
+      const closeBtn = document.createElement('span');
+      closeBtn.textContent = '✕';
+      closeBtn.title = 'Скрыть перевод';
+      closeBtn.style.cssText = [
+        'position:absolute',
+        'top:4px',
+        'left:6px',
+        'width:20px',
+        'height:20px',
+        'display:flex',
+        'align-items:center',
+        'justify-content:center',
+        'border-radius:4px',
+        'cursor:pointer',
+        'color:#e5eaf0',
+        'background:rgba(255,255,255,0.1)',
+        'font-size:11px',
+        'line-height:1',
+        'user-select:none',
+        'transition:background 0.15s',
+      ].join(';');
+      closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = 'rgba(255,255,255,0.2)'; });
+      closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = 'rgba(255,255,255,0.1)'; });
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        ov.remove();
+        const prev = translatedCache.get(row) || {};
+        translatedCache.set(row, { state: 'dismissed', translated: prev.translated });
+      });
+      ov.appendChild(closeBtn);
+
+      const metaEl = document.createElement('span');
+      metaEl.textContent = 'auto → ru';
+      metaEl.style.cssText = [
+        'position:absolute',
+        'top:7px',
+        'right:10px',
+        'font-size:10px',
+        'color:#7e8ea0',
+        'letter-spacing:0.02em',
+      ].join(';');
+      ov.appendChild(metaEl);
+
+      const body = document.createElement('div');
+      body.textContent = translated;
+      body.style.cssText = 'white-space:pre-wrap;word-wrap:break-word;';
+      ov.appendChild(body);
+
+      const cs = getComputedStyle(target);
+      if (cs.position === 'static') target.style.position = 'relative';
+      target.style.isolation = 'isolate';
+
+      target.appendChild(ov);
+    }
+
+    function clearAllOverlays() {
+      const overlays = document.querySelectorAll('.__wadeck-tr-overlay');
+      for (let i = 0; i < overlays.length; i++) overlays[i].remove();
+    }
+
+    function requestMessageTranslate(text, from, to, onResult) {
+      const reqId = Math.random().toString(36).slice(2) + '_' + Date.now().toString(36);
+      window['__waDeckTrCb_' + reqId] = function (result) {
+        try { onResult(result); } catch {}
+        try { delete window['__waDeckTrCb_' + reqId]; } catch {}
+      };
+      const payload = JSON.stringify({ reqId: reqId, text: text, from: from, to: to });
+      console.log('__WADECK_TRANSLATE_MSG__' + payload);
+    }
+
+    function hasOverlay(row) {
+      const target = getBubbleContainer(row);
+      return Boolean(target && target.querySelector(':scope > .__wadeck-tr-overlay'));
+    }
+
+    function processIncomingBubble(row) {
+      if (!row || !row.isConnected) return;
+      if (!autoTranslate) return;
+      const entry = translatedCache.get(row);
+      if (entry && entry.state === 'pending') return;
+      if (entry && entry.state === 'failed') return;
+      if (entry && entry.state === 'dismissed') return;
+      // Already translated — restore overlay if WhatsApp re-rendered the bubble
+      if (entry && entry.state === 'done' && entry.translated) {
+        if (!hasOverlay(row)) renderOverlay(row, entry.translated);
+        return;
+      }
+      const text = getMessageText(row);
+      if (!text) return;
+      translatedCache.set(row, { state: 'pending' });
+      requestMessageTranslate(text, 'auto', INCOMING_TARGET, (result) => {
+        if (!row.isConnected) return;
+        if (!result || !result.ok || !result.translated) {
+          translatedCache.set(row, { state: 'failed' });
+          return;
+        }
+        translatedCache.set(row, { state: 'done', translated: result.translated });
+        renderOverlay(row, result.translated);
+      });
+    }
+
+    function processAllVisibleIncoming() {
+      const rows = document.querySelectorAll('.message-in');
+      for (let i = 0; i < rows.length; i++) processIncomingBubble(rows[i]);
+    }
+
+    // ========== Observer for chat messages ==========
+
+    let chatObserver = null;
+    let chatObserverRoot = null;
+    let chatObserverPending = false;
+    function bindChatObserver() {
+      if (chatObserverPending) return;
+      const root = document.querySelector('#main');
+      if (!root) {
+        chatObserverPending = true;
+        setTimeout(() => {
+          chatObserverPending = false;
+          bindChatObserver();
+        }, 2000);
+        return;
+      }
+      if (chatObserverRoot === root && chatObserver) return;
+      if (chatObserver) { try { chatObserver.disconnect(); } catch {} }
+      chatObserverRoot = root;
+      chatObserver = new MutationObserver((mutations) => {
+        if (!autoTranslate) return;
+        for (let i = 0; i < mutations.length; i++) {
+          const added = mutations[i].addedNodes;
+          for (let j = 0; j < added.length; j++) {
+            const bubbles = getIncomingBubbles(added[j]);
+            for (let k = 0; k < bubbles.length; k++) processIncomingBubble(bubbles[k]);
+          }
+        }
+      });
+      chatObserver.observe(root, { childList: true, subtree: true });
+    }
+
+    // ========== Bar lifecycle ==========
+
+    function ensureBarInjected() {
+      if (bar && bar.isConnected) return true;
+      const existing = document.getElementById('__wadeck-translator-bar');
+      if (existing) existing.remove();
+      bar = null;
+      const footer = document.querySelector('footer');
+      if (!footer || !footer.parentElement) return false;
+      createBar();
+      footer.parentElement.insertBefore(bar, footer);
+      return true;
+    }
+
+    let chatEmptyTicks = 0;
+    let sweepCounter = 0;
+
+    function tick() {
+      const next = getChatId();
+      const chatChanged = next && next !== currentChatId;
+
+      if (next) chatEmptyTicks = 0;
+      else chatEmptyTicks++;
+
+      if (chatChanged) {
+        currentChatId = next;
+        barHiddenByUser = false;
+        // Clear translation cache and overlays when switching chats
+        translatedCache = new WeakMap();
+        clearAllOverlays();
+      }
+
+      if (!next) {
+        if (chatEmptyTicks >= 5) {
+          currentChatId = '';
+          if (bar && bar.isConnected && bar.style.display !== 'none') hideBar();
+        }
         return;
       }
 
-      const checkText = () => {
-        const text = getComposerText();
-        const empty = text.length === 0;
-        if (empty && !lastComposerEmpty) {
-          hideBar();
-          lastComposerEmpty = true;
-        } else if (!empty && lastComposerEmpty) {
-          showBar();
-          lastComposerEmpty = false;
-        }
-      };
+      const injected = ensureBarInjected();
+      if (injected) {
+        if (!barHiddenByUser) showBar();
+        if (chatChanged && autoTranslate) processAllVisibleIncoming();
+      }
 
-      if (composerObserver) composerObserver.disconnect();
-      composerObserver = new MutationObserver(checkText);
-      composerObserver.observe(composer, { childList: true, subtree: true, characterData: true });
-      composer.addEventListener('input', checkText);
-      checkText();
+      // Sweep for detached overlays every 3 ticks (3s) instead of every tick
+      sweepCounter++;
+      if (autoTranslate && sweepCounter >= 3) {
+        sweepCounter = 0;
+        processAllVisibleIncoming();
+      }
+
+      if (chatObserverRoot && !chatObserverRoot.isConnected) {
+        chatObserverRoot = null;
+        if (chatObserver) { try { chatObserver.disconnect(); } catch {} chatObserver = null; }
+      }
+      if (!chatObserverRoot && !chatObserverPending) {
+        bindChatObserver();
+      }
     }
 
-    // Watch for footer appearing (WhatsApp SPA loads lazily)
-    const bodyObserver = new MutationObserver(() => {
-      const footer = document.querySelector('footer');
-      if (footer && !document.getElementById('__wadeck-translator-bar')) {
-        watchComposer();
-      }
-    });
-    bodyObserver.observe(document.body, { childList: true, subtree: true });
+    function loopTick() {
+      try { tick(); } catch (e) { console.warn('[WA-Deck translator] tick error:', e); }
+      setTimeout(loopTick, 1000);
+    }
 
-    watchComposer();
+    // Init
+    loopTick();
 
     return true;
   })();`;

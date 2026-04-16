@@ -414,17 +414,15 @@ function isBlockedCrmContactName(value) {
 function formatCrmText(payload = {}) {
   const contactName = normalizeCrmField(payload.contactName);
   const accountName = normalizeCrmField(payload.accountName);
-  const fullName = normalizeCrmField(payload.fullName);
-  const countryCity = normalizeCrmField(payload.countryCity);
   const about = normalizeCrmField(payload.about);
   const myInfo = normalizeCrmField(payload.myInfo);
+
+  const hoverLine = payload.hoverEnabled === false ? 'Hover: off' : 'Hover: on';
 
   return [
     `Контакт: ${contactName}`,
     `WhatsApp: ${accountName}`,
-    '',
-    `Имя фамилия: ${fullName}`,
-    `Страна город: ${countryCity}`,
+    hoverLine,
     '',
     'О нём:',
     about,
@@ -433,6 +431,20 @@ function formatCrmText(payload = {}) {
     myInfo,
     '',
   ].join('\n');
+}
+
+function mergeLegacyCrmFields(record = {}) {
+  const full = String(record.fullName || '').trim();
+  const city = String(record.countryCity || '').trim();
+  if (!full && !city) return { ...record, fullName: '', countryCity: '' };
+  const legacyLine = [full, city].filter(Boolean).join(' · ');
+  const about = String(record.about || '');
+  const firstLine = about.split('\n')[0] || '';
+  if (firstLine.trim() === legacyLine) {
+    return { ...record, fullName: '', countryCity: '' };
+  }
+  const newAbout = about ? `${legacyLine}\n${about}` : legacyLine;
+  return { ...record, about: newAbout, fullName: '', countryCity: '' };
 }
 
 function parseCrmText(content = '') {
@@ -454,6 +466,7 @@ function parseCrmText(content = '') {
     return m ? String(m[1] || '').trim() : '';
   };
 
+  const hoverRaw = lineValue('Hover');
   return {
     contactName: lineValue('Контакт'),
     accountName: lineValue('WhatsApp'),
@@ -461,6 +474,7 @@ function parseCrmText(content = '') {
     countryCity: lineValue('Страна город'),
     about: blockValue('О нём', 'Моя информация'),
     myInfo: blockValue('Моя информация'),
+    hoverEnabled: hoverRaw !== 'off',
   };
 }
 
@@ -516,14 +530,14 @@ async function migrateLegacyCrmContactFile({
   if (!candidates.length) return null;
   candidates.sort((a, b) => b.score - a.score || b.mtime - a.mtime);
   const best = candidates[0];
-  const record = {
+  const record = mergeLegacyCrmFields({
     contactName: targetContactName,
     accountName: accountName || String(best.parsed.accountName || '').trim(),
     fullName: String(best.parsed.fullName || '').trim(),
     countryCity: String(best.parsed.countryCity || '').trim(),
     about: String(best.parsed.about || '').trim(),
     myInfo: String(best.parsed.myInfo || '').trim(),
-  };
+  });
 
   const text = formatCrmText(record);
   await fs.writeFile(targetFilePath, text, 'utf8');
@@ -557,8 +571,6 @@ async function loadCrmContact(accountId, accountName, contactName) {
   let record = {
     contactName: safeContactName,
     accountName: safeAccountName || account.name,
-    fullName: '',
-    countryCity: '',
     about: '',
     myInfo: '',
   };
@@ -569,12 +581,20 @@ async function loadCrmContact(accountId, accountName, contactName) {
   try {
     const content = await fs.readFile(filePath, 'utf8');
     const parsed = parseCrmText(content);
-    record = {
+    const hadLegacy = Boolean(
+      String(parsed.fullName || '').trim() || String(parsed.countryCity || '').trim()
+    );
+    record = mergeLegacyCrmFields({
       ...record,
       ...parsed,
       contactName: parsed.contactName || safeContactName,
       accountName: parsed.accountName || safeAccountName || account.name,
-    };
+    });
+    if (hadLegacy) {
+      try {
+        await fs.writeFile(filePath, formatCrmText(record), 'utf8');
+      } catch { /* tolerate write failure, merge still in-memory */ }
+    }
     exists = true;
   } catch {
     const migratedResult = await migrateLegacyCrmContactFile({
@@ -585,12 +605,12 @@ async function loadCrmContact(accountId, accountName, contactName) {
     });
 
     if (migratedResult?.record) {
-      record = {
+      record = mergeLegacyCrmFields({
         ...record,
         ...migratedResult.record,
         contactName: safeContactName,
         accountName: String(migratedResult.record.accountName || safeAccountName || account.name),
-      };
+      });
       exists = true;
       migrated = true;
       migratedFrom = String(migratedResult.migratedFrom || '');
@@ -619,10 +639,9 @@ async function saveCrmContact(payload = {}) {
   const record = {
     contactName: safeContactName,
     accountName: safeAccountName || account.name,
-    fullName: String(payload.fullName || ''),
-    countryCity: String(payload.countryCity || ''),
     about: String(payload.about || ''),
     myInfo: String(payload.myInfo || ''),
+    hoverEnabled: payload.hoverEnabled !== false,
   };
 
   const text = formatCrmText(record);
@@ -776,6 +795,12 @@ async function removeAccount(accountId) {
     await partitionSession.clearCache();
   } catch {
     // ignore storage cleanup failures
+  }
+
+  try {
+    await fs.rm(crmAccountDir(id), { recursive: true, force: true });
+  } catch {
+    // ignore CRM cleanup failures
   }
 
   const nextActiveAccountId = state.store.accounts[0]?.id || '';

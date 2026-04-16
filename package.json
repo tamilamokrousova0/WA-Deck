@@ -1,13 +1,13 @@
 {
   "name": "wa-deck",
-  "version": "0.6.2",
+  "version": "0.6.4",
   "description": "WA Deck: multi-account WhatsApp manager",
   "main": "src/main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "electron .",
     "dev": "electron .",
-    "dist:mac": "electron-builder --mac dmg zip --arm64 --x64",
+    "dist:mac": "electron-builder --mac dmg zip --arm64",
     "dist:win": "electron-builder --win nsis --x64",
     "dist:all": "npm run dist:mac && npm run dist:win",
     "dist": "npm run dist:mac && npm run dist:win"
@@ -42,15 +42,13 @@
         {
           "target": "dmg",
           "arch": [
-            "arm64",
-            "x64"
+            "arm64"
           ]
         },
         {
           "target": "zip",
           "arch": [
-            "arm64",
-            "x64"
+            "arm64"
           ]
         }
       ]

@@ -150,8 +150,6 @@ const els = {
 
   crmModal: document.getElementById('crm-modal'),
   crmContactName: document.getElementById('crm-contact-name'),
-  crmFullName: document.getElementById('crm-full-name'),
-  crmCountryCity: document.getElementById('crm-country-city'),
   crmAbout: document.getElementById('crm-about'),
   crmMyInfo: document.getElementById('crm-my-info'),
   crmEdit: document.getElementById('crm-edit'),
@@ -382,6 +380,10 @@ function playBrandClickAnimation() {
 /* ── CRM Hover Popover (read-only on contact hover) ── */
 let _crmHoverCache = new Map(); // contactKey → { data, ts }
 let _crmHoverTimer = null;
+
+window._invalidateCrmHoverCache = function (accountId, contactName) {
+  _crmHoverCache.delete(accountId + '::' + contactName);
+};
 let _crmHoverVisible = false;
 let _crmHoverShowName = ''; // track which contact the current show is for
 
@@ -431,8 +433,6 @@ function showCrmHoverPopover(contactName, record, webview, rect) {
   nameEl.textContent = contactName;
 
   const fields = [];
-  if (record.fullName) fields.push({ label: 'Имя', value: record.fullName });
-  if (record.countryCity) fields.push({ label: 'Город', value: record.countryCity });
   if (record.about) fields.push({ label: 'О нём', value: record.about });
   if (record.myInfo) fields.push({ label: 'Заметки', value: record.myInfo });
 
@@ -537,6 +537,9 @@ async function handleCrmHover(account, webview, payload) {
 
   // Guard: if a hide arrived while we were loading, don't show
   if (_crmHoverShowName !== contactName) return;
+
+  // Check if hover is disabled for this contact
+  if (record.hoverEnabled === false) return;
 
   const rect = { top: payload.top, bottom: payload.bottom, left: payload.left, right: payload.right };
   showCrmHoverPopover(contactName, record, webview, rect);
@@ -1287,10 +1290,13 @@ function ensureWebview(account) {
       refreshWebviewVisibility();
       setStatus(`${currentAccount().name}: готово`);
     }
-    // Re-inject translator bar after full page reload (account re-auth, manual reload)
+    // Re-inject translator bar after full page reload. Full reload creates a fresh
+    // JS context, so the __waDeckTranslatorBound guard is already undefined and the
+    // IIFE will init normally. Do NOT reset the flag — doing so would run a second
+    // IIFE on top of an already-alive one (when WhatsApp does an internal reload
+    // that preserves context), duplicating the bar.
     if (isWhatsApp && typeof translatorBarScript === 'function') {
-      webview.executeJavaScript('window.__waDeckTranslatorBound = false;', true)
-        .then(() => webview.executeJavaScript(translatorBarScript(), true))
+      webview.executeJavaScript(translatorBarScript(), true)
         .catch((e) => console.warn('[translator-reload]', e));
     }
   };
@@ -1391,6 +1397,33 @@ function ensureWebview(account) {
         try {
           const payload = JSON.parse(message.slice('__WADECK_CRM_HOVER__'.length));
           handleCrmHover(account, webview, payload);
+        } catch { /* ignore parse errors */ }
+        return;
+      }
+      if (message.startsWith('__WADECK_TRANSLATE_MSG__')) {
+        try {
+          const payload = JSON.parse(message.slice('__WADECK_TRANSLATE_MSG__'.length));
+          const reqId = String(payload.reqId || '').replace(/[^a-zA-Z0-9_]/g, '');
+          if (!reqId) return;
+          const cbName = '__waDeckTrCb_' + reqId;
+          const finish = (result) => {
+            const ok = Boolean(result?.ok && result.translated);
+            const translated = ok ? String(result.translated) : '';
+            const escaped = translated
+              .replace(/\\/g, '\\\\')
+              .replace(/'/g, "\\'")
+              .replace(/\n/g, '\\n')
+              .replace(/\r/g, '');
+            const script = ok
+              ? `if (window.${cbName}) window.${cbName}({ ok: true, translated: '${escaped}' });`
+              : `if (window.${cbName}) window.${cbName}({ ok: false });`;
+            webview.executeJavaScript(script, true).catch(() => {});
+          };
+          window.waDeck.translateText({
+            text: String(payload.text || ''),
+            from: String(payload.from || 'auto'),
+            to: String(payload.to || 'ru'),
+          }).then(finish).catch(() => finish({ ok: false }));
         } catch { /* ignore parse errors */ }
         return;
       }
@@ -2924,8 +2957,6 @@ async function init() {
   WaDeckScheduleModule.renderAttachmentsDraft();
   WaDeckScheduleModule.renderScheduleTarget();
   els.crmContactName.value = '';
-  els.crmFullName.value = '';
-  els.crmCountryCity.value = '';
   els.crmAbout.value = '';
   els.crmMyInfo.value = '';
   els.crmMeta.textContent = 'Файл: —';
