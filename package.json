@@ -1,6 +1,6 @@
 {
   "name": "wa-deck",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "WA Deck: multi-account WhatsApp manager",
   "main": "src/main.js",
   "scripts": {

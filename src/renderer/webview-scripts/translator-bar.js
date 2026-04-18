@@ -486,6 +486,7 @@ function translatorBarScript() {
       closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         ov.remove();
+        try { target.style.minHeight = ''; } catch {}
         const prev = translatedCache.get(row) || {};
         translatedCache.set(row, { state: 'dismissed', translated: prev.translated });
       });
@@ -513,11 +514,23 @@ function translatorBarScript() {
       target.style.isolation = 'isolate';
 
       target.appendChild(ov);
+
+      // Растягиваем родительский пузырь под высоту перевода, чтобы он не
+      // вылезал на следующее сообщение и не уходил под исходящие.
+      try {
+        target.style.minHeight = '';
+        const h = ov.scrollHeight;
+        if (h > 0) target.style.minHeight = h + 'px';
+      } catch {}
     }
 
     function clearAllOverlays() {
       const overlays = document.querySelectorAll('.__wadeck-tr-overlay');
-      for (let i = 0; i < overlays.length; i++) overlays[i].remove();
+      for (let i = 0; i < overlays.length; i++) {
+        const parent = overlays[i].parentElement;
+        overlays[i].remove();
+        try { if (parent) parent.style.minHeight = ''; } catch {}
+      }
     }
 
     function requestMessageTranslate(text, from, to, onResult) {

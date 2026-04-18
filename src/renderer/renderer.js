@@ -379,10 +379,34 @@ function playBrandClickAnimation() {
 
 /* ── CRM Hover Popover (read-only on contact hover) ── */
 let _crmHoverCache = new Map(); // contactKey → { data, ts }
+let _crmHoverGen = new Map();   // contactKey → generation counter (bumps on save/invalidate)
 let _crmHoverTimer = null;
 
+function _crmHoverGenOf(key) {
+  return _crmHoverGen.get(key) || 0;
+}
+function _crmHoverGenBump(key) {
+  const next = _crmHoverGenOf(key) + 1;
+  _crmHoverGen.set(key, next);
+  return next;
+}
+
 window._invalidateCrmHoverCache = function (accountId, contactName) {
-  _crmHoverCache.delete(accountId + '::' + contactName);
+  const key = accountId + '::' + contactName;
+  _crmHoverCache.delete(key);
+  _crmHoverGenBump(key);
+  if (_crmHoverVisible && _crmHoverShowName === contactName) hideCrmHoverPopover(true);
+};
+
+// Direct cache update with known-fresh record (used after save).
+// Also hides a currently-visible popover if hover was turned off.
+window._updateCrmHoverCache = function (accountId, contactName, record) {
+  const key = accountId + '::' + contactName;
+  _crmHoverGenBump(key);
+  _crmHoverCache.set(key, { data: record || {}, ts: Date.now() });
+  if (_crmHoverVisible && _crmHoverShowName === contactName && record && record.hoverEnabled === false) {
+    hideCrmHoverPopover(true);
+  }
 };
 let _crmHoverVisible = false;
 let _crmHoverShowName = ''; // track which contact the current show is for
@@ -417,11 +441,11 @@ function getCrmHoverPopover() {
   return el;
 }
 
-function hideCrmHoverPopover() {
+function hideCrmHoverPopover(force = false) {
   const el = document.getElementById('crm-hover-popover');
   if (!el) return;
-  /* Don't hide if mouse is over the popover or user is dragging it */
-  if (el.matches(':hover') || el._dragging) return;
+  /* Don't hide if mouse is over the popover or user is dragging it (unless forced) */
+  if (!force && (el.matches(':hover') || el._dragging)) return;
   el.classList.add('hidden');
   _crmHoverVisible = false;
 }
@@ -518,6 +542,7 @@ async function handleCrmHover(account, webview, payload) {
   if (cached && now - cached.ts < 30000) {
     record = cached.data;
   } else {
+    const genAtStart = _crmHoverGenOf(cacheKey);
     try {
       const res = await window.waDeck.crmLoadContact({
         accountId: account.id,
@@ -525,10 +550,16 @@ async function handleCrmHover(account, webview, payload) {
         contactName,
       });
       if (!res?.ok) return;
-      record = res.record || {};
-      _crmHoverCache.set(cacheKey, { data: record, ts: now });
-      // Limit cache size
-      trimMapSize(_crmHoverCache, 50);
+      const fetched = res.record || {};
+      // A save/invalidate could have bumped gen during the fetch — don't clobber fresher data
+      if (_crmHoverGenOf(cacheKey) !== genAtStart) {
+        const fresh = _crmHoverCache.get(cacheKey);
+        record = fresh ? fresh.data : fetched;
+      } else {
+        record = fetched;
+        _crmHoverCache.set(cacheKey, { data: record, ts: Date.now() });
+        trimMapSize(_crmHoverCache, 50);
+      }
     } catch (err) {
       console.warn('[CRM Hover] Failed to load contact:', contactName, err);
       return;

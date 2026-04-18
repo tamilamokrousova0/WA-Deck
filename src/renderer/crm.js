@@ -120,6 +120,10 @@
       });
       if (autoSaved?.ok) {
         filePath = String(autoSaved.filePath || filePath);
+        // Keep hover cache in sync with what was just written to disk
+        if (typeof window._updateCrmHoverCache === 'function') {
+          window._updateCrmHoverCache(account.id, contactName, autoSaved.record || nextRecord);
+        }
       } else {
         autoSaveError = String(autoSaved?.error || 'auto_save_failed');
       }
@@ -198,8 +202,16 @@
 
     state.crmTarget.filePath = String(response.filePath || target.filePath || '');
     els.crmMeta.textContent = `Файл: ${state.crmTarget.filePath || '—'}`;
-    // Invalidate hover cache so new hoverEnabled takes effect
-    if (typeof window._invalidateCrmHoverCache === 'function') {
+    // Push freshly saved record into hover cache so any in-flight fetch is ignored,
+    // and the popover hides immediately if hover was turned off.
+    const savedRecord = response.record || {
+      about: payload.about,
+      myInfo: payload.myInfo,
+      hoverEnabled: payload.hoverEnabled !== false,
+    };
+    if (typeof window._updateCrmHoverCache === 'function') {
+      window._updateCrmHoverCache(target.accountId, target.contactName, savedRecord);
+    } else if (typeof window._invalidateCrmHoverCache === 'function') {
       window._invalidateCrmHoverCache(target.accountId, target.contactName);
     }
     setStatus('CRM: сохранено');
