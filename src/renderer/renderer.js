@@ -50,6 +50,8 @@ const state = {
   unreadPollBusy: false,
   zoomByAccount: new Map(),
   _hubClockTimer: null,
+  hubFilter: 'all', // 'all' | 'unread' | 'online'
+  hubPendingCount: 0,
 };
 
 const els = {
@@ -768,6 +770,65 @@ function selectedWebview() {
   return state.webviews.get(state.activeAccountId) || null;
 }
 
+// Global hotkey: Cmd+Alt+Shift+I → open DevTools of the currently active
+// WhatsApp webview (so DOM diagnostics run in WA's context, not ours).
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.altKey && e.shiftKey && e.key.toLowerCase() === 'i') {
+    const wv = selectedWebview();
+    if (wv && typeof wv.openDevTools === 'function') {
+      try { wv.openDevTools(); } catch (err) { console.warn('openDevTools failed:', err); }
+      e.preventDefault();
+    }
+  }
+});
+
+// Debug helper — run from main-window DevTools: await window.__wadeckProbeChat()
+// Probes the active WhatsApp webview DOM so we can find how WA Web labels
+// the currently open chat on the current build.
+window.__wadeckProbeChat = async function () {
+  const wv = selectedWebview();
+  if (!wv) return 'NO_ACTIVE_WEBVIEW';
+  const script = `(() => {
+    const out = {};
+    out.headers = Array.from(document.querySelectorAll('header')).map((h, i) => {
+      const r = h.getBoundingClientRect();
+      return { i, w: Math.round(r.width), h: Math.round(r.height), left: Math.round(r.left), top: Math.round(r.top), text: (h.innerText||'').slice(0, 150) };
+    });
+    const compose =
+      document.querySelector('footer [contenteditable="true"]') ||
+      document.querySelector('[contenteditable="true"][data-tab]') ||
+      document.querySelector('[contenteditable="true"][role="textbox"]');
+    out.composeFound = !!compose;
+    if (compose) {
+      // Walk up from compose and find the nearest header above it in the tree
+      let node = compose;
+      let hops = 0;
+      while (node && hops < 20) {
+        const h = node.querySelector ? node.querySelector('header') : null;
+        if (h) { out.chatPaneHeader = (h.innerText||'').slice(0,150); break; }
+        node = node.parentElement; hops++;
+      }
+    }
+    // Try to locate the chat list (renamed away from #pane-side)
+    const probes = ['#pane-side','[aria-label="Chat list"]','[aria-label="Список чатов"]','[aria-label*="Chat"]','div[role="grid"]','div[role="list"]','[data-testid*="chat-list"]','nav[aria-label]'];
+    out.listProbes = probes.map((s) => ({ s, count: document.querySelectorAll(s).length }));
+    // Find any element with "selected" / "current" aria
+    const ariaSel = Array.from(document.querySelectorAll('[aria-selected="true"]')).slice(0, 5).map((el) => ({ tag: el.tagName, text: (el.innerText||'').slice(0,80) }));
+    const ariaCur = Array.from(document.querySelectorAll('[aria-current="page"], [aria-current="true"]')).slice(0, 5).map((el) => ({ tag: el.tagName, text: (el.innerText||'').slice(0,80) }));
+    out.ariaSelected = ariaSel;
+    out.ariaCurrent = ariaCur;
+    return out;
+  })();`;
+  try {
+    const result = await wv.executeJavaScript(script, true);
+    console.log('[wadeck probe]', JSON.stringify(result, null, 2));
+    return result;
+  } catch (err) {
+    console.error('[wadeck probe] failed:', err);
+    return { error: String(err) };
+  }
+};
+
 function accountById(accountId) {
   return state.accounts.find((account) => account.id === String(accountId || '')) || null;
 }
@@ -1176,63 +1237,208 @@ function updateHubClocks() {
   }
 }
 
+function updateHubGreeting() {
+  const el = document.getElementById('hub-greeting');
+  if (!el) return;
+  const now = new Date();
+  const h = now.getHours();
+  let word = 'Добрый день';
+  let icon = '☀';
+  if (h < 6) { word = 'Доброй ночи'; icon = '☾'; }
+  else if (h < 12) { word = 'Доброе утро'; icon = '☀'; }
+  else if (h < 18) { word = 'Добрый день'; icon = '☀'; }
+  else { word = 'Добрый вечер'; icon = '☾'; }
+  const dateStr = new Intl.DateTimeFormat('ru', { weekday: 'long', day: 'numeric', month: 'long' }).format(now);
+  el.innerHTML = '';
+  const iconSpan = document.createElement('span');
+  iconSpan.className = 'hub-greeting-icon';
+  iconSpan.textContent = icon;
+  const textSpan = document.createElement('span');
+  textSpan.className = 'hub-greeting-text';
+  textSpan.textContent = word;
+  const dateSpan = document.createElement('span');
+  dateSpan.className = 'hub-greeting-date';
+  dateSpan.textContent = '· ' + dateStr;
+  el.append(iconSpan, textSpan, dateSpan);
+}
+
+function updateHubMetrics() {
+  const el = document.getElementById('hub-metrics');
+  if (!el) return;
+  let totalUnread = 0;
+  for (const n of state.unreadByAccount.values()) totalUnread += Number(n || 0);
+  const accounts = state.accounts || [];
+  const online = accounts.filter((a) => {
+    if (a.frozen) return false;
+    const wv = state.webviews.get(a.id);
+    return wv && wv.dataset && wv.dataset.waReady === '1';
+  }).length;
+  const total = accounts.length;
+  const withUnread = accounts.filter((a) => Number(state.unreadByAccount.get(a.id) || 0) > 0).length;
+  const pending = state.hubPendingCount || 0;
+
+  const metrics = [
+    { label: 'Непрочитанных', val: String(totalUnread), sub: totalUnread > 0 ? (withUnread + ' чат.') : 'нет новых', c: 'rose' },
+    { label: 'Чаты с непрочитанными', val: String(withUnread), sub: total ? (withUnread + '/' + total) : '—', c: 'warn' },
+    { label: 'Отложено', val: String(pending), sub: pending > 0 ? 'в очереди' : 'пусто', c: 'accent' },
+    { label: 'Активных аккаунтов', val: online + '/' + total, sub: online === total && total > 0 ? 'все онлайн' : (online > 0 ? 'онлайн' : '—'), c: 'blue' },
+  ];
+  el.innerHTML = '';
+  for (const m of metrics) {
+    const card = document.createElement('div');
+    card.className = 'hub-metric hub-metric-' + m.c;
+    const bar = document.createElement('span');
+    bar.className = 'hub-metric-bar';
+    const label = document.createElement('div');
+    label.className = 'hub-metric-label';
+    label.textContent = m.label;
+    const val = document.createElement('div');
+    val.className = 'hub-metric-val';
+    val.textContent = m.val;
+    const sub = document.createElement('div');
+    sub.className = 'hub-metric-sub';
+    sub.textContent = m.sub;
+    card.append(bar, label, val, sub);
+    el.appendChild(card);
+  }
+}
+
+function updateHubFilters() {
+  const el = document.getElementById('hub-filters');
+  if (!el) return;
+  const filters = [
+    { id: 'all', label: 'Все' },
+    { id: 'unread', label: 'Непрочитанные' },
+    { id: 'online', label: 'Онлайн' },
+  ];
+  el.innerHTML = '';
+  for (const f of filters) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'hub-filter-chip' + (state.hubFilter === f.id ? ' active' : '');
+    btn.textContent = f.label;
+    btn.addEventListener('click', () => {
+      state.hubFilter = f.id;
+      updateHubDashboard();
+    });
+    el.appendChild(btn);
+  }
+}
+
+function filteredHubAccounts() {
+  const all = state.accounts || [];
+  if (state.hubFilter === 'unread') {
+    return all.filter((a) => Number(state.unreadByAccount.get(a.id) || 0) > 0);
+  }
+  if (state.hubFilter === 'online') {
+    return all.filter((a) => {
+      if (a.frozen) return false;
+      const wv = state.webviews.get(a.id);
+      return wv && wv.dataset && wv.dataset.waReady === '1';
+    });
+  }
+  return all;
+}
+
 async function updateHubDashboard() {
   const hubScreen = document.getElementById('hub-screen');
   if (hubScreen && hubScreen.classList.contains('hidden')) return;
   updateHubClocks();
+  updateHubGreeting();
+
+  // pending scheduled count (used by metrics)
+  try {
+    const res = await window.waDeck.listScheduled({ limit: 50 });
+    const pending = Array.isArray(res?.items) ? res.items.filter((i) => i.status === 'pending') : [];
+    state.hubPendingCount = pending.length;
+  } catch { /* ignore */ }
+
+  updateHubMetrics();
+  updateHubFilters();
+
+  const countEl = document.getElementById('hub-accts-count');
+  if (countEl) countEl.textContent = state.accounts.length ? String(state.accounts.length) : '';
+
   const container = document.getElementById('hub-dashboard');
   if (!container) return;
   container.innerHTML = '';
 
-  // Строки аккаунтов
-  for (const account of state.accounts) {
-    const row = document.createElement('div');
-    row.className = 'hub-stat-row';
-
-    const dot = document.createElement('div');
-    dot.className = 'hub-stat-dot';
-    dot.style.background = account.color;
-
-    const typeIcon = document.createElement('span');
-    typeIcon.className = 'hub-stat-type';
-    if (account.type === 'telegram') {
-      typeIcon.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" fill="none" stroke="#2AABEE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    } else {
-      typeIcon.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" fill="none" stroke="#25D366" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    }
-
-    const nameEl = document.createElement('div');
-    nameEl.className = 'hub-stat-name';
-    nameEl.textContent = account.name;
-
-    const unread = Number(state.unreadByAccount.get(account.id) || 0);
-    const badgeEl = document.createElement('div');
-    badgeEl.className = 'hub-stat-badge';
-    badgeEl.textContent = unread > 0 ? (unread > 99 ? '99+' : String(unread)) : '';
-
-    // Online/offline/loading status removed — unreliable signal from WhatsApp Web.
-    // Only show "frozen" since that's a user-controlled state that's always correct.
-    const statusEl = document.createElement('div');
-    statusEl.className = 'hub-stat-status';
-    statusEl.textContent = account.frozen ? '❄ заморожен' : '';
-
-    row.append(dot, typeIcon, nameEl, badgeEl, statusEl);
-    row.style.cursor = 'pointer';
-    row.addEventListener('click', () => setActiveAccount(account.id));
-    container.appendChild(row);
+  const accounts = filteredHubAccounts();
+  if (!accounts.length) {
+    const empty = document.createElement('div');
+    empty.className = 'hub-empty';
+    empty.textContent = state.accounts.length
+      ? 'Ничего не найдено по текущему фильтру'
+      : 'Пока нет аккаунтов — добавьте WhatsApp или Telegram';
+    container.appendChild(empty);
   }
 
-  // Pending scheduled
-  try {
-    const res = await window.waDeck.listScheduled({ limit: 50 });
-    const pending = Array.isArray(res?.items) ? res.items.filter((i) => i.status === 'pending') : [];
-    if (pending.length > 0) {
-      const info = document.createElement('div');
-      info.className = 'hub-pending-info';
-      info.textContent = '\u23F0 Запланированных сообщений: ' + pending.length;
-      container.appendChild(info);
+  for (const account of accounts) {
+    const card = document.createElement('div');
+    card.className = 'hub-acct-card';
+    card.style.setProperty('--card-c', account.color || 'var(--accent-blue)');
+    card.addEventListener('click', () => setActiveAccount(account.id));
+
+    const bar = document.createElement('span');
+    bar.className = 'hub-acct-bar';
+
+    const avWrap = document.createElement('div');
+    avWrap.className = 'hub-acct-av';
+    avWrap.style.background = account.color || 'var(--bg-3)';
+    const labelText = (account.name || '').split(' ')[0].slice(0, 2).toUpperCase() || (account.type === 'telegram' ? 'TG' : 'WA');
+    avWrap.textContent = labelText;
+    // Only the frozen state is shown — online detection from WhatsApp Web
+    // is unreliable, so we skip on/off indicators entirely.
+    if (account.frozen) {
+      const status = document.createElement('span');
+      status.className = 'hub-acct-status frozen';
+      avWrap.appendChild(status);
     }
-  } catch { /* ignore */ }
+
+    const info = document.createElement('div');
+    info.className = 'hub-acct-info';
+
+    const row1 = document.createElement('div');
+    row1.className = 'hub-acct-row1';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'hub-acct-name';
+    nameEl.textContent = account.name;
+    row1.appendChild(nameEl);
+    const unread = Number(state.unreadByAccount.get(account.id) || 0);
+    if (unread > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'hub-acct-badge';
+      badge.textContent = unread > 99 ? '99+' : String(unread);
+      row1.appendChild(badge);
+    }
+
+    const preview = document.createElement('div');
+    preview.className = 'hub-acct-preview';
+    preview.textContent = account.frozen ? '❄ заморожен' : '';
+
+    const row3 = document.createElement('div');
+    row3.className = 'hub-acct-row3';
+    const typeTag = document.createElement('span');
+    typeTag.className = 'hub-acct-tag hub-acct-tag-' + (account.type === 'telegram' ? 'blue' : 'accent');
+    typeTag.textContent = account.type === 'telegram' ? 'Telegram' : 'WhatsApp';
+    row3.appendChild(typeTag);
+    if (unread > 0) {
+      const t = document.createElement('span');
+      t.className = 'hub-acct-tag hub-acct-tag-rose';
+      t.textContent = 'Новые';
+      row3.appendChild(t);
+    }
+    if (account.frozen) {
+      const t = document.createElement('span');
+      t.className = 'hub-acct-tag hub-acct-tag-warn';
+      t.textContent = 'Заморожен';
+      row3.appendChild(t);
+    }
+
+    info.append(row1, preview, row3);
+    card.append(bar, avWrap, info);
+    container.appendChild(card);
+  }
 
   // Кнопки
   const actions = document.createElement('div');
@@ -2770,11 +2976,8 @@ function bindActions() {
     playBrandClickAnimation();
     openHubMode();
   });
-  els.weatherToggle?.addEventListener('click', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    WaDeckWeatherModule.toggleWeatherPopover();
-  });
+  // Weather widget is a read-only indicator now — configuration lives in
+  // the settings panel, so the popover stays hidden and clicks are no-ops.
   els.weatherClose?.addEventListener('click', () => WaDeckWeatherModule.closeWeatherPopover());
   els.weatherRefresh?.addEventListener('click', () => WaDeckWeatherModule.refreshWeather().catch(console.error));
   els.weatherSave?.addEventListener('click', () => WaDeckWeatherModule.saveWeatherSettings().catch(console.error));
@@ -3430,8 +3633,19 @@ async function init() {
   );
 }
 
-/* ── Template Quick Access (Ctrl+T / toolbar button) ── */
-(function setupTemplateQuickAccess() {
+/* ── Toolbar "Шаблоны" button → open settings panel, reveal templates card ── */
+(function setupTemplatesToolbarButton() {
+  if (!els.openTemplateQuick) return;
+  els.openTemplateQuick.addEventListener('click', () => {
+    if (state.panelHidden) openSettingsPanel();
+    const card = document.getElementById('templates-settings-card');
+    if (card && !card.open) card.open = true;
+    if (card) card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  });
+})();
+
+/* ── Legacy Template Quick palette — kept as dead code guard; will no-op ── */
+(function _unusedTemplateQuickAccess() {
   const overlay = els.tqOverlay;
   const searchInput = els.tqSearch;
   const listEl = els.tqList;
