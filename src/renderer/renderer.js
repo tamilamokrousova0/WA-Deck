@@ -1182,6 +1182,22 @@ function updateToolbarClock() {
     { label: 'Берлин', tz: 'Europe/Berlin' },
   ];
   if (!zones.length) return;
+
+  // Inline abbreviations next to the local clock
+  const abbrEl = document.getElementById('toolbar-clock-abbr');
+  if (abbrEl) {
+    const abbrMap = {
+      'Europe/Moscow': 'MSK', 'Europe/Kiev': 'KYIV', 'Europe/Kyiv': 'KYIV',
+      'Europe/Berlin': 'BER', 'Europe/London': 'LON',
+      'America/New_York': 'NYC', 'America/Los_Angeles': 'LAX',
+      'Asia/Tokyo': 'TYO', 'Asia/Shanghai': 'SHA', 'Asia/Dubai': 'DXB',
+      'Pacific/Auckland': 'AKL', 'Pacific/Honolulu': 'HNL',
+    };
+    abbrEl.textContent = zones
+      .map((z) => abbrMap[z.tz] || String(z.label || '').slice(0, 3).toUpperCase())
+      .join(' · ');
+  }
+
   els.toolbarClockZones.innerHTML = '';
   if (els.toolbarClockPopover) els.toolbarClockPopover.classList.remove('hidden');
   for (const zone of zones) {
@@ -2055,7 +2071,105 @@ function showSettingsSection(key) {
   }
 }
 
+function renderTemplatesLibrary() {
+  const listEl = document.getElementById('tmpl-lib-list');
+  const countEl = document.getElementById('tmpl-lib-count');
+  if (!listEl) return;
+  const templates = Array.isArray(state.templates) ? state.templates : [];
+
+  if (countEl) {
+    const n = templates.length;
+    const plural = (x, forms) =>
+      forms[x % 10 === 1 && x % 100 !== 11 ? 0 : (x % 10 >= 2 && x % 10 <= 4 && (x % 100 < 10 || x % 100 >= 20) ? 1 : 2)];
+    countEl.textContent = n + ' ' + plural(n, ['шаблон', 'шаблона', 'шаблонов']);
+  }
+
+  listEl.innerHTML = '';
+  if (!templates.length) {
+    const empty = document.createElement('div');
+    empty.className = 'tmpl-lib-empty';
+    empty.textContent = 'Пока нет шаблонов — создайте первый в форме ниже';
+    listEl.appendChild(empty);
+    return;
+  }
+
+  // Group by category
+  const groups = new Map();
+  for (const tpl of templates) {
+    const cat = String(tpl.category || '').trim() || 'Без категории';
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat).push(tpl);
+  }
+  const sortedCats = [...groups.keys()].sort((a, b) => {
+    if (a === 'Без категории') return 1;
+    if (b === 'Без категории') return -1;
+    return a.localeCompare(b, 'ru');
+  });
+
+  for (const cat of sortedCats) {
+    const section = document.createElement('div');
+    section.className = 'tmpl-lib-section';
+    const label = document.createElement('div');
+    label.className = 'tmpl-lib-section-label';
+    label.textContent = cat;
+    section.appendChild(label);
+
+    const items = groups.get(cat);
+    items.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'ru'));
+
+    let n = 0;
+    for (const tpl of items) {
+      n += 1;
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'tmpl-lib-item';
+      const lang = (typeof detectTemplateLang === 'function')
+        ? detectTemplateLang(tpl)
+        : { code: '', color: 'oklch(0.60 0.05 250)' };
+      item.style.setProperty('--tmpl-lang-color', lang.color);
+
+      const num = document.createElement('div');
+      num.className = 'tmpl-lib-num';
+      num.textContent = String(n);
+
+      const body = document.createElement('div');
+      body.className = 'tmpl-lib-body';
+      if (lang.code) {
+        const langEl = document.createElement('span');
+        langEl.className = 'tmpl-lib-lang';
+        langEl.textContent = lang.code;
+        body.appendChild(langEl);
+      }
+      const title = document.createElement('div');
+      title.className = 'tmpl-lib-title';
+      title.textContent = tpl.title || 'Без названия';
+      body.appendChild(title);
+      const preview = document.createElement('div');
+      preview.className = 'tmpl-lib-preview';
+      const txt = String(tpl.text || '');
+      preview.textContent = txt.length > 100 ? txt.slice(0, 100) + '…' : txt;
+      body.appendChild(preview);
+
+      item.append(num, body);
+      item.addEventListener('click', () => {
+        if (els.templateSelect) {
+          els.templateSelect.value = tpl.id || '';
+          els.templateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        const card = document.getElementById('templates-settings-card');
+        if (card && !card.open) card.open = true;
+      });
+      section.appendChild(item);
+    }
+    listEl.appendChild(section);
+  }
+}
+
 function refreshSettingsMenuSubtitles() {
+  // Keep the templates library in sync with state.templates every time
+  // subtitles refresh (after save/delete/new).
+  try { renderTemplatesLibrary(); } catch { /* ignore */ }
+
   // Live subtitles under each menu item
   const subs = {
     templates: () => {
@@ -2905,6 +3019,15 @@ function bindActions() {
     setStatus('Обновляю погоду…');
   });
 
+  // Templates library header: "+ Новый шаблон" button → trigger the form reset
+  const tmplLibNewBtn = document.getElementById('tmpl-lib-new');
+  if (tmplLibNewBtn && els.templateNew) {
+    tmplLibNewBtn.addEventListener('click', () => {
+      els.templateNew.click();
+      els.templateTitle?.focus();
+    });
+  }
+
   /* Scroll-fade for panel body */
   const panelBody = document.querySelector('.panel-body');
   const scrollFade = document.querySelector('.panel-scroll-fade');
@@ -3634,18 +3757,12 @@ async function init() {
 }
 
 /* ── Toolbar "Шаблоны" button → open settings panel, reveal templates card ── */
-(function setupTemplatesToolbarButton() {
-  if (!els.openTemplateQuick) return;
-  els.openTemplateQuick.addEventListener('click', () => {
-    if (state.panelHidden) openSettingsPanel();
-    const card = document.getElementById('templates-settings-card');
-    if (card && !card.open) card.open = true;
-    if (card) card.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  });
-})();
+/* ── Toolbar "Шаблоны" button → opens the quick palette below.
+   The IIFE that follows wires the click handler from within the palette
+   module so the button always matches the palette's actual behaviour. ── */
 
-/* ── Legacy Template Quick palette — kept as dead code guard; will no-op ── */
-(function _unusedTemplateQuickAccess() {
+/* ── Template Quick palette (Ctrl+T / toolbar button) ── */
+(function setupTemplateQuickAccess() {
   const overlay = els.tqOverlay;
   const searchInput = els.tqSearch;
   const listEl = els.tqList;
@@ -3677,6 +3794,33 @@ async function init() {
   function truncate(str, len) {
     const s = String(str || '');
     return s.length > len ? s.slice(0, len) + '…' : s;
+  }
+
+  // Heuristic: guess the template language from a small set of markers.
+  // Used purely for the colour-coded chip next to each template. It does not
+  // affect insert behaviour, so false positives are cheap.
+  function detectTemplateLang(tpl) {
+    const text = String(tpl.lang || tpl.text || '').toLowerCase();
+    if (tpl.lang) {
+      const code = String(tpl.lang).toUpperCase().slice(0, 3);
+      return { code, color: langColor(code) };
+    }
+    if (/\b(hallo|guten|wie geht|danke|bitte|schön|ich bin|morgen)\b/.test(text)) return { code: 'DE', color: langColor('DE') };
+    if (/\b(hi|hello|how are|good morning|thank|please|i am|i'm)\b/.test(text)) return { code: 'EN', color: langColor('EN') };
+    if (/\b(hoi|hallo|dank je|goed|hoe gaat|ik ben|morgen)\b/.test(text)) return { code: 'NL', color: langColor('NL') };
+    if (/\b(salut|bonjour|merci|ça va|je suis|s'il|matin)\b/.test(text)) return { code: 'FR', color: langColor('FR') };
+    if (/[а-яё]/.test(text)) return { code: 'RU', color: langColor('RU') };
+    return { code: '', color: langColor('') };
+  }
+  function langColor(code) {
+    switch (code) {
+      case 'DE': return 'oklch(0.72 0.14 240)';
+      case 'EN': return 'oklch(0.72 0.17 152)';
+      case 'NL': return 'oklch(0.78 0.14 75)';
+      case 'FR': return 'oklch(0.72 0.16 15)';
+      case 'RU': return 'oklch(0.72 0.14 295)';
+      default:   return 'oklch(0.60 0.05 250)';
+    }
   }
 
   function renderList(filter) {
@@ -3747,30 +3891,42 @@ async function init() {
       summary.textContent = cat || 'Без категории';
       details.appendChild(summary);
 
+      let numInCat = 0;
       for (const tpl of catTemplates) {
+        numInCat += 1;
         const item = document.createElement('div');
         item.className = 'tq-item';
         item.dataset.index = visibleItems.length;
         item.dataset.templateId = tpl.id;
+        // Colour the number chip based on detected language
+        const langInfo = detectTemplateLang(tpl);
+        item.style.setProperty('--tq-lang-color', langInfo.color);
 
-        const icon = document.createElement('div');
-        icon.className = 'tq-item-icon';
-        icon.textContent = String(tpl.title || '?').slice(0, 1).toUpperCase();
+        const num = document.createElement('div');
+        num.className = 'tq-item-num';
+        num.textContent = String(tpl.num || numInCat);
 
         const body = document.createElement('div');
         body.className = 'tq-item-body';
 
+        if (langInfo.code) {
+          const langEl = document.createElement('span');
+          langEl.className = 'tq-item-lang';
+          langEl.textContent = langInfo.code;
+          body.appendChild(langEl);
+        }
+
         const title = document.createElement('div');
         title.className = 'tq-item-title';
         title.textContent = tpl.title || 'Без названия';
+        body.appendChild(title);
 
         const preview = document.createElement('div');
         preview.className = 'tq-item-preview';
-        preview.textContent = truncate(tpl.text, 60);
-
-        body.appendChild(title);
+        preview.textContent = truncate(tpl.text, 80);
         body.appendChild(preview);
-        item.appendChild(icon);
+
+        item.appendChild(num);
         item.appendChild(body);
 
         item.addEventListener('click', () => insertAndClose(tpl));
@@ -3877,6 +4033,31 @@ async function init() {
     els.openTemplateQuick.addEventListener('click', openPalette);
   }
 
+  // "+ Новый шаблон" at the bottom of the palette → open settings with the
+  // template form expanded and palette closed.
+  const tqNewBtn = document.getElementById('tq-new');
+  if (tqNewBtn) {
+    tqNewBtn.addEventListener('click', () => {
+      closePalette();
+      if (state.panelHidden) openSettingsPanel();
+      const card = document.getElementById('templates-settings-card');
+      if (card && !card.open) card.open = true;
+      if (els.templateNew) els.templateNew.click();
+      if (els.templateTitle) els.templateTitle.focus();
+    });
+  }
+
+  // Global Ctrl+T / Cmd+T — toggle the palette (unless an editor is focused)
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 't' || e.key === 'T') && !e.shiftKey && !e.altKey) {
+      const active = document.activeElement;
+      const inInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
+      if (inInput && active !== searchInput) return;
+      e.preventDefault();
+      if (overlay.classList.contains('hidden')) openPalette();
+      else closePalette();
+    }
+  });
 })();
 
 init().catch((error) => {

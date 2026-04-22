@@ -171,6 +171,8 @@
               <path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             <span id="toolbar-clock-time" class="toolbar-clock-time">--:--</span>
+            <span class="toolbar-clock-sep">·</span>
+            <span id="toolbar-clock-abbr" class="toolbar-clock-abbr"></span>
             <div id="toolbar-clock-popover" class="toolbar-clock-popover hidden">
               <div class="toolbar-clock-popover-title">Часовые пояса</div>
               <div id="toolbar-clock-zones" class="toolbar-clock-zones"></div>
@@ -425,6 +427,13 @@
         <section class="settings-section" data-settings-section="templates">
         <details class="card card-collapsible" id="templates-settings-card" open>
           <summary>Общие шаблоны</summary>
+          <div class="tmpl-lib">
+            <div class="tmpl-lib-head">
+              <span class="tmpl-lib-count" id="tmpl-lib-count">0 шаблонов</span>
+              <button type="button" id="tmpl-lib-new" class="tmpl-lib-action">+ Новый шаблон</button>
+            </div>
+            <div id="tmpl-lib-list" class="tmpl-lib-list"></div>
+          </div>
           <label>
             Шаблон
             <div class="template-select-row">
@@ -728,6 +737,34 @@
       </div>
     </div>
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- Template Quick Access — redesign drawer style -->
+    <div id="template-quick-overlay" class="tq-overlay hidden">
+      <div class="tq-palette">
+        <div class="tq-header">
+          <div class="tq-icon-circle">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="4" width="16" height="16" rx="3"/>
+              <path d="M8 9h8M8 13h5"/>
+            </svg>
+          </div>
+          <h3 class="tq-title">Шаблоны</h3>
+          <span id="tq-context" class="tq-context"></span>
+          <button type="button" id="tq-close" class="tq-close-btn" title="Закрыть (Esc)">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M11 3L3 11M3 3l8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <input id="tq-search" type="text" class="tq-search" placeholder="Поиск шаблона…" autocomplete="off" />
+        <div id="tq-list" class="tq-list"></div>
+        <div id="tq-empty" class="tq-empty hidden">Нет шаблонов. Создайте в Настройках → Общие шаблоны</div>
+        <div class="tq-hint">
+          <span class="tq-kbd">↑↓</span> навигация
+          <span class="tq-kbd">Enter</span> вставить
+          <span class="tq-kbd">Esc</span> закрыть
+          <button type="button" id="tq-new" class="tq-new-btn">+ Новый шаблон</button>
+        </div>
+      </div>
+    </div>
 
     <script src="templates.js"></script>
     <script src="webview-scripts/bridge.js"></script>

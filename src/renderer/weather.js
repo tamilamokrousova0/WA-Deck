@@ -50,13 +50,15 @@
   }
 
   function renderWeatherSummary({ city, icon, temperature, unit, loading }) {
-    if (!els.weatherCity || !els.weatherIcon || !els.weatherTemp || !els.weatherUnit) return;
+    // Toolbar widget is the only mandatory target now — city/icon/temp.
+    // weatherUnit toggle + popover were removed; update them defensively.
+    if (!els.weatherCity || !els.weatherIcon || !els.weatherTemp) return;
     const safeCity = normalizeWeatherCity(city || state.settings?.weatherCity);
     const safeUnit = normalizeWeatherUnit(unit || state.settings?.weatherUnit);
     els.weatherCity.textContent = safeCity;
     els.weatherIcon.textContent = icon || '🌙';
     els.weatherTemp.textContent = typeof temperature === 'number' ? `${Math.round(temperature)}${weatherUnitSuffix(safeUnit)}` : `--${weatherUnitSuffix(safeUnit)}`;
-    els.weatherUnit.textContent = safeUnit === 'fahrenheit' ? '°F' : '°C';
+    if (els.weatherUnit) els.weatherUnit.textContent = safeUnit === 'fahrenheit' ? '°F' : '°C';
     els.weatherToggle?.classList.toggle('is-loading', Boolean(loading));
   }
 
