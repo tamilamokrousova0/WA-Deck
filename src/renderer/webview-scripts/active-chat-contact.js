@@ -39,35 +39,89 @@ function activeChatContactScript() {
       return '';
     };
 
+    // 1. Primary source of truth: header of the currently open chat.
+    //    This is what the user sees at the top of the chat, so it is the
+    //    contact they mean when they press "CRM". WhatsApp Web does not
+    //    always set aria-selected on the sidebar item, so trusting sidebar
+    //    state here could open CRM for the wrong contact (e.g. a contact
+    //    with a new incoming message, whose row highlights brighter).
+    // WA Web has renamed #main / data-testid attrs several times; try many
+    // selectors and keep the first visible match so a layout refresh doesn't
+    // silently fall back to sidebar heuristics.
+    const pickVisible = (selector) => {
+      for (const el of document.querySelectorAll(selector)) {
+        const rect = el.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) return el;
+      }
+      return null;
+    };
+    const header =
+      pickVisible('#main header') ||
+      pickVisible('div[data-testid="conversation-header"]') ||
+      pickVisible('[data-testid="conversation-info-header"]') ||
+      pickVisible('main header') ||
+      pickVisible('div[role="main"] header') ||
+      pickVisible('header._amid, header[class*="header"]') ||
+      null;
+    if (header) {
+      // Strict: testid-based selectors WA Web uses for the chat title.
+      const strictTitle = pickFromNodes(
+        Array.from(
+          header.querySelectorAll(
+            '[data-testid="conversation-info-header-chat-title"], [data-testid="conversation-title"], [data-testid="conversation-header-name"]'
+          )
+        )
+      );
+      if (strictTitle) return strictTitle;
+
+      // Try obvious name-bearing nodes inside the header.
+      const headerTitle = pickFromNodes(
+        Array.from(
+          header.querySelectorAll(
+            '[data-testid="conversation-info-header-chat-title"] span[title], [data-testid="conversation-info-header-chat-title"] span[dir="auto"], h1, h2, span[title], div[title], span[dir="auto"]'
+          )
+        )
+      );
+      if (headerTitle) return headerTitle;
+
+      // Last-resort within the header: walk the visible innerText and take
+      // the first non-status line. This handles DOM reshuffles where WA Web
+      // renames / drops data-testid attributes we used to rely on.
+      const headerText = String(header.innerText || header.textContent || '');
+      for (const rawLine of headerText.split('\\n')) {
+        const line = normalize(rawLine);
+        if (!line || isStatusText(line)) continue;
+        if (line.length >= 80) continue;
+        return line;
+      }
+    }
+
+    // 2. Fallback: selected sidebar item. Only trust strong WA Web
+    //    attributes (aria-selected / aria-current) — the alpha heuristic is
+    //    unreliable when multiple rows are highlighted (hover / unread /
+    //    selected all share similar backgrounds).
     const sidebarItems = Array.from(
       document.querySelectorAll('#pane-side [role="listitem"], #pane-side [data-testid="cell-frame-container"]')
     );
-
-    const alphaFromBg = (bg) => {
-      const value = String(bg || '').trim().toLowerCase();
-      if (!value || value === 'transparent') return 0;
-      const rgba = value.match(/^rgba\\(([^)]+)\\)$/i);
-      if (rgba) {
-        const parts = rgba[1].split(',').map((part) => Number(String(part).trim()));
-        return Number.isFinite(parts[3]) ? parts[3] : 1;
-      }
-      const rgb = value.match(/^rgb\\(([^)]+)\\)$/i);
-      if (rgb) return 1;
-      if (value.startsWith('#')) return 1;
-      return 0;
-    };
-
+    const isTrueAttr = (el, attr) =>
+      String(el?.getAttribute?.(attr) || '').toLowerCase() === 'true' ||
+      String(el?.getAttribute?.(attr) || '').toLowerCase() === 'page';
     const selectedSidebarItem =
-      sidebarItems.find((item) => String(item.getAttribute('aria-selected') || '').toLowerCase() === 'true') ||
-      sidebarItems
-        .map((item) => ({
-          item,
-          alpha: alphaFromBg(window.getComputedStyle(item).backgroundColor),
-        }))
-        .filter((row) => row.alpha > 0.01)
-        .sort((a, b) => b.alpha - a.alpha)
-        .map((row) => row.item)[0] ||
-      null;
+      sidebarItems.find((item) =>
+        isTrueAttr(item, 'aria-selected') ||
+        isTrueAttr(item, 'aria-current') ||
+        isTrueAttr(item.querySelector('[aria-selected]'), 'aria-selected') ||
+        isTrueAttr(item.querySelector('[aria-current]'), 'aria-current')
+      ) ||
+      (() => {
+        // As a last resort look for WA's internal "selected row" marker:
+        // active chat has an outlined tab-indicator pseudo-child — we can
+        // only probe that by checking whether the row contains a
+        // :focus-visible descendant, OR whether its first button has
+        // tabindex=-1 (inactive) vs 0 (active). Not reliable across builds,
+        // so keep it disabled unless we discover a stable hook.
+        return null;
+      })();
 
     if (selectedSidebarItem) {
       const selectedSidebarTitle = pickFromNodes(
@@ -84,27 +138,6 @@ function activeChatContactScript() {
         .map((line) => normalize(line))
         .find((line) => line && !isStatusText(line));
       if (firstLine) return firstLine;
-    }
-
-    const header = document.querySelector('#main header');
-    if (header) {
-      const strictTitle = pickFromNodes(
-        Array.from(
-          header.querySelectorAll(
-            '[data-testid="conversation-info-header-chat-title"], [data-testid="conversation-title"], [data-testid="conversation-header-name"]'
-          )
-        )
-      );
-      if (strictTitle) return strictTitle;
-
-      const headerTitle = pickFromNodes(
-        Array.from(
-          header.querySelectorAll(
-            '[data-testid="conversation-info-header-chat-title"] span[title], [data-testid="conversation-info-header-chat-title"] span[dir="auto"], h1, h2, span[title], div[title], span[dir="auto"]'
-          )
-        )
-      );
-      if (headerTitle) return headerTitle;
     }
 
     return '';

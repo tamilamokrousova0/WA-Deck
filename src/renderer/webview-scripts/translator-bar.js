@@ -72,7 +72,7 @@ function translatorBarScript() {
         'padding:5px 12px',
         'background:#181e2b',
         'border-bottom:1px solid #2b313b',
-        'font-family:Avenir Next,Segoe UI,system-ui,sans-serif',
+        'font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,system-ui,sans-serif',
         'font-size:12.5px',
         'color:#e5eaf0',
         'position:relative',
@@ -118,20 +118,20 @@ function translatorBarScript() {
       translateBtn.textContent = 'Перевести';
       translateBtn.title = 'Перевести выделенный текст в поле ввода';
       translateBtn.style.cssText = [
-        'background:#2d8cf0',
-        'color:#fff',
+        'background:#25d366',
+        'color:#063',
         'border:none',
-        'border-radius:6px',
+        'border-radius:8px',
         'padding:5px 16px',
         'font-size:12px',
         'font-weight:600',
         'cursor:pointer',
         'flex-shrink:0',
-        'transition:background 0.2s ease',
-        'letter-spacing:0.02em',
+        'transition:filter 0.2s ease',
+        'letter-spacing:-0.005em',
       ].join(';');
-      translateBtn.addEventListener('mouseenter', () => { translateBtn.style.background = '#2478d0'; });
-      translateBtn.addEventListener('mouseleave', () => { translateBtn.style.background = '#2d8cf0'; });
+      translateBtn.addEventListener('mouseenter', () => { translateBtn.style.filter = 'brightness(1.08)'; });
+      translateBtn.addEventListener('mouseleave', () => { translateBtn.style.filter = 'none'; });
       translateBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         doTranslate();
@@ -223,10 +223,10 @@ function translatorBarScript() {
 
       function paint() {
         if (autoTranslate) {
-          wrap.style.background = 'rgba(45,140,240,0.18)';
-          wrap.style.borderColor = 'rgba(45,140,240,0.5)';
-          wrap.style.color = '#9ec3f5';
-          track.style.background = '#2d8cf0';
+          wrap.style.background = 'rgba(37,211,102,0.18)';
+          wrap.style.borderColor = 'rgba(37,211,102,0.5)';
+          wrap.style.color = '#6ed69a';
+          track.style.background = '#25d366';
           knob.style.left = '14px';
         } else {
           wrap.style.background = '#151a24';
@@ -448,7 +448,7 @@ function translatorBarScript() {
         'right:0',
         'min-height:100%',
         'background:rgba(24,30,43,0.96)',
-        'border:1px solid rgba(45,140,240,0.55)',
+        'border:1px solid rgba(37,211,102,0.55)',
         'border-radius:8px',
         'padding:24px 12px 10px 12px',
         'color:#e5eaf0',

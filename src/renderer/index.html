@@ -154,28 +154,10 @@
             </button>
           </div>
           <div id="weather-widget" class="weather-widget">
-            <button type="button" id="weather-toggle" class="weather-toggle" title="Погода">
+            <div id="weather-toggle" class="weather-toggle weather-display" title="Погода">
               <span id="weather-icon" class="weather-icon">🌙</span>
               <span id="weather-temp" class="weather-temp">--°C</span>
               <span id="weather-city" class="weather-city">Москва</span>
-            </button>
-            <div id="weather-popover" class="weather-popover hidden">
-              <div class="weather-popover-head">
-                <span class="weather-popover-title">Погода</span>
-                <button type="button" id="weather-close" class="weather-close-btn" title="Закрыть">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                </button>
-              </div>
-              <label class="weather-label">
-                Город
-                <input id="weather-city-input" type="text" placeholder="Москва" />
-              </label>
-              <div class="weather-popover-actions">
-                <button type="button" id="weather-unit" class="btn btn-ghost weather-unit" title="Переключить единицы">°C</button>
-                <button type="button" id="weather-refresh" class="btn btn-ghost" title="Обновить погоду">Обновить</button>
-                <button type="button" id="weather-save" class="btn" title="Сохранить город">Сохранить</button>
-              </div>
-              <div id="weather-meta" class="weather-meta">Погода не загружена</div>
             </div>
           </div>
           <div id="active-account-display" class="active-account-display" title="Активный WhatsApp">—</div>
@@ -258,9 +240,15 @@
                   <circle class="hub-pulse" cx="40" cy="40" r="10" fill="none" stroke="#5ba8ff" stroke-width="1.5"/>
                 </svg>
               </div>
+              <div id="hub-greeting" class="hub-greeting"></div>
               <div class="hub-title">WA Deck</div>
               <div class="hub-subtitle">Хаб режим. Выберите WhatsApp слева.</div>
               <div id="hub-clocks" class="hub-clocks"></div>
+              <div id="hub-metrics" class="hub-metrics"></div>
+              <div class="hub-section-head">
+                <h2 class="hub-section-title">Аккаунты <span id="hub-accts-count" class="hub-section-count"></span></h2>
+                <div id="hub-filters" class="hub-filters"></div>
+              </div>
               <div id="hub-dashboard" class="hub-dashboard"></div>
             </div>
           </div>
@@ -581,34 +569,6 @@
       </div>
     </div>
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
-
-    <!-- Template Quick Access (Ctrl+T / toolbar button) -->
-    <div id="template-quick-overlay" class="tq-overlay hidden">
-      <div class="tq-palette">
-        <div class="tq-header">
-          <div class="tq-icon-circle">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <rect x="3" y="3" width="18" height="18" rx="3" stroke="#fff" stroke-width="1.8"/>
-              <path d="M3 9h18" stroke="#fff" stroke-width="1.8"/>
-              <path d="M9 9v12" stroke="#fff" stroke-width="1.8"/>
-            </svg>
-          </div>
-          <h3 class="tq-title">Шаблоны</h3>
-          <span id="tq-context" class="tq-context"></span>
-          <button type="button" id="tq-close" class="btn-close-round" title="Закрыть (Esc)">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M11 3L3 11M3 3l8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-          </button>
-        </div>
-        <input id="tq-search" type="text" class="tq-search" placeholder="Поиск шаблона..." autocomplete="off" />
-        <div id="tq-list" class="tq-list"></div>
-        <div id="tq-empty" class="tq-empty hidden">Нет шаблонов. Создайте в Настройках → Общие шаблоны</div>
-        <div class="tq-hint">
-          <span class="tq-kbd">↑↓</span> навигация
-          <span class="tq-kbd">Enter</span> вставить
-          <span class="tq-kbd">Esc</span> закрыть
-        </div>
-      </div>
-    </div>
 
     <script src="templates.js"></script>
     <script src="webview-scripts/bridge.js"></script>
