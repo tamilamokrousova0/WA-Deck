@@ -1365,7 +1365,14 @@ function updateHubGreeting() {
 }
 
 function updateHubMetrics() {
+  // Metrics row was removed from the hub per UX feedback (it hogged space
+  // without adding signal). Keep the function as a no-op so callers don't
+  // need to branch. If the element is still present in some shell build,
+  // clear it so nothing stale lingers.
   const el = document.getElementById('hub-metrics');
+  if (el) el.innerHTML = '';
+  return;
+  // eslint-disable-next-line no-unreachable
   if (!el) return;
   let totalUnread = 0;
   for (const n of state.unreadByAccount.values()) totalUnread += Number(n || 0);
@@ -3007,11 +3014,17 @@ function bindActions() {
   els.themeToggle?.addEventListener('click', () => toggleTheme().catch(console.error));
   els.closePanel?.addEventListener('click', closeSettingsPanel);
 
-  // Settings menu: card clicks → open section
+  // Settings menu: card clicks → open section (or dedicated drawer for
+  // scheduled messages, so it matches the toolbar button UX).
   document.querySelectorAll('.settings-menu-item[data-open]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const key = btn.getAttribute('data-open');
-      if (key) showSettingsSection(key);
+      if (!key) return;
+      if (key === 'schedule' && els.openScheduleToolbar) {
+        els.openScheduleToolbar.click();
+        return;
+      }
+      showSettingsSection(key);
     });
   });
   // Back button in settings header
@@ -3379,8 +3392,8 @@ function bindActions() {
 
   function prefillScheduleNow() {
     if (els.spAt) {
-      // Default to "right now + 5 minutes" so the user can nudge forward.
-      els.spAt.value = nextSendAtLocal(5);
+      // Default to the current system time — user explicitly asked for it.
+      els.spAt.value = nextSendAtLocal(0);
     }
   }
   function openSchedulePopover() {
@@ -3566,12 +3579,20 @@ function bindActions() {
       return;
     }
 
-    showToast('Сообщение запланировано', 'success');
+    // If this save was an "edit" of an existing entry, retire the original.
+    if (state._scheduleEditingId) {
+      try { await window.waDeck.cancelScheduled(state._scheduleEditingId); } catch { /* ignore */ }
+      state._scheduleEditingId = null;
+      showToast('Отложенное обновлено', 'success');
+    } else {
+      showToast('Сообщение запланировано', 'success');
+    }
     if (els.spText) els.spText.value = '';
     spAttachments = [];
     renderSpAttachments();
     if (els.spAt) els.spAt.value = nextSendAtLocal(0);
     await WaDeckScheduleModule.renderScheduled();
+    renderSchedulePopoverList();
   });
 
   async function renderSchedulePopoverList() {
@@ -3633,6 +3654,14 @@ function bindActions() {
       const actionsDiv = document.createElement('div');
       actionsDiv.className = 'sp-item-actions';
 
+      // Edit — copy the entry back into the form for adjustment
+      const editBtn = document.createElement('button');
+      editBtn.className = 'btn btn-small sp-edit';
+      editBtn.dataset.id = String(item.id);
+      editBtn.title = 'Редактировать (будет пересоздано)';
+      editBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+      actionsDiv.appendChild(editBtn);
+
       const cancelBtn = document.createElement('button');
       cancelBtn.className = 'btn btn-small sp-cancel';
       cancelBtn.dataset.id = String(item.id);
@@ -3643,6 +3672,36 @@ function bindActions() {
       row.appendChild(infoDiv);
       row.appendChild(textDiv);
       row.appendChild(actionsDiv);
+
+      // Disable edit/cancel for items that already went out.
+      if (item.status === 'sent') {
+        editBtn.disabled = true;
+        cancelBtn.style.display = 'none';
+      }
+
+      editBtn.addEventListener('click', () => {
+        // Pull the item into the Create form. The original row stays
+        // pending; on "Запланировать" it is replaced with a fresh entry
+        // and the original is cancelled, so effectively it's an edit.
+        const createDetails = document.getElementById('sp-create-details');
+        if (createDetails) createDetails.open = true;
+        if (els.spAccount && item.accountId) els.spAccount.value = item.accountId;
+        if (els.spAccount && item.accountId) populateSpChats(item.accountId);
+        setTimeout(() => {
+          if (els.spChat && item.chatName) els.spChat.value = item.chatName;
+        }, 30);
+        if (els.spText) els.spText.value = String(item.text || '');
+        if (els.spAt && item.sendAt) {
+          const d = new Date(item.sendAt);
+          if (!isNaN(d.getTime())) {
+            const pad = (n) => String(n).padStart(2, '0');
+            els.spAt.value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+          }
+        }
+        // Mark the original for replacement on next "Запланировать"
+        state._scheduleEditingId = item.id;
+        setStatus('Отложенное отредактируется — сохраните, старое будет отменено');
+      });
 
       cancelBtn.addEventListener('click', async () => {
         await window.waDeck.cancelScheduled(item.id);
