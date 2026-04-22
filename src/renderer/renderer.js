@@ -1549,7 +1549,10 @@ async function updateHubDashboard() {
     container.appendChild(card);
   }
 
-  // Кнопки
+  // Кнопки — отрисовываем в отдельный ряд под сеткой аккаунтов, чтобы
+  // они не попадали в тот же grid и не растягивали последнюю карточку.
+  const actionsHost = document.getElementById('hub-actions-row') || container;
+  actionsHost.innerHTML = '';
   const actions = document.createElement('div');
   actions.className = 'hub-actions';
 
@@ -1571,7 +1574,7 @@ async function updateHubDashboard() {
   addTgBtn.addEventListener('click', () => addAccount('telegram'));
 
   actions.append(settingsBtn, addWaBtn, addTgBtn);
-  container.appendChild(actions);
+  actionsHost.appendChild(actions);
 }
 
 function cleanupWebview(webview) {
@@ -3017,11 +3020,14 @@ function bindActions() {
   // Settings menu: card clicks → open section (or dedicated drawer for
   // scheduled messages, so it matches the toolbar button UX).
   document.querySelectorAll('.settings-menu-item[data-open]').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
       const key = btn.getAttribute('data-open');
       if (!key) return;
-      if (key === 'schedule' && els.openScheduleToolbar) {
-        els.openScheduleToolbar.click();
+      if (key === 'schedule' && typeof window._openScheduleDrawer === 'function') {
+        e.stopPropagation();
+        // Defer a tick so the "outside click" handler on the drawer sees a
+        // fresh click rather than the one that just fired on this button.
+        setTimeout(() => window._openScheduleDrawer(), 0);
         return;
       }
       showSettingsSection(key);
@@ -3422,6 +3428,10 @@ function bindActions() {
       closeSchedulePopover();
     }
   }
+
+  // Expose so the settings menu button can open the same drawer.
+  window._openScheduleDrawer = openSchedulePopover;
+  window._closeScheduleDrawer = closeSchedulePopover;
 
   if (els.openScheduleToolbar) {
     els.openScheduleToolbar.addEventListener('click', (event) => {
@@ -4098,6 +4108,10 @@ async function init() {
       summary.textContent = cat || 'Без категории';
       details.appendChild(summary);
 
+      const grid = document.createElement('div');
+      grid.className = 'tq-category-grid';
+      details.appendChild(grid);
+
       let numInCat = 0;
       for (const tpl of catTemplates) {
         numInCat += 1;
@@ -4137,7 +4151,7 @@ async function init() {
         item.appendChild(body);
 
         item.addEventListener('click', () => insertAndClose(tpl));
-        details.appendChild(item);
+        grid.appendChild(item);
         visibleItems.push({ el: item, tpl });
       }
 
@@ -4240,17 +4254,18 @@ async function init() {
     els.openTemplateQuick.addEventListener('click', openPalette);
   }
 
-  // "+ Новый шаблон" at the bottom of the palette → open settings with the
-  // template form expanded and palette closed.
-  const tqNewBtn = document.getElementById('tq-new');
-  if (tqNewBtn) {
-    tqNewBtn.addEventListener('click', () => {
+  // "Новый шаблон" in the palette header — close the palette and open
+  // the template edit modal directly. Faster than routing through the
+  // settings panel.
+  const tqNewHeaderBtn = document.getElementById('tq-new-header');
+  if (tqNewHeaderBtn) {
+    tqNewHeaderBtn.addEventListener('click', () => {
       closePalette();
-      if (state.panelHidden) openSettingsPanel();
-      const card = document.getElementById('templates-settings-card');
-      if (card && !card.open) card.open = true;
       if (els.templateNew) els.templateNew.click();
-      if (els.templateTitle) els.templateTitle.focus();
+      if (typeof window._showTemplateEditForm === 'function') {
+        window._showTemplateEditForm();
+      }
+      setTimeout(() => els.templateTitle?.focus(), 30);
     });
   }
 

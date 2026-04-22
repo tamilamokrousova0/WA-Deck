@@ -5951,6 +5951,26 @@ html[data-theme='light'] .add-account-btn:hover {
 /* Hide the now-unused metrics row if any legacy shell still paints it */
 .hub-metrics { display: none; }
 
+/* The decorative brand logo (animated SVG nodes) ate too much space at
+   the top of the hub — hide it so the greeting + clocks + accounts get
+   to breathe. Keep the animation rules harmless if something still refs
+   them. */
+.hub-icon-animated { display: none; }
+.hub-overlay { padding-top: 20px; }
+.hub-subtitle { display: none; }
+
+/* Actions row rendered outside the accounts grid so it doesn't get
+   laid out as another card. */
+.hub-actions-row {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-start;
+}
+.hub-actions-row .hub-actions {
+  margin-top: 0;
+  gap: 8px;
+}
+
 /* Grid of account cards — compact, scales to 15-20+ accounts.
    Three narrow columns on wide screens, collapsing to two/one on
    narrower windows. Row height stays around ~46px. */
@@ -6679,15 +6699,40 @@ html[data-theme='light'] .sp-item-text { color: #42526e; }
    template-edit-modal). The inline version is always hidden — the modal
    controls its own visibility. */
 .tmpl-edit-wrap.hidden { display: none; }
+/* Template edit is a right-edge drawer (same shape as scheduled drawer) */
+#template-edit-modal {
+  place-items: stretch;
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+  padding: 0;
+  background: oklch(0 0 0 / 0.35);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
 #template-edit-modal .modal-card-template-edit {
-  width: min(440px, 92vw);
+  width: 400px;
+  max-width: 92vw;
+  height: 100vh;
+  max-height: 100vh;
+  margin: 0;
   padding: 0;
   background: color-mix(in oklab, var(--bg-1) 95%, transparent);
-  border: 1px solid var(--stroke);
-  border-radius: 14px;
+  border: 0;
+  border-left: 1px solid var(--stroke);
+  border-radius: 0;
+  box-shadow: var(--shadow-panel);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  overflow: hidden;
+  overflow-y: auto;
+  animation: tqDrawerIn 0.28s cubic-bezier(.2, .8, .2, 1);
+}
+@keyframes tqDrawerIn {
+  from { transform: translateX(24px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@media (max-width: 1100px) {
+  #template-edit-modal .modal-card-template-edit { width: min(400px, 92vw); }
 }
 #template-edit-modal .modal-head {
   padding: 14px 18px;
@@ -6838,38 +6883,93 @@ html[data-theme='light'] .tmpl-lib-section-label,
 html[data-theme='light'] .tmpl-lib-head { color: #7289a7; }
 html[data-theme='light'] .tmpl-lib-lang { color: #7289a7; }
 
-/* ── Template drawer (toolbar → "Шаблоны") — slides in from the right ── */
+/* ── Template palette (toolbar → "Шаблоны") — fullscreen dialog ────────
+   Sized to fit 30+ templates across a multi-column grid. */
 .tq-overlay {
   position: fixed;
   inset: 0;
-  background: transparent;
+  background: oklch(0 0 0 / 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   z-index: 9000;
-  pointer-events: none; /* only the drawer itself should block clicks */
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 40px;
+  animation: tqOverlayIn 0.18s ease;
 }
+@keyframes tqOverlayIn { from { opacity: 0 } to { opacity: 1 } }
 .tq-overlay.hidden { display: none; }
 .tq-palette {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 380px;
-  max-width: 92vw;
+  position: static;
+  flex: 1;
+  width: auto;
+  max-width: none;
   max-height: none;
   background: color-mix(in oklab, var(--bg-1) 97%, transparent);
-  border-left: 1px solid var(--stroke);
-  border-radius: 0;
-  box-shadow: var(--shadow-panel);
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  box-shadow: 0 30px 80px -20px oklch(0 0 0 / 0.6);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   pointer-events: auto;
-  animation: tqDrawerIn 0.28s cubic-bezier(.2, .8, .2, 1);
+  animation: tqPaletteIn 0.22s cubic-bezier(.2, .8, .2, 1);
 }
-@keyframes tqDrawerIn {
-  from { transform: translateX(24px); opacity: 0; }
-  to   { transform: translateX(0);    opacity: 1; }
+@keyframes tqPaletteIn {
+  from { transform: scale(0.98); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+/* Multi-column grid for the items inside categories */
+.tq-list {
+  padding: 12px 16px 16px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tq-category[open] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+.tq-category[open] > .tq-item {
+  /* put items in a 2- or 3-col grid inside an open category */
+}
+.tq-category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 6px;
+}
+.tq-hint { display: none !important; } /* user asked to remove the non-working hints */
+.tq-new-btn { display: none !important; }   /* this one is replaced by the header action */
+
+/* Header gets a prominent "+ Новый шаблон" button (works via JS) */
+.tq-header-new {
+  margin-left: auto;
+  background: var(--accent);
+  color: #063;
+  border: 0;
+  padding: 7px 14px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: filter 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tq-header-new:hover { filter: brightness(1.08); }
+.tq-header-new svg { width: 12px; height: 12px; }
+html[data-theme='light'] .tq-header-new {
+  background: #22c55e;
+  color: #ffffff;
 }
 .tq-header {
   display: flex;

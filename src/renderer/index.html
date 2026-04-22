@@ -249,13 +249,13 @@
               </div>
               <div id="hub-greeting" class="hub-greeting"></div>
               <div class="hub-title">WA Deck</div>
-              <div class="hub-subtitle">Хаб режим. Выберите WhatsApp слева.</div>
               <div id="hub-clocks" class="hub-clocks"></div>
               <div class="hub-section-head">
                 <h2 class="hub-section-title">Аккаунты <span id="hub-accts-count" class="hub-section-count"></span></h2>
                 <div id="hub-filters" class="hub-filters"></div>
               </div>
               <div id="hub-dashboard" class="hub-dashboard"></div>
+              <div id="hub-actions-row" class="hub-actions-row"></div>
             </div>
           </div>
         </section>
@@ -751,19 +751,17 @@
           </div>
           <h3 class="tq-title">Шаблоны</h3>
           <span id="tq-context" class="tq-context"></span>
+          <button type="button" id="tq-new-header" class="tq-header-new" title="Создать новый шаблон">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            Новый шаблон
+          </button>
           <button type="button" id="tq-close" class="tq-close-btn" title="Закрыть (Esc)">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M11 3L3 11M3 3l8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
           </button>
         </div>
         <input id="tq-search" type="text" class="tq-search" placeholder="Поиск шаблона…" autocomplete="off" />
         <div id="tq-list" class="tq-list"></div>
-        <div id="tq-empty" class="tq-empty hidden">Нет шаблонов. Создайте в Настройках → Общие шаблоны</div>
-        <div class="tq-hint">
-          <span class="tq-kbd">↑↓</span> навигация
-          <span class="tq-kbd">Enter</span> вставить
-          <span class="tq-kbd">Esc</span> закрыть
-          <button type="button" id="tq-new" class="tq-new-btn">+ Новый шаблон</button>
-        </div>
+        <div id="tq-empty" class="tq-empty hidden">Нет шаблонов. Нажмите «Новый шаблон», чтобы создать первый.</div>
       </div>
     </div>
 
