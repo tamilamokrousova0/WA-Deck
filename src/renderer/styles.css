@@ -1986,13 +1986,22 @@ html[data-theme='light'] textarea[readonly] {
   min-width: 30px;
   height: 30px;
   padding: 0;
-  display: grid;
-  place-items: center;
+  line-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
 }
 
 .btn-template-search .icon-search {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
+  display: block;
+  margin: 0;
+  /* The lens path is drawn from (11,11) with a handle at (20,20), so the
+     bounding box centres slightly up-left. Shift the SVG so the perceived
+     optical centre lands in the middle of the square button. */
+  transform: translate(1px, -1px);
 }
 
 .btn:hover {
@@ -6608,14 +6617,33 @@ html[data-theme='light'] .sp-item-text { color: #42526e; }
   flex-direction: column;
   gap: 6px;
 }
+.tmpl-lib-section > .tmpl-lib-item { margin-top: 4px; }
 .tmpl-lib-section-label {
+  list-style: none;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-3);
-  padding: 2px 0;
+  padding: 4px 2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
+.tmpl-lib-section-label::-webkit-details-marker { display: none; }
+.tmpl-lib-section-label::before {
+  content: '▸';
+  display: inline-block;
+  color: var(--text-4);
+  transition: transform 0.15s ease;
+}
+.tmpl-lib-section[open] > .tmpl-lib-section-label::before {
+  transform: rotate(90deg);
+}
+/* Edit form hidden by default until the user presses "+ Новый шаблон"
+   or clicks an existing library item. */
+.tmpl-edit-wrap.hidden { display: none; }
 .tmpl-lib-item {
   display: flex;
   align-items: flex-start;
@@ -6699,32 +6727,38 @@ html[data-theme='light'] .tmpl-lib-section-label,
 html[data-theme='light'] .tmpl-lib-head { color: #7289a7; }
 html[data-theme='light'] .tmpl-lib-lang { color: #7289a7; }
 
-/* ── Template Quick palette (toolbar → "Шаблоны") — standalone-style ── */
+/* ── Template drawer (toolbar → "Шаблоны") — slides in from the right ── */
 .tq-overlay {
   position: fixed;
   inset: 0;
-  background: oklch(0 0 0 / 0.4);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: transparent;
   z-index: 9000;
-  display: grid;
-  place-items: start center;
-  padding-top: 100px;
+  pointer-events: none; /* only the drawer itself should block clicks */
 }
 .tq-overlay.hidden { display: none; }
 .tq-palette {
-  width: 560px;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 380px;
   max-width: 92vw;
-  max-height: 70vh;
+  max-height: none;
   background: color-mix(in oklab, var(--bg-1) 97%, transparent);
-  border: 1px solid var(--stroke);
-  border-radius: 14px;
-  box-shadow: 0 30px 80px -20px oklch(0 0 0 / 0.6);
+  border-left: 1px solid var(--stroke);
+  border-radius: 0;
+  box-shadow: var(--shadow-panel);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
+  pointer-events: auto;
+  animation: tqDrawerIn 0.28s cubic-bezier(.2, .8, .2, 1);
+}
+@keyframes tqDrawerIn {
+  from { transform: translateX(24px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
 }
 .tq-header {
   display: flex;
@@ -6958,6 +6992,30 @@ html[data-theme='light'] .tq-kbd { border-color: #dbe4f3; }
 html[data-theme='light'] .tq-new-btn {
   background: #22c55e;
   color: #ffffff;
+}
+
+/* ── Schedule drawer (toolbar → "Отложенные") overrides the tiny popover
+   look: now a full-height panel on the right side, sibling of body. ── */
+.schedule-popover.is-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  width: 380px;
+  max-width: 92vw;
+  max-height: 100vh;
+  border-radius: 0;
+  border: 0;
+  border-left: 1px solid var(--stroke);
+  box-shadow: var(--shadow-panel);
+  z-index: 9000;
+  padding: 16px 18px 18px;
+  animation: tqDrawerIn 0.28s cubic-bezier(.2, .8, .2, 1);
+}
+html[data-theme='light'] .schedule-popover.is-drawer {
+  background: #ffffff;
+  border-left-color: #dbe4f3;
 }
 
 /* ── CRM converted from centred modal into a right-edge drawer ────────── */

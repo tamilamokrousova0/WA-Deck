@@ -1167,6 +1167,55 @@ function closeAccountContextMenu() {
 }
 
 // ── Toolbar Clock ──
+// WebView in Electron paints on a compositor layer above regular DOM, so
+// absolutely-positioned popovers inside .toolbar get hidden by the chat
+// webview below. Workaround: move the popover into document.body, position
+// it via fixed coords, and toggle it ourselves on mouse enter/leave.
+(function rewireClockPopover() {
+  const clock = document.getElementById('toolbar-clock');
+  const popover = document.getElementById('toolbar-clock-popover');
+  if (!clock || !popover) return;
+  if (popover.parentElement !== document.body) {
+    document.body.appendChild(popover);
+  }
+  popover.classList.remove('hidden');
+  popover.style.position = 'fixed';
+  popover.style.zIndex = '10000';
+  popover.style.opacity = '0';
+  popover.style.pointerEvents = 'none';
+  popover.style.transition = 'opacity 0.15s ease';
+
+  function reposition() {
+    const rect = clock.getBoundingClientRect();
+    const width = popover.offsetWidth || 200;
+    popover.style.top = Math.round(rect.bottom + 6) + 'px';
+    popover.style.left = Math.round(rect.right - width) + 'px';
+  }
+  let hideTimer = null;
+  const show = () => {
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    reposition();
+    popover.style.opacity = '1';
+    popover.style.pointerEvents = 'auto';
+    // Re-measure after opacity transition — width may change if zones just rendered
+    requestAnimationFrame(reposition);
+  };
+  const hide = () => {
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      popover.style.opacity = '0';
+      popover.style.pointerEvents = 'none';
+    }, 120);
+  };
+  clock.addEventListener('mouseenter', show);
+  clock.addEventListener('mouseleave', hide);
+  popover.addEventListener('mouseenter', () => { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } });
+  popover.addEventListener('mouseleave', hide);
+  window.addEventListener('resize', () => {
+    if (popover.style.opacity === '1') reposition();
+  });
+})();
+
 function updateToolbarClock() {
   if (!els.toolbarClockTime) return;
   const now = new Date();
@@ -1199,7 +1248,6 @@ function updateToolbarClock() {
   }
 
   els.toolbarClockZones.innerHTML = '';
-  if (els.toolbarClockPopover) els.toolbarClockPopover.classList.remove('hidden');
   for (const zone of zones) {
     const row = document.createElement('div');
     row.className = 'toolbar-clock-zone-row';
@@ -2107,12 +2155,13 @@ function renderTemplatesLibrary() {
   });
 
   for (const cat of sortedCats) {
-    const section = document.createElement('div');
+    const section = document.createElement('details');
     section.className = 'tmpl-lib-section';
-    const label = document.createElement('div');
-    label.className = 'tmpl-lib-section-label';
-    label.textContent = cat;
-    section.appendChild(label);
+    // Collapsed by default per UX spec.
+    const summary = document.createElement('summary');
+    summary.className = 'tmpl-lib-section-label';
+    summary.textContent = cat;
+    section.appendChild(summary);
 
     const items = groups.get(cat);
     items.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'ru'));
@@ -2152,6 +2201,7 @@ function renderTemplatesLibrary() {
 
       item.append(num, body);
       item.addEventListener('click', () => {
+        if (typeof window._showTemplateEditForm === 'function') window._showTemplateEditForm();
         if (els.templateSelect) {
           els.templateSelect.value = tpl.id || '';
           els.templateSelect.dispatchEvent(new Event('change', { bubbles: true }));
@@ -3019,14 +3069,22 @@ function bindActions() {
     setStatus('Обновляю погоду…');
   });
 
-  // Templates library header: "+ Новый шаблон" button → trigger the form reset
+  // Templates library header: "+ Новый шаблон" button → reveal the edit
+  // form, reset its fields and focus the title input.
   const tmplLibNewBtn = document.getElementById('tmpl-lib-new');
+  const tmplEditWrap = document.getElementById('tmpl-edit-wrap');
   if (tmplLibNewBtn && els.templateNew) {
     tmplLibNewBtn.addEventListener('click', () => {
+      if (tmplEditWrap) tmplEditWrap.classList.remove('hidden');
       els.templateNew.click();
       els.templateTitle?.focus();
     });
   }
+  // Clicking a library item also reveals the form (handled elsewhere via
+  // template-select change). Expose a helper so that path can unhide too.
+  window._showTemplateEditForm = () => {
+    if (tmplEditWrap) tmplEditWrap.classList.remove('hidden');
+  };
 
   /* Scroll-fade for panel body */
   const panelBody = document.querySelector('.panel-body');
@@ -3229,11 +3287,28 @@ function bindActions() {
   els.clearAttachments?.addEventListener('click', WaDeckScheduleModule.clearAttachments);
   els.openChatPicker?.addEventListener('click', () => WaDeckScheduleModule.openChatPicker().catch(console.error));
 
-  /* ── Schedule Popover ── */
+  /* ── Schedule drawer (toolbar → "Отложенные") ──
+     Moved to document.body so it renders above the chat webview layer.
+     Opens with the "Create message" details expanded + current time
+     prefilled, per UX spec. */
+  if (els.schedulePopover && els.schedulePopover.parentElement !== document.body) {
+    document.body.appendChild(els.schedulePopover);
+  }
+  els.schedulePopover?.classList.add('is-drawer');
+
+  function prefillScheduleNow() {
+    if (els.spAt) {
+      // Default to "right now + 5 minutes" so the user can nudge forward.
+      els.spAt.value = nextSendAtLocal(5);
+    }
+  }
   function openSchedulePopover() {
     if (!els.schedulePopover) return;
     els.schedulePopover.classList.remove('hidden');
-    if (els.spAt) els.spAt.value = nextSendAtLocal(0);
+    // Expand the "Create message" details by default
+    const createDetails = document.getElementById('sp-create-details');
+    if (createDetails) createDetails.open = true;
+    prefillScheduleNow();
     populateSpAccounts();
     const selectedAccount = els.spAccount?.value || '';
     if (selectedAccount) populateSpChats(selectedAccount);
@@ -3263,14 +3338,13 @@ function bindActions() {
   }
   els.schedulePopoverClose?.addEventListener('click', closeSchedulePopover);
 
-  /* Close popover on outside click */
+  /* Close drawer on click outside of both the trigger button and the
+     drawer itself (the drawer is a direct child of body now). */
   document.addEventListener('click', (e) => {
-    if (els.schedulePopover && !els.schedulePopover.classList.contains('hidden')) {
-      const widget = els.schedulePopover.closest('.schedule-widget');
-      if (widget && !widget.contains(e.target)) {
-        closeSchedulePopover();
-      }
-    }
+    if (!els.schedulePopover || els.schedulePopover.classList.contains('hidden')) return;
+    if (els.schedulePopover.contains(e.target)) return;
+    if (els.openScheduleToolbar && els.openScheduleToolbar.contains(e.target)) return;
+    closeSchedulePopover();
   });
 
   /* Reset datetime when "Create" details expands */
@@ -3874,17 +3948,10 @@ async function init() {
       const catTemplates = groups.get(cat);
       const details = document.createElement('details');
       details.className = 'tq-category';
-      if (q) {
-        details.open = true;
-      } else {
-        const savedState = tqCategoryState.get(cat);
-        details.open = savedState !== undefined ? savedState : false;
-      }
-
-      details.addEventListener('toggle', () => {
-        tqCategoryState.set(cat, details.open);
-        saveTqCategoryState();
-      });
+      // Expand-all only while searching. Fresh opens of the palette always
+      // start with every category collapsed, regardless of the previous
+      // session's state (per current UX spec).
+      details.open = Boolean(q);
 
       const summary = document.createElement('summary');
       summary.className = 'tq-category-title';
