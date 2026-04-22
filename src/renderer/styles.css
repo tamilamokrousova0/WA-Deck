@@ -6641,9 +6641,86 @@ html[data-theme='light'] .sp-item-text { color: #42526e; }
 .tmpl-lib-section[open] > .tmpl-lib-section-label::before {
   transform: rotate(90deg);
 }
-/* Edit form hidden by default until the user presses "+ Новый шаблон"
-   or clicks an existing library item. */
+/* The templates edit form now lives inside a modal (see JS
+   template-edit-modal). The inline version is always hidden — the modal
+   controls its own visibility. */
 .tmpl-edit-wrap.hidden { display: none; }
+#template-edit-modal .modal-card-template-edit {
+  width: min(440px, 92vw);
+  padding: 0;
+  background: color-mix(in oklab, var(--bg-1) 95%, transparent);
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  overflow: hidden;
+}
+#template-edit-modal .modal-head {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--stroke-soft);
+  margin: 0;
+}
+#template-edit-modal .tmpl-edit-wrap {
+  padding: 14px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#template-edit-modal .tmpl-edit-wrap label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+#template-edit-modal .tmpl-edit-wrap input,
+#template-edit-modal .tmpl-edit-wrap textarea,
+#template-edit-modal .tmpl-edit-wrap select {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-strong);
+  background: color-mix(in oklab, var(--bg-2) 50%, transparent);
+  border: 1px solid var(--stroke-soft);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-family: inherit;
+}
+#template-edit-modal .template-main-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+#template-edit-modal .template-main-actions .btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+#template-edit-modal .hint {
+  font-size: 11px;
+  color: var(--text-4);
+  line-height: 1.4;
+}
+html[data-theme='light'] #template-edit-modal .modal-card-template-edit {
+  background: #ffffff;
+  border-color: #dbe4f3;
+}
+html[data-theme='light'] #template-edit-modal .modal-head {
+  border-bottom-color: #eef3fb;
+}
+html[data-theme='light'] #template-edit-modal .tmpl-edit-wrap input,
+html[data-theme='light'] #template-edit-modal .tmpl-edit-wrap textarea,
+html[data-theme='light'] #template-edit-modal .tmpl-edit-wrap select {
+  background: #f4f7fc;
+  border-color: #dbe4f3;
+  color: #11233a;
+}
+html[data-theme='light'] #template-edit-modal .tmpl-edit-wrap label { color: #7289a7; }
 .tmpl-lib-item {
   display: flex;
   align-items: flex-start;

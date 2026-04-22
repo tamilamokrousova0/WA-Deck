@@ -1166,53 +1166,112 @@ function closeAccountContextMenu() {
   }
 }
 
-// ── Toolbar Clock ──
-// WebView in Electron paints on a compositor layer above regular DOM, so
-// absolutely-positioned popovers inside .toolbar get hidden by the chat
-// webview below. Workaround: move the popover into document.body, position
-// it via fixed coords, and toggle it ourselves on mouse enter/leave.
-(function rewireClockPopover() {
+// ── Toolbar Clock tooltip ──
+// We build a fresh tooltip element in document.body from scratch (and
+// discard the legacy #toolbar-clock-popover) because:
+//   1. Electron's <webview> paints on a compositor layer above normal DOM,
+//      so a popover nested in the toolbar gets hidden by the chat view.
+//   2. The legacy element inherited `right: 0` plus other rules that made
+//      it stretch to full viewport width when we promoted it to fixed
+//      positioning. Rebuilding guarantees a clean slate.
+// The tooltip uses fully inline styles so no cascading rule can widen it.
+(function setupClockTooltip() {
   const clock = document.getElementById('toolbar-clock');
-  const popover = document.getElementById('toolbar-clock-popover');
-  if (!clock || !popover) return;
-  if (popover.parentElement !== document.body) {
-    document.body.appendChild(popover);
+  if (!clock) return;
+  const legacy = document.getElementById('toolbar-clock-popover');
+  if (legacy) legacy.remove();
+
+  const tooltip = document.createElement('div');
+  tooltip.id = 'clock-tooltip';
+  tooltip.style.cssText = [
+    'position:fixed',
+    'top:-1000px', 'left:-1000px',          // offscreen until first show
+    'z-index:99999',
+    'opacity:0',
+    'pointer-events:none',
+    'transition:opacity 0.15s ease',
+    'display:flex',
+    'flex-direction:column',
+    'gap:6px',
+    'min-width:180px',
+    'max-width:260px',
+    'width:max-content',                    // shrink to content
+    'padding:10px 14px',
+    'background:var(--bg-1, #1a2030)',
+    'border:1px solid var(--stroke, rgba(255,255,255,0.15))',
+    'border-radius:12px',
+    'box-shadow:0 16px 40px -12px rgba(0,0,0,0.6)',
+    'backdrop-filter:blur(18px)',
+    '-webkit-backdrop-filter:blur(18px)',
+  ].join(';');
+  document.body.appendChild(tooltip);
+
+  const DEFAULT_ZONES = [
+    { label: 'Москва', tz: 'Europe/Moscow' },
+    { label: 'Киев',   tz: 'Europe/Kiev' },
+    { label: 'Берлин', tz: 'Europe/Berlin' },
+  ];
+
+  function renderZones() {
+    const zones = (state.settings && Array.isArray(state.settings.worldClocks) && state.settings.worldClocks.length)
+      ? state.settings.worldClocks
+      : DEFAULT_ZONES;
+    const now = new Date();
+    const parts = [
+      '<div style="font-size:10px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-4,#6d7d90);margin-bottom:2px">Часовые пояса</div>',
+    ];
+    for (const z of zones) {
+      let time = '--:--';
+      try {
+        time = new Intl.DateTimeFormat('ru', {
+          hour: '2-digit', minute: '2-digit', timeZone: z.tz, hour12: false,
+        }).format(now);
+      } catch { /* invalid tz */ }
+      const label = String(z.label || '').replace(/[<>]/g, '');
+      parts.push(
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:20px;font-size:12px;white-space:nowrap">' +
+          '<span style="color:var(--text-2,#b0bac8)">' + label + '</span>' +
+          '<span style="font-family:var(--mono,ui-monospace,SF Mono,Menlo,monospace);color:var(--text-strong,#e5eaf0);font-weight:600;font-variant-numeric:tabular-nums">' + time + '</span>' +
+        '</div>'
+      );
+    }
+    tooltip.innerHTML = parts.join('');
   }
-  popover.classList.remove('hidden');
-  popover.style.position = 'fixed';
-  popover.style.zIndex = '10000';
-  popover.style.opacity = '0';
-  popover.style.pointerEvents = 'none';
-  popover.style.transition = 'opacity 0.15s ease';
 
   function reposition() {
     const rect = clock.getBoundingClientRect();
-    const width = popover.offsetWidth || 200;
-    popover.style.top = Math.round(rect.bottom + 6) + 'px';
-    popover.style.left = Math.round(rect.right - width) + 'px';
+    const ttWidth = tooltip.offsetWidth || 200;
+    let left = Math.round(rect.right - ttWidth);
+    if (left + ttWidth > window.innerWidth - 8) left = window.innerWidth - ttWidth - 8;
+    if (left < 8) left = 8;
+    tooltip.style.top = Math.round(rect.bottom + 6) + 'px';
+    tooltip.style.left = left + 'px';
   }
+
   let hideTimer = null;
   const show = () => {
     if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    renderZones();
+    // Measure after content is in place
     reposition();
-    popover.style.opacity = '1';
-    popover.style.pointerEvents = 'auto';
-    // Re-measure after opacity transition — width may change if zones just rendered
+    tooltip.style.opacity = '1';
+    tooltip.style.pointerEvents = 'auto';
+    // One more pass after paint in case fonts changed the width
     requestAnimationFrame(reposition);
   };
   const hide = () => {
     if (hideTimer) clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
-      popover.style.opacity = '0';
-      popover.style.pointerEvents = 'none';
+      tooltip.style.opacity = '0';
+      tooltip.style.pointerEvents = 'none';
     }, 120);
   };
   clock.addEventListener('mouseenter', show);
   clock.addEventListener('mouseleave', hide);
-  popover.addEventListener('mouseenter', () => { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } });
-  popover.addEventListener('mouseleave', hide);
+  tooltip.addEventListener('mouseenter', () => { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } });
+  tooltip.addEventListener('mouseleave', hide);
   window.addEventListener('resize', () => {
-    if (popover.style.opacity === '1') reposition();
+    if (tooltip.style.opacity === '1') reposition();
   });
 })();
 
@@ -1223,16 +1282,16 @@ function updateToolbarClock() {
     hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(now);
 
-  // Update timezone popover
-  if (!els.toolbarClockZones) return;
-  const zones = (state.settings && state.settings.worldClocks) || [
-    { label: 'Москва', tz: 'Europe/Moscow' },
-    { label: 'Киев', tz: 'Europe/Kiev' },
-    { label: 'Берлин', tz: 'Europe/Berlin' },
-  ];
-  if (!zones.length) return;
-
-  // Inline abbreviations next to the local clock
+  // Inline abbreviations next to the local clock ("MSK · KYIV · BER · LON").
+  // The full zone times live in the floating tooltip (see setupClockTooltip),
+  // which is rebuilt on every hover — nothing to update here.
+  const zones = (state.settings && Array.isArray(state.settings.worldClocks) && state.settings.worldClocks.length)
+    ? state.settings.worldClocks
+    : [
+        { label: 'Москва', tz: 'Europe/Moscow' },
+        { label: 'Киев', tz: 'Europe/Kiev' },
+        { label: 'Берлин', tz: 'Europe/Berlin' },
+      ];
   const abbrEl = document.getElementById('toolbar-clock-abbr');
   if (abbrEl) {
     const abbrMap = {
@@ -1245,27 +1304,6 @@ function updateToolbarClock() {
     abbrEl.textContent = zones
       .map((z) => abbrMap[z.tz] || String(z.label || '').slice(0, 3).toUpperCase())
       .join(' · ');
-  }
-
-  els.toolbarClockZones.innerHTML = '';
-  for (const zone of zones) {
-    const row = document.createElement('div');
-    row.className = 'toolbar-clock-zone-row';
-    let time = '--:--';
-    try {
-      time = new Intl.DateTimeFormat('ru', {
-        hour: '2-digit', minute: '2-digit',
-        timeZone: zone.tz, hour12: false,
-      }).format(now);
-    } catch { /* invalid tz */ }
-    const label = document.createElement('span');
-    label.className = 'toolbar-clock-zone-label';
-    label.textContent = zone.label;
-    const timeEl = document.createElement('span');
-    timeEl.className = 'toolbar-clock-zone-time';
-    timeEl.textContent = time;
-    row.append(label, timeEl);
-    els.toolbarClockZones.appendChild(row);
   }
 }
 
@@ -3069,22 +3107,65 @@ function bindActions() {
     setStatus('Обновляю погоду…');
   });
 
-  // Templates library header: "+ Новый шаблон" button → reveal the edit
-  // form, reset its fields and focus the title input.
-  const tmplLibNewBtn = document.getElementById('tmpl-lib-new');
+  // ── Promote the templates edit form into a full-screen modal ─────────
+  // The form was originally inline inside the settings card, which made
+  // the card dominated by the editor. We wrap it in a modal overlay that
+  // is only shown on "+ Новый шаблон" or when a library item is clicked.
   const tmplEditWrap = document.getElementById('tmpl-edit-wrap');
+  let tmplEditModal = null;
+  if (tmplEditWrap) {
+    tmplEditModal = document.createElement('div');
+    tmplEditModal.id = 'template-edit-modal';
+    tmplEditModal.className = 'modal hidden';
+    const card = document.createElement('div');
+    card.className = 'modal-card modal-card-template-edit';
+    const head = document.createElement('div');
+    head.className = 'modal-head';
+    head.innerHTML = [
+      '<div class="crm-modal-title" style="display:flex;align-items:center;gap:10px">',
+      '  <div class="crm-icon" style="width:26px;height:26px;padding:6px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center">',
+      '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h5"/></svg>',
+      '  </div>',
+      '  <h3 style="margin:0;font-size:15px;font-weight:600">Редактировать шаблон</h3>',
+      '</div>',
+      '<button type="button" id="template-edit-close" class="crm-close-btn" title="Закрыть (Esc)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>',
+    ].join('');
+    card.appendChild(head);
+    tmplEditWrap.classList.remove('hidden'); // show inside modal
+    card.appendChild(tmplEditWrap);
+    tmplEditModal.appendChild(card);
+    document.body.appendChild(tmplEditModal);
+
+    const openTemplateEdit = () => tmplEditModal.classList.remove('hidden');
+    const closeTemplateEdit = () => tmplEditModal.classList.add('hidden');
+
+    document.getElementById('template-edit-close')?.addEventListener('click', closeTemplateEdit);
+    tmplEditModal.addEventListener('click', (e) => {
+      if (e.target === tmplEditModal) closeTemplateEdit();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !tmplEditModal.classList.contains('hidden')) closeTemplateEdit();
+    });
+
+    // Auto-close after save/delete
+    els.templateSave?.addEventListener('click', () => setTimeout(closeTemplateEdit, 50));
+    els.templateDelete?.addEventListener('click', () => setTimeout(closeTemplateEdit, 50));
+
+    window._showTemplateEditForm = openTemplateEdit;
+    window._hideTemplateEditForm = closeTemplateEdit;
+  } else {
+    window._showTemplateEditForm = () => {};
+  }
+
+  // "+ Новый шаблон" (settings library header) → open edit modal fresh
+  const tmplLibNewBtn = document.getElementById('tmpl-lib-new');
   if (tmplLibNewBtn && els.templateNew) {
     tmplLibNewBtn.addEventListener('click', () => {
-      if (tmplEditWrap) tmplEditWrap.classList.remove('hidden');
       els.templateNew.click();
-      els.templateTitle?.focus();
+      if (typeof window._showTemplateEditForm === 'function') window._showTemplateEditForm();
+      setTimeout(() => els.templateTitle?.focus(), 30);
     });
   }
-  // Clicking a library item also reveals the form (handled elsewhere via
-  // template-select change). Expose a helper so that path can unhide too.
-  window._showTemplateEditForm = () => {
-    if (tmplEditWrap) tmplEditWrap.classList.remove('hidden');
-  };
 
   /* Scroll-fade for panel body */
   const panelBody = document.querySelector('.panel-body');
