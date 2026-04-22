@@ -86,9 +86,22 @@ const els = {
   closePanel: document.getElementById('close-panel'),
   manualUpdate: document.getElementById('manual-update'),
   themeToggle: document.getElementById('theme-toggle'),
+  settingsBack: document.getElementById('settings-back'),
+  settingsViewMenu: document.getElementById('settings-view-menu'),
+  settingsViewDetail: document.getElementById('settings-view-detail'),
+  panelTitleText: document.getElementById('panel-title-text'),
+  aboutAppVersion: document.getElementById('about-app-version'),
+  aboutElectronVersion: document.getElementById('about-electron-version'),
+  aboutChromiumVersion: document.getElementById('about-chromium-version'),
+  wsettingsCity: document.getElementById('wsettings-city'),
+  wsettingsUnit: document.getElementById('wsettings-unit'),
+  wsettingsSave: document.getElementById('wsettings-save'),
+  wsettingsRefresh: document.getElementById('wsettings-refresh'),
   panelStatus: document.getElementById('panel-status'),
 
   saveSettings: document.getElementById('save-settings'),
+  settingTranslatorEnabled: document.getElementById('setting-translator-enabled'),
+  settingCrmHoverEnabled: document.getElementById('setting-crm-hover-enabled'),
   templateSelect: document.getElementById('template-select'),
   templateSearch: document.getElementById('template-search'),
   templateSearchRow: document.getElementById('template-search-row'),
@@ -399,14 +412,10 @@ window._invalidateCrmHoverCache = function (accountId, contactName) {
 };
 
 // Direct cache update with known-fresh record (used after save).
-// Also hides a currently-visible popover if hover was turned off.
 window._updateCrmHoverCache = function (accountId, contactName, record) {
   const key = accountId + '::' + contactName;
   _crmHoverGenBump(key);
   _crmHoverCache.set(key, { data: record || {}, ts: Date.now() });
-  if (_crmHoverVisible && _crmHoverShowName === contactName && record && record.hoverEnabled === false) {
-    hideCrmHoverPopover(true);
-  }
 };
 let _crmHoverVisible = false;
 let _crmHoverShowName = ''; // track which contact the current show is for
@@ -528,6 +537,13 @@ async function handleCrmHover(account, webview, payload) {
   }
   if (payload.type !== 'show') return;
 
+  // Global kill-switch: Hover CRM disabled in settings
+  if (!isCrmHoverEnabled()) {
+    _crmHoverShowName = '';
+    hideCrmHoverPopover(true);
+    return;
+  }
+
   if (_crmHoverTimer) { clearTimeout(_crmHoverTimer); _crmHoverTimer = null; }
 
   const contactName = String(payload.contactName || '').trim();
@@ -569,8 +585,9 @@ async function handleCrmHover(account, webview, payload) {
   // Guard: if a hide arrived while we were loading, don't show
   if (_crmHoverShowName !== contactName) return;
 
-  // Check if hover is disabled for this contact
-  if (record.hoverEnabled === false) return;
+  // Per-contact hover toggle deprecated — global `crmHoverEnabled` (checked above)
+  // is now the single source of truth. Legacy `hoverEnabled:false` on stored
+  // records is intentionally ignored.
 
   const rect = { top: payload.top, bottom: payload.bottom, left: payload.left, right: payload.right };
   showCrmHoverPopover(contactName, record, webview, rect);
@@ -816,19 +833,21 @@ function updateAccountCardStatus(accountId) {
   const account = accountById(accountId);
   if (!account) return;
 
-  // Update status dot
-  const dot = card.querySelector('.account-status-dot');
-  if (dot) {
-    dot.classList.remove('status-frozen', 'status-offline', 'status-ready', 'status-loading');
-    if (account.frozen) {
-      dot.classList.add('status-frozen');
-      dot.title = 'Заморожен';
+  // Status dot: only rendered for frozen accounts now.
+  // Add/remove the dot dynamically as the frozen flag toggles.
+  const existingDot = card.querySelector('.account-status-dot');
+  if (account.frozen) {
+    if (existingDot) {
+      existingDot.className = 'account-status-dot status-frozen';
+      existingDot.title = 'Заморожен';
     } else {
-      const wv = state.webviews.get(account.id);
-      if (!wv) { dot.classList.add('status-offline'); dot.title = 'Не загружен'; }
-      else if (wv.dataset?.waReady === '1') { dot.classList.add('status-ready'); dot.title = 'Подключён'; }
-      else { dot.classList.add('status-loading'); dot.title = 'Загружается'; }
+      const statusDot = document.createElement('div');
+      statusDot.className = 'account-status-dot status-frozen';
+      statusDot.title = 'Заморожен';
+      card.appendChild(statusDot);
     }
+  } else if (existingDot) {
+    existingDot.remove();
   }
 
   // Update tooltip
@@ -954,25 +973,16 @@ function renderAccounts() {
     }
     card.appendChild(typeBadge);
 
-    const statusDot = document.createElement('div');
-    statusDot.className = 'account-status-dot';
+    // Only show a status dot for frozen accounts (user-controlled, reliable).
+    // Online/offline/loading dots were removed — they frequently lied because
+    // WhatsApp Web's "ready" signal doesn't always match the actual logged-in
+    // state the user perceives.
     if (account.frozen) {
-      statusDot.classList.add('status-frozen');
+      const statusDot = document.createElement('div');
+      statusDot.className = 'account-status-dot status-frozen';
       statusDot.title = 'Заморожен';
-    } else {
-      const wv = state.webviews.get(account.id);
-      if (!wv) {
-        statusDot.classList.add('status-offline');
-        statusDot.title = 'Не загружен';
-      } else if (wv.dataset?.waReady === '1') {
-        statusDot.classList.add('status-ready');
-        statusDot.title = 'Подключён';
-      } else {
-        statusDot.classList.add('status-loading');
-        statusDot.title = 'Загружается';
-      }
+      card.appendChild(statusDot);
     }
-    card.appendChild(statusDot);
 
     // Кастомный tooltip
     const tooltip = document.createElement('div');
@@ -1200,18 +1210,11 @@ async function updateHubDashboard() {
     badgeEl.className = 'hub-stat-badge';
     badgeEl.textContent = unread > 0 ? (unread > 99 ? '99+' : String(unread)) : '';
 
-    let statusText = '';
-    if (account.frozen) {
-      statusText = '❄ заморожен';
-    } else {
-      const wv = state.webviews.get(account.id);
-      if (!wv) statusText = 'не загружен';
-      else if (wv.dataset?.waReady === '1') statusText = '● онлайн';
-      else statusText = '◌ загрузка';
-    }
+    // Online/offline/loading status removed — unreliable signal from WhatsApp Web.
+    // Only show "frozen" since that's a user-controlled state that's always correct.
     const statusEl = document.createElement('div');
     statusEl.className = 'hub-stat-status';
-    statusEl.textContent = statusText;
+    statusEl.textContent = account.frozen ? '❄ заморожен' : '';
 
     row.append(dot, typeIcon, nameEl, badgeEl, statusEl);
     row.style.cursor = 'pointer';
@@ -1326,7 +1329,7 @@ function ensureWebview(account) {
     // IIFE will init normally. Do NOT reset the flag — doing so would run a second
     // IIFE on top of an already-alive one (when WhatsApp does an internal reload
     // that preserves context), duplicating the bar.
-    if (isWhatsApp && typeof translatorBarScript === 'function') {
+    if (isWhatsApp && isTranslatorEnabled() && typeof translatorBarScript === 'function') {
       webview.executeJavaScript(translatorBarScript(), true)
         .catch((e) => console.warn('[translator-reload]', e));
     }
@@ -1372,10 +1375,10 @@ function ensureWebview(account) {
         .executeJavaScript(bridgeScript(), true)
         .catch((e) => console.warn('[bridge]', e));
 
-      if (typeof crmHoverBridgeScript === 'function') {
+      if (isCrmHoverEnabled() && typeof crmHoverBridgeScript === 'function') {
         webview.executeJavaScript(crmHoverBridgeScript(), true).catch((e) => console.warn('[crm-hover]', e));
       }
-      if (typeof translatorBarScript === 'function') {
+      if (isTranslatorEnabled() && typeof translatorBarScript === 'function') {
         webview.executeJavaScript(translatorBarScript(), true).catch((e) => console.warn('[translator]', e));
       }
     }
@@ -1404,10 +1407,10 @@ function ensureWebview(account) {
       .executeJavaScript(bridgeScript(), true)
       .catch((e) => console.warn('[bridge]', e));
 
-    if (typeof crmHoverBridgeScript === 'function') {
+    if (isCrmHoverEnabled() && typeof crmHoverBridgeScript === 'function') {
       webview.executeJavaScript(crmHoverBridgeScript(), true).catch((e) => console.warn('[crm-hover]', e));
     }
-    if (typeof translatorBarScript === 'function') {
+    if (isTranslatorEnabled() && typeof translatorBarScript === 'function') {
       webview.executeJavaScript(translatorBarScript(), true).catch((e) => console.warn('[translator]', e));
     }
 
@@ -1540,6 +1543,26 @@ function refreshWebviewVisibility() {
     }
   }
   showWebviewLoading(!showHub && activeLoading);
+  refreshTweaksFabVisibility();
+}
+
+/**
+ * Tweaks FAB lives bottom-right. It should only appear when the user is on the
+ * Hub screen or has the Settings panel open — not while viewing a WhatsApp chat,
+ * where it would overlap message content.
+ */
+function refreshTweaksFabVisibility() {
+  const fab = document.getElementById('tweaks-fab');
+  const popover = document.getElementById('tweaks-panel');
+  if (!fab) return;
+  const hubVisible = state.startupHubVisible || !state.activeAccountId || !selectedWebview();
+  const settingsVisible = !state.panelHidden;
+  const shouldShow = hubVisible || settingsVisible;
+  fab.classList.toggle('is-hidden', !shouldShow);
+  // If we're hiding the FAB and popover is open, close it too
+  if (!shouldShow && popover && !popover.classList.contains('hidden')) {
+    toggleTweaksPopover(false);
+  }
 }
 
 function openHubMode() {
@@ -1548,9 +1571,21 @@ function openHubMode() {
 }
 
 function handleEscapeUiReset() {
+  // Close floating Tweaks popover first if open — it's the most shallow UI
+  const tweaksPanel = document.getElementById('tweaks-panel');
+  if (tweaksPanel && !tweaksPanel.classList.contains('hidden')) {
+    toggleTweaksPopover(false);
+    return;
+  }
   WaDeckWeatherModule.closeWeatherPopover();
   WaDeckScheduleModule.closeChatPicker();
-  closeSettingsPanel();
+  // If a settings section is open, Escape goes back to the menu first.
+  // Only a second Escape closes the whole panel.
+  if (!state.panelHidden && state._openSettingsSection) {
+    showSettingsMenu();
+  } else {
+    closeSettingsPanel();
+  }
   if (els.releaseNotesModal && !els.releaseNotesModal.classList.contains('hidden')) {
     WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(console.error);
   }
@@ -1603,6 +1638,13 @@ function _setActiveAccountInner(accountId) {
   WaDeckScheduleModule.renderScheduled().catch(console.error);
 }
 
+function isTranslatorEnabled() {
+  return state.settings?.translatorEnabled !== false;
+}
+function isCrmHoverEnabled() {
+  return state.settings?.crmHoverEnabled !== false;
+}
+
 function applySettingsToForm() {
   state.settings.uiTheme = normalizeTheme(state.settings.uiTheme);
   state.settings.weatherCity = WaDeckWeatherModule.normalizeWeatherCity(state.settings.weatherCity);
@@ -1611,12 +1653,73 @@ function applySettingsToForm() {
   if (els.weatherCityInput) {
     els.weatherCityInput.value = state.settings.weatherCity;
   }
+  if (els.settingTranslatorEnabled) {
+    els.settingTranslatorEnabled.checked = isTranslatorEnabled();
+  }
+  if (els.settingCrmHoverEnabled) {
+    els.settingCrmHoverEnabled.checked = isCrmHoverEnabled();
+  }
   WaDeckWeatherModule.renderWeatherSummary({
     city: state.settings.weatherCity,
     unit: state.settings.weatherUnit,
     loading: false,
   });
   renderClocksSettings();
+  // Keep menu subtitles + about block in sync with current settings
+  if (typeof refreshSettingsMenuSubtitles === 'function') {
+    refreshSettingsMenuSubtitles();
+  }
+  // Apply Tweaks (scene/density) to <html> so CSS can react
+  applyScene(state.settings.uiScene);
+  applyDensity(state.settings.uiDensity);
+  refreshTweakPills();
+}
+
+/**
+ * Apply translator enable/disable to every live webview.
+ * When disabled: set window.__waDeckTranslatorDisabled=true — the bar's own
+ * tick loop will tear down the bar and overlays on its next tick.
+ * When enabled: clear the flag and reinject so the bar comes back immediately.
+ */
+function applyTranslatorToggleToAllWebviews(enabled) {
+  if (!state.webviews) return;
+  state.webviews.forEach((wv, accountId) => {
+    const account = state.accounts?.find((a) => a.id === accountId);
+    const isWa = !account || account.type !== 'telegram';
+    if (!isWa || !wv || !wv.isConnected) return;
+    try {
+      if (enabled) {
+        wv.executeJavaScript(
+          '(() => { try { window.__waDeckTranslatorDisabled = false; } catch {} return true; })()',
+          true,
+        ).catch(() => {});
+        if (typeof translatorBarScript === 'function') {
+          wv.executeJavaScript(translatorBarScript(), true).catch(() => {});
+        }
+      } else {
+        wv.executeJavaScript(
+          `(() => {
+            try { window.__waDeckTranslatorDisabled = true; } catch {}
+            try {
+              const bar = document.getElementById('__wadeck-translator-bar');
+              if (bar) bar.remove();
+              document.querySelectorAll('.__wadeck-tr-overlay').forEach((o) => o.remove());
+            } catch {}
+            return true;
+          })()`,
+          true,
+        ).catch(() => {});
+      }
+    } catch (e) {
+      console.warn('[translator-toggle]', e);
+    }
+  });
+}
+
+function applyCrmHoverToggle(enabled) {
+  if (!enabled) {
+    try { hideCrmHoverPopover(); } catch {}
+  }
 }
 
 function updatePanelVisibility() {
@@ -1627,6 +1730,12 @@ function updatePanelVisibility() {
 function openSettingsPanel() {
   state.panelHidden = false;
   updatePanelVisibility();
+  // Highlight the toolbar gear so it's clear the panel is open
+  els.togglePanel?.classList.add('is-active');
+  // Always land on the top-level menu when opening fresh
+  showSettingsMenu();
+  refreshSettingsMenuSubtitles();
+  refreshTweaksFabVisibility();
   if (!els.crmModal.classList.contains('hidden')) {
     setTimeout(() => {
       WaDeckCrmModule.updateCrmModalPosition().catch(() => {});
@@ -1637,10 +1746,160 @@ function openSettingsPanel() {
 function closeSettingsPanel() {
   state.panelHidden = true;
   updatePanelVisibility();
+  els.togglePanel?.classList.remove('is-active');
+  refreshTweaksFabVisibility();
   if (!els.crmModal.classList.contains('hidden')) {
     setTimeout(() => {
       WaDeckCrmModule.updateCrmModalPosition().catch(() => {});
     }, 40);
+  }
+}
+
+/* ── Floating Tweaks widget: toggle / outside-click close ─────── */
+
+function toggleTweaksPopover(forceOpen) {
+  const panel = document.getElementById('tweaks-panel');
+  const fab = document.getElementById('tweaks-fab');
+  if (!panel || !fab) return;
+  const isHidden = panel.classList.contains('hidden');
+  const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : isHidden;
+  panel.classList.toggle('hidden', !shouldOpen);
+  fab.classList.toggle('is-active', shouldOpen);
+  // Make sure pills reflect current state every time we open
+  if (shouldOpen && typeof refreshTweakPills === 'function') refreshTweakPills();
+}
+
+/* ── Settings panel: 2-level menu navigation ───────────────────── */
+
+const SETTINGS_SECTION_TITLES = {
+  interface: 'Интерфейс',
+  templates: 'Общие шаблоны',
+  schedule: 'Отложенные сообщения',
+  clocks: 'Мировые часы',
+  weather: 'Погода',
+};
+
+/* ── Tweaks (theme / scene / density pills) ─────────────────── */
+
+const VALID_SCENES = ['night', 'day', 'rain', 'space', 'minimal'];
+const VALID_DENSITY = ['compact', 'cozy', 'spacious'];
+
+function applyScene(scene) {
+  const s = VALID_SCENES.includes(String(scene)) ? scene : 'night';
+  document.documentElement.setAttribute('data-scene', s);
+}
+function applyDensity(density) {
+  const d = VALID_DENSITY.includes(String(density)) ? density : 'compact';
+  document.documentElement.setAttribute('data-density', d);
+}
+
+function refreshTweakPills() {
+  const theme = normalizeTheme(state.settings?.uiTheme || 'dark');
+  const scene = VALID_SCENES.includes(state.settings?.uiScene) ? state.settings.uiScene : 'night';
+
+  document.querySelectorAll('.tweak-pill[data-theme]').forEach((el) => {
+    el.classList.toggle('is-active', el.getAttribute('data-theme') === theme);
+  });
+  document.querySelectorAll('.tweak-pill[data-scene]').forEach((el) => {
+    el.classList.toggle('is-active', el.getAttribute('data-scene') === scene);
+  });
+}
+
+function showSettingsMenu() {
+  if (!els.settingsViewMenu || !els.settingsViewDetail) return;
+  els.settingsViewDetail.classList.add('hidden');
+  els.settingsViewMenu.classList.remove('hidden');
+  els.settingsViewMenu.setAttribute('data-dir', 'back');
+  // Force animation replay
+  els.settingsViewMenu.style.animation = 'none';
+  // eslint-disable-next-line no-unused-expressions
+  els.settingsViewMenu.offsetHeight;
+  els.settingsViewMenu.style.animation = '';
+  els.settingsViewMenu.querySelectorAll('.settings-section').forEach((s) => s.classList.remove('active'));
+  if (els.settingsBack) els.settingsBack.classList.add('hidden');
+  if (els.panelTitleText) els.panelTitleText.textContent = 'Настройки';
+  state._openSettingsSection = null;
+}
+
+function showSettingsSection(key) {
+  if (!els.settingsViewMenu || !els.settingsViewDetail) return;
+  const section = els.settingsViewDetail.querySelector(`.settings-section[data-settings-section="${CSS.escape(key)}"]`);
+  if (!section) return;
+  els.settingsViewDetail.querySelectorAll('.settings-section').forEach((s) => s.classList.remove('active'));
+  section.classList.add('active');
+  els.settingsViewMenu.classList.add('hidden');
+  els.settingsViewDetail.classList.remove('hidden');
+  els.settingsViewDetail.removeAttribute('data-dir');
+  // Force animation replay
+  els.settingsViewDetail.style.animation = 'none';
+  // eslint-disable-next-line no-unused-expressions
+  els.settingsViewDetail.offsetHeight;
+  els.settingsViewDetail.style.animation = '';
+  if (els.settingsBack) els.settingsBack.classList.remove('hidden');
+  if (els.panelTitleText) els.panelTitleText.textContent = SETTINGS_SECTION_TITLES[key] || 'Настройки';
+  state._openSettingsSection = key;
+
+  // Weather screen: mirror current values into the settings form
+  if (key === 'weather') {
+    if (els.wsettingsCity) els.wsettingsCity.value = String(state.settings?.weatherCity || '');
+    if (els.wsettingsUnit) {
+      const unit = WaDeckWeatherModule.normalizeWeatherUnit(state.settings?.weatherUnit || 'celsius');
+      els.wsettingsUnit.value = unit;
+    }
+  }
+}
+
+function refreshSettingsMenuSubtitles() {
+  // Live subtitles under each menu item
+  const subs = {
+    templates: () => {
+      const count = Array.isArray(state.templates) ? state.templates.length : 0;
+      const cats = new Set((state.templates || []).map((t) => String(t?.category || '').trim()).filter(Boolean));
+      const plural = (n, forms) => forms[n % 10 === 1 && n % 100 !== 11 ? 0 : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 1 : 2)];
+      const tplWord = plural(count, ['шаблон', 'шаблона', 'шаблонов']);
+      const catWord = plural(cats.size, ['категория', 'категории', 'категорий']);
+      if (!count) return 'нет шаблонов';
+      return `${count} ${tplWord}${cats.size ? ` · ${cats.size} ${catWord}` : ''}`;
+    },
+    schedule: () => {
+      return 'очередь · расписание';
+    },
+    clocks: () => {
+      const count = Array.isArray(state.settings?.worldClocks) ? state.settings.worldClocks.length : 0;
+      if (!count) return 'нет городов';
+      const plural = (n, forms) => forms[n % 10 === 1 && n % 100 !== 11 ? 0 : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 1 : 2)];
+      return `${count} ${plural(count, ['город', 'города', 'городов'])} · авто-обновление`;
+    },
+    weather: () => {
+      const city = String(state.settings?.weatherCity || '—');
+      const unit = WaDeckWeatherModule.normalizeWeatherUnit(state.settings?.weatherUnit || 'celsius');
+      return `${city} · ${unit === 'fahrenheit' ? '°F' : '°C'}`;
+    },
+    interface: () => {
+      const t = isTranslatorEnabled() ? 'переводчик вкл' : 'переводчик выкл';
+      const c = isCrmHoverEnabled() ? 'CRM hover вкл' : 'CRM hover выкл';
+      return `${t} · ${c}`;
+    },
+    hotkeys: () => '⌘K · ⌘N · ⌘T · ⌘,',
+    notifications: () => 'по аккаунтам',
+  };
+
+  document.querySelectorAll('[data-sub]').forEach((el) => {
+    const key = el.getAttribute('data-sub');
+    const fn = subs[key];
+    if (!fn) return;
+    try { el.textContent = fn(); } catch { /* ignore */ }
+  });
+
+  // "About" block: version / runtime info
+  if (els.aboutAppVersion) {
+    els.aboutAppVersion.textContent = String(state.runtime?.appVersion || '—');
+  }
+  if (els.aboutElectronVersion) {
+    els.aboutElectronVersion.textContent = String(state.runtime?.electron || '—');
+  }
+  if (els.aboutChromiumVersion) {
+    els.aboutChromiumVersion.textContent = String(state.runtime?.chrome || '—');
   }
 }
 
@@ -1987,6 +2246,11 @@ async function saveSettings() {
     weatherUnit: WaDeckWeatherModule.normalizeWeatherUnit(state.settings?.weatherUnit),
     lastSeenReleaseNotesVersion: String(state.settings?.lastSeenReleaseNotesVersion || '').trim(),
     worldClocks: state.settings?.worldClocks || [],
+    translatorEnabled: state.settings?.translatorEnabled !== false,
+    crmHoverEnabled: state.settings?.crmHoverEnabled !== false,
+    uiScene: VALID_SCENES.includes(state.settings?.uiScene) ? state.settings.uiScene : 'night',
+    uiDensity: VALID_DENSITY.includes(state.settings?.uiDensity) ? state.settings.uiDensity : 'compact',
+    tweaksCollapsed: !!state.settings?.tweaksCollapsed,
   };
 
   try {
@@ -2325,10 +2589,115 @@ function bindActions() {
   els.sendVoiceMsg?.addEventListener('click', () => sendAudioAsVoiceMessage().catch(console.error));
 
   els.togglePanel.addEventListener('click', () => {
-    openSettingsPanel();
+    // Clicking the toolbar settings button also closes panel if it's already open
+    if (!state.panelHidden) {
+      closeSettingsPanel();
+    } else {
+      openSettingsPanel();
+    }
   });
-  els.themeToggle.addEventListener('click', () => toggleTheme().catch(console.error));
-  els.closePanel.addEventListener('click', closeSettingsPanel);
+  els.themeToggle?.addEventListener('click', () => toggleTheme().catch(console.error));
+  els.closePanel?.addEventListener('click', closeSettingsPanel);
+
+  // Settings menu: card clicks → open section
+  document.querySelectorAll('.settings-menu-item[data-open]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.getAttribute('data-open');
+      if (key) showSettingsSection(key);
+    });
+  });
+  // Back button in settings header
+  els.settingsBack?.addEventListener('click', () => showSettingsMenu());
+
+  // Tweaks: theme / scene / density pills
+  document.querySelectorAll('.tweak-pill[data-theme]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const next = btn.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+      if (normalizeTheme(state.settings?.uiTheme || 'dark') === next) return;
+      state.settings = { ...(state.settings || {}), uiTheme: next };
+      applyTheme(next);
+      refreshTweakPills();
+      try { await saveSettings(); } catch {}
+    });
+  });
+
+  document.querySelectorAll('.tweak-pill[data-scene]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const next = btn.getAttribute('data-scene') || 'night';
+      state.settings = { ...(state.settings || {}), uiScene: next };
+      applyScene(next);
+      refreshTweakPills();
+      try { await saveSettings(); } catch {}
+    });
+  });
+
+  document.querySelectorAll('.tweak-pill[data-density]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const next = btn.getAttribute('data-density') || 'cozy';
+      state.settings = { ...(state.settings || {}), uiDensity: next };
+      applyDensity(next);
+      refreshTweakPills();
+      try { await saveSettings(); } catch {}
+    });
+  });
+
+  document.getElementById('tweaks-collapse')?.addEventListener('click', () => {
+    // In floating mode, "свернуть" simply closes the popover
+    toggleTweaksPopover(false);
+  });
+
+  // Floating Tweaks: FAB click toggles the popover
+  document.getElementById('tweaks-fab')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleTweaksPopover();
+  });
+
+  // Close Tweaks popover on any click that lands outside of it or the FAB
+  document.addEventListener('click', (event) => {
+    const panel = document.getElementById('tweaks-panel');
+    if (!panel || panel.classList.contains('hidden')) return;
+    const fab = document.getElementById('tweaks-fab');
+    if (event.target.closest('#tweaks-panel')) return;
+    if (fab && event.target.closest('#tweaks-fab')) return;
+    toggleTweaksPopover(false);
+  });
+
+  // Weather settings: auto-save on change (no explicit button).
+  const autoSaveWeather = async () => {
+    const city = String(els.wsettingsCity?.value || '').trim();
+    const unit = WaDeckWeatherModule.normalizeWeatherUnit(els.wsettingsUnit?.value);
+    const normCity = WaDeckWeatherModule.normalizeWeatherCity(city);
+    // Skip no-op saves to avoid spamming IPC on every keystroke
+    if (
+      normCity === state.settings?.weatherCity &&
+      unit === state.settings?.weatherUnit
+    ) return;
+    state.settings = {
+      ...(state.settings || {}),
+      weatherCity: normCity,
+      weatherUnit: unit,
+    };
+    try {
+      await saveSettings();
+      refreshSettingsMenuSubtitles();
+      WaDeckWeatherModule.refreshWeather().catch(() => {});
+    } catch { /* saveSettings already reported */ }
+  };
+  // Debounce city typing so every keystroke isn't a save
+  let _weatherCityDebounce = null;
+  els.wsettingsCity?.addEventListener('input', () => {
+    if (_weatherCityDebounce) clearTimeout(_weatherCityDebounce);
+    _weatherCityDebounce = setTimeout(autoSaveWeather, 700);
+  });
+  els.wsettingsCity?.addEventListener('blur', () => {
+    if (_weatherCityDebounce) { clearTimeout(_weatherCityDebounce); _weatherCityDebounce = null; }
+    autoSaveWeather();
+  });
+  els.wsettingsUnit?.addEventListener('change', () => autoSaveWeather());
+  els.wsettingsRefresh?.addEventListener('click', () => {
+    WaDeckWeatherModule.refreshWeather().catch(console.error);
+    setStatus('Обновляю погоду…');
+  });
 
   /* Scroll-fade for panel body */
   const panelBody = document.querySelector('.panel-body');
@@ -2414,6 +2783,33 @@ function bindActions() {
     if (event.key === 'Enter') {
       event.preventDefault();
       WaDeckWeatherModule.saveWeatherSettings().catch(console.error);
+    }
+  });
+
+  els.settingTranslatorEnabled?.addEventListener('change', async (event) => {
+    const enabled = !!event.target.checked;
+    state.settings = { ...(state.settings || {}), translatorEnabled: enabled };
+    applyTranslatorToggleToAllWebviews(enabled);
+    try {
+      await saveSettings();
+      refreshSettingsMenuSubtitles();
+      setStatus(enabled ? 'Переводчик включён' : 'Переводчик отключён');
+    } catch {
+      // saveSettings already surfaces its own error; revert UI to current state
+      event.target.checked = isTranslatorEnabled();
+    }
+  });
+
+  els.settingCrmHoverEnabled?.addEventListener('change', async (event) => {
+    const enabled = !!event.target.checked;
+    state.settings = { ...(state.settings || {}), crmHoverEnabled: enabled };
+    applyCrmHoverToggle(enabled);
+    try {
+      await saveSettings();
+      refreshSettingsMenuSubtitles();
+      setStatus(enabled ? 'Hover-меню CRM включено' : 'Hover-меню CRM отключено');
+    } catch {
+      event.target.checked = isCrmHoverEnabled();
     }
   });
   window.addEventListener('keydown', (event) => {
@@ -2954,6 +3350,11 @@ async function init() {
     weatherCity: WaDeckWeatherModule.normalizeWeatherCity(boot.settings?.weatherCity || 'Moscow'),
     weatherUnit: WaDeckWeatherModule.normalizeWeatherUnit(boot.settings?.weatherUnit || 'celsius'),
     lastSeenReleaseNotesVersion: String(boot.settings?.lastSeenReleaseNotesVersion || ''),
+    translatorEnabled: boot.settings?.translatorEnabled !== false,
+    crmHoverEnabled: boot.settings?.crmHoverEnabled !== false,
+    uiScene: VALID_SCENES.includes(boot.settings?.uiScene) ? boot.settings.uiScene : 'night',
+    uiDensity: VALID_DENSITY.includes(boot.settings?.uiDensity) ? boot.settings.uiDensity : 'cozy',
+    tweaksCollapsed: !!boot.settings?.tweaksCollapsed,
     worldClocks: Array.isArray(boot.settings?.worldClocks) ? boot.settings.worldClocks : [
       { label: 'Москва', tz: 'Europe/Moscow' },
       { label: 'Киев', tz: 'Europe/Kiev' },

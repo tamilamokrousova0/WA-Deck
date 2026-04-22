@@ -19,11 +19,13 @@
   }
 
   function crmFormPayload() {
-    const hoverCheckbox = document.getElementById('crm-hover-enabled');
+    // Per-contact hover toggle removed — global toggle now lives in Settings.
+    // Always write hoverEnabled:true so legacy file format stays valid and any
+    // previously-stored `off` values are upgraded on next save.
     return {
       about: String(els.crmAbout.value || '').trim(),
       myInfo: String(els.crmMyInfo.value || '').trim(),
-      hoverEnabled: hoverCheckbox ? hoverCheckbox.checked : true,
+      hoverEnabled: true,
     };
   }
 
@@ -102,7 +104,7 @@
     const nextRecord = {
       about: String(loaded.about || ''),
       myInfo: String(loaded.myInfo || ''),
-      hoverEnabled: loaded.hoverEnabled !== false, // default true
+      hoverEnabled: true, // per-contact toggle removed; global flag controls visibility
     };
 
     const contactMismatch = String(loaded.contactName || '').trim() !== contactName;
@@ -140,8 +142,6 @@
     els.crmAbout.value = nextRecord.about;
     els.crmMyInfo.value = nextRecord.myInfo;
     els.crmMeta.textContent = `Файл: ${filePath || '—'}`;
-    const hoverCheckbox = document.getElementById('crm-hover-enabled');
-    if (hoverCheckbox) hoverCheckbox.checked = nextRecord.hoverEnabled;
     setCrmEditable(true);
     await updateCrmModalPosition();
     els.crmModal.classList.remove('hidden');

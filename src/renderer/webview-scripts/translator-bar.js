@@ -68,23 +68,23 @@ function translatorBarScript() {
       bar.style.cssText = [
         'display:none',
         'align-items:center',
-        'gap:8px',
-        'padding:5px 12px',
-        'background:#181e2b',
-        'border-bottom:1px solid #2b313b',
+        'gap:10px',
+        'padding:7px 14px',
+        'background:#eff6e4',
+        'border-bottom:1px solid #d8e4c6',
         'font-family:Avenir Next,Segoe UI,system-ui,sans-serif',
         'font-size:12.5px',
-        'color:#e5eaf0',
+        'color:#1a2030',
         'position:relative',
         'z-index:50',
-        'min-height:38px',
+        'min-height:40px',
         'box-sizing:border-box',
         'transition:opacity 0.2s ease',
       ].join(';');
 
       const globe = document.createElement('span');
-      globe.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7e8ea0" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z"/></svg>';
-      globe.style.cssText = 'display:flex;align-items:center;flex-shrink:0;';
+      globe.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z"/></svg>';
+      globe.style.cssText = 'display:flex;align-items:center;justify-content:center;flex-shrink:0;width:26px;height:26px;border-radius:50%;background:rgba(34,197,94,0.12);box-shadow:inset 0 0 0 1px rgba(34,197,94,0.25);';
       bar.appendChild(globe);
 
       // ── Incoming section ──
@@ -92,8 +92,8 @@ function translatorBarScript() {
 
       // ── Separator ──
       const sep = document.createElement('span');
-      sep.textContent = '│';
-      sep.style.cssText = 'color:#3a404d;flex-shrink:0;padding:0 2px;';
+      sep.textContent = '·';
+      sep.style.cssText = 'color:#9ca3af;flex-shrink:0;padding:0 2px;font-size:14px;';
       bar.appendChild(sep);
 
       // ── Outgoing section ──
@@ -103,7 +103,7 @@ function translatorBarScript() {
 
       const arrow = document.createElement('span');
       arrow.textContent = '→';
-      arrow.style.cssText = 'color:#7e8ea0;flex-shrink:0;';
+      arrow.style.cssText = 'color:#9ca3af;flex-shrink:0;font-size:13px;';
       bar.appendChild(arrow);
 
       const toBtn = createDropdownBtn('to');
@@ -118,20 +118,21 @@ function translatorBarScript() {
       translateBtn.textContent = 'Перевести';
       translateBtn.title = 'Перевести выделенный текст в поле ввода';
       translateBtn.style.cssText = [
-        'background:#2d8cf0',
+        'background:#22c55e',
         'color:#fff',
         'border:none',
-        'border-radius:6px',
-        'padding:5px 16px',
-        'font-size:12px',
+        'border-radius:999px',
+        'padding:6px 14px',
+        'font-size:11.5px',
         'font-weight:600',
         'cursor:pointer',
         'flex-shrink:0',
-        'transition:background 0.2s ease',
-        'letter-spacing:0.02em',
+        'transition:background 0.2s ease, transform 0.1s ease',
+        'letter-spacing:0.01em',
+        'box-shadow:0 2px 6px -2px rgba(34,197,94,0.4)',
       ].join(';');
-      translateBtn.addEventListener('mouseenter', () => { translateBtn.style.background = '#2478d0'; });
-      translateBtn.addEventListener('mouseleave', () => { translateBtn.style.background = '#2d8cf0'; });
+      translateBtn.addEventListener('mouseenter', () => { translateBtn.style.background = '#16a34a'; });
+      translateBtn.addEventListener('mouseleave', () => { translateBtn.style.background = '#22c55e'; });
       translateBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         doTranslate();
@@ -143,22 +144,22 @@ function translatorBarScript() {
       closeBtn.title = 'Скрыть панель переводчика';
       closeBtn.style.cssText = [
         'cursor:pointer',
-        'padding:0 4px',
+        'padding:3px 7px',
         'margin-left:2px',
-        'color:#7e8ea0',
-        'font-size:14px',
+        'color:#6b7280',
+        'font-size:13px',
         'line-height:1',
         'flex-shrink:0',
         'user-select:none',
-        'border-radius:4px',
+        'border-radius:6px',
         'transition:all 0.15s',
       ].join(';');
       closeBtn.addEventListener('mouseenter', () => {
-        closeBtn.style.color = '#e5eaf0';
-        closeBtn.style.background = 'rgba(255,255,255,0.06)';
+        closeBtn.style.color = '#1a2030';
+        closeBtn.style.background = 'rgba(0,0,0,0.05)';
       });
       closeBtn.addEventListener('mouseleave', () => {
-        closeBtn.style.color = '#7e8ea0';
+        closeBtn.style.color = '#6b7280';
         closeBtn.style.background = 'transparent';
       });
       closeBtn.addEventListener('click', (e) => {
@@ -178,24 +179,25 @@ function translatorBarScript() {
       wrap.style.cssText = [
         'display:flex',
         'align-items:center',
-        'gap:6px',
-        'padding:4px 10px',
-        'border-radius:6px',
-        'border:1px solid #2b313b',
-        'background:#151a24',
+        'gap:7px',
+        'padding:5px 11px',
+        'border-radius:999px',
+        'border:1px solid rgba(0,0,0,0.08)',
+        'background:rgba(255,255,255,0.5)',
         'cursor:pointer',
         'user-select:none',
-        'font-size:12px',
-        'color:#e5eaf0',
+        'font-size:11.5px',
+        'font-weight:500',
+        'color:#1a2030',
         'flex-shrink:0',
         'transition:all 0.15s',
       ].join(';');
 
       const track = document.createElement('span');
       track.style.cssText = [
-        'width:26px',
+        'width:24px',
         'height:13px',
-        'background:#2b313b',
+        'background:#d1d5db',
         'border-radius:999px',
         'position:relative',
         'flex-shrink:0',
@@ -207,11 +209,12 @@ function translatorBarScript() {
         'width:11px',
         'height:11px',
         'border-radius:50%',
-        'background:#e5eaf0',
+        'background:#ffffff',
         'position:absolute',
         'top:1px',
         'left:1px',
-        'transition:left 0.15s',
+        'box-shadow:0 1px 2px rgba(0,0,0,0.2)',
+        'transition:left 0.15s, background 0.15s',
       ].join(';');
       track.appendChild(knob);
 
@@ -223,17 +226,21 @@ function translatorBarScript() {
 
       function paint() {
         if (autoTranslate) {
-          wrap.style.background = 'rgba(45,140,240,0.18)';
-          wrap.style.borderColor = 'rgba(45,140,240,0.5)';
-          wrap.style.color = '#9ec3f5';
-          track.style.background = '#2d8cf0';
-          knob.style.left = '14px';
+          wrap.style.background = '#22c55e';
+          wrap.style.borderColor = '#22c55e';
+          wrap.style.color = '#ffffff';
+          track.style.background = 'rgba(255,255,255,0.35)';
+          knob.style.left = '12px';
+          knob.style.background = '#ffffff';
+          labelEl.textContent = 'Перевод активен';
         } else {
-          wrap.style.background = '#151a24';
-          wrap.style.borderColor = '#2b313b';
-          wrap.style.color = '#e5eaf0';
-          track.style.background = '#2b313b';
+          wrap.style.background = 'rgba(255,255,255,0.5)';
+          wrap.style.borderColor = 'rgba(0,0,0,0.08)';
+          wrap.style.color = '#1a2030';
+          track.style.background = '#d1d5db';
           knob.style.left = '1px';
+          knob.style.background = '#ffffff';
+          labelEl.textContent = 'Авто вх. → Русский';
         }
       }
       wrap.__paint = paint;
@@ -259,18 +266,20 @@ function translatorBarScript() {
       const btn = document.createElement('div');
       btn.dataset.translatorDropdown = type;
       btn.style.cssText = [
-        'background:#151a24',
-        'border:1px solid #2b313b',
-        'border-radius:6px',
-        'padding:4px 10px',
-        'color:#e5eaf0',
-        'font-size:12px',
-        'min-width:82px',
+        'background:rgba(255,255,255,0.6)',
+        'border:1px solid rgba(0,0,0,0.08)',
+        'border-radius:999px',
+        'padding:5px 12px',
+        'color:#1a2030',
+        'font-size:11.5px',
+        'font-weight:500',
+        'min-width:64px',
         'text-align:center',
         'cursor:pointer',
         'position:relative',
         'user-select:none',
         'flex-shrink:0',
+        'transition:background 0.15s ease, border-color 0.15s ease',
       ].join(';');
       btn.textContent = getLangLabel(type === 'from' ? outgoingFrom : outgoingTo);
       btn.addEventListener('click', (e) => {
@@ -674,6 +683,19 @@ function translatorBarScript() {
     }
 
     function loopTick() {
+      // Global kill-switch set by renderer: tear down bar + overlays and stay dormant.
+      // Keep the loop alive so re-enabling (flag cleared + script reinject) takes effect.
+      if (window.__waDeckTranslatorDisabled === true) {
+        try {
+          const staleBar = document.getElementById('__wadeck-translator-bar');
+          if (staleBar) staleBar.remove();
+          document.querySelectorAll('.__wadeck-tr-overlay').forEach((o) => o.remove());
+          bar = null;
+          currentChatId = '';
+        } catch {}
+        setTimeout(loopTick, 1000);
+        return;
+      }
       try { tick(); } catch (e) { console.warn('[WA-Deck translator] tick error:', e); }
       setTimeout(loopTick, 1000);
     }

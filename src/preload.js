@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('waDeck', {
   claimDueScheduled: (payload) => ipcRenderer.invoke('claim-due-scheduled', payload),
   completeScheduled: (payload) => ipcRenderer.invoke('complete-scheduled', payload),
   cancelScheduled: (id) => ipcRenderer.invoke('cancel-scheduled', id),
+  sendAttachmentsViaCDP: (payload) => ipcRenderer.invoke('send-attachments-via-cdp', payload),
   openDataDir: () => ipcRenderer.invoke('open-data-dir'),
   getClipboardText: () => ipcRenderer.invoke('get-clipboard-text'),
   setClipboardText: (text) => ipcRenderer.invoke('set-clipboard-text', text),

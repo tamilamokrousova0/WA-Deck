@@ -59,49 +59,50 @@
       <main class="workspace">
         <header class="toolbar">
           <div class="toolbar-left">
-            <button type="button" id="refresh-active" class="btn btn-icon btn-toolbar-icon btn-refresh" title="Обновить вкладку (F5)">
-              <svg class="icon icon-refresh" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M21 12a9 9 0 1 1-2.2-5.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                <path d="M21 3v6h-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <div class="toolbar-group">
+            <button type="button" id="refresh-active" class="btn btn-icon btn-toolbar-icon btn-toolbar-expand btn-refresh" title="Обновить вкладку (F5)">
+              <svg class="icon icon-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/>
+                <path d="M21 3v5h-5"/>
+                <path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/>
+                <path d="M3 21v-5h5"/>
               </svg>
+              <span class="btn-toolbar-label">Обновить</span>
             </button>
-            <button type="button" id="freeze-active" class="btn btn-icon btn-toolbar-icon" title="Заморозить/разморозить активный WhatsApp">
-              <svg class="icon icon-snow" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 2v20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                <path d="M17.2 7l-10.4 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                <path d="M6.8 7l10.4 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                <circle cx="12" cy="4.5" r="1.3" fill="currentColor"/>
-                <circle cx="12" cy="19.5" r="1.3" fill="currentColor"/>
-                <circle cx="5.8" cy="8.4" r="1.1" fill="currentColor"/>
-                <circle cx="18.2" cy="15.6" r="1.1" fill="currentColor"/>
-                <circle cx="18.2" cy="8.4" r="1.1" fill="currentColor"/>
-                <circle cx="5.8" cy="15.6" r="1.1" fill="currentColor"/>
+            <button type="button" id="freeze-active" class="btn btn-icon btn-toolbar-icon btn-toolbar-expand" title="Заморозить/разморозить активный WhatsApp">
+              <svg class="icon icon-snow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="12" y1="2" x2="12" y2="22"/>
+                <line x1="2" y1="12" x2="22" y2="12"/>
+                <line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/>
+                <line x1="19.1" y1="4.9" x2="4.9" y2="19.1"/>
               </svg>
+              <span class="btn-toolbar-label">Заморозить</span>
             </button>
-            <div class="toolbar-separator"></div>
-            <button type="button" id="open-crm-modal" class="btn btn-icon btn-toolbar-icon btn-crm" title="CRM">
-              <svg class="icon icon-crm" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                <circle cx="9" cy="7" r="4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </div>
+
+            <div class="toolbar-group">
+            <button type="button" id="open-crm-modal" class="btn btn-icon btn-toolbar-icon btn-toolbar-expand btn-crm" title="Контакты">
+              <svg class="icon icon-crm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="8" r="4"/>
+                <path d="M4 21a8 8 0 0 1 16 0"/>
               </svg>
+              <span class="btn-toolbar-label">Контакты</span>
             </button>
-            <div class="toolbar-separator"></div>
-            <button type="button" id="open-template-quick" class="btn btn-icon btn-toolbar-icon btn-template" title="Шаблоны">
-              <svg class="icon icon-template" viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="3" y="3" width="18" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/>
-                <path d="M3 9h18" stroke="currentColor" stroke-width="1.8"/>
-                <path d="M9 9v12" stroke="currentColor" stroke-width="1.8"/>
+            <button type="button" id="open-template-quick" class="btn btn-icon btn-toolbar-icon btn-toolbar-expand btn-template" title="Шаблоны">
+              <svg class="icon icon-template" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/>
+                <path d="M14 3v5h5"/>
+                <path d="M9 13h6M9 17h4"/>
               </svg>
+              <span class="btn-toolbar-label">Шаблоны</span>
             </button>
             <div class="schedule-widget">
-              <button type="button" id="open-schedule-toolbar" class="btn btn-icon btn-toolbar-icon btn-schedule" title="Отложенная отправка">
-                <svg class="icon icon-schedule" viewBox="0 0 24 24" aria-hidden="true">
-                  <rect x="2" y="5" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/>
-                  <path d="M2 9h14" stroke="currentColor" stroke-width="1.7"/>
-                  <circle cx="18.5" cy="16.5" r="4.5" fill="none" stroke="currentColor" stroke-width="1.7"/>
-                  <path d="M18.5 14.5v2l1.5 1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <button type="button" id="open-schedule-toolbar" class="btn btn-icon btn-toolbar-icon btn-toolbar-expand btn-schedule" title="Отложенная отправка">
+                <svg class="icon icon-schedule" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9"/>
+                  <path d="M12 7v5l3.5 2"/>
                 </svg>
+                <span class="btn-toolbar-label">Отложенные</span>
               </button>
               <div id="schedule-popover" class="schedule-popover hidden">
                 <div class="schedule-popover-head">
@@ -143,15 +144,19 @@
                 </details>
               </div>
             </div>
-            <div class="toolbar-separator"></div>
-            <button type="button" id="send-voice-msg" class="btn btn-icon btn-toolbar-icon btn-voice" title="Отправить аудио как голосовое">
+            </div>
+
+            <div class="toolbar-group">
+            <button type="button" id="send-voice-msg" class="btn btn-icon btn-toolbar-icon btn-toolbar-expand btn-voice" title="Отправить аудио как голосовое">
               <svg class="icon icon-voice" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
                 <path d="M19 10v2a7 7 0 0 1-14 0v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
                 <line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                 <line x1="8" y1="23" x2="16" y2="23" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
               </svg>
+              <span class="btn-toolbar-label">Голосовое</span>
             </button>
+            </div>
           </div>
           <div id="weather-widget" class="weather-widget">
             <button type="button" id="weather-toggle" class="weather-toggle" title="Погода">
@@ -178,7 +183,6 @@
               <div id="weather-meta" class="weather-meta">Погода не загружена</div>
             </div>
           </div>
-          <div id="active-account-display" class="active-account-display" title="Активный WhatsApp">—</div>
           <div id="toolbar-clock" class="toolbar-clock" title="Местное время">
             <svg class="icon icon-clock" viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
@@ -191,6 +195,7 @@
             </div>
           </div>
           <div class="toolbar-right">
+            <div id="active-account-display" class="active-account-display" title="Активный WhatsApp">Нет активного WhatsApp</div>
             <div class="zoom-control">
               <button type="button" id="zoom-out" class="btn btn-icon btn-toolbar-icon btn-zoom" title="Уменьшить масштаб">−</button>
               <input id="zoom-slider" type="range" min="50" max="150" value="100" step="5" class="zoom-slider" title="Масштаб" />
@@ -203,9 +208,9 @@
             </div>
             <div id="status" class="status">Инициализация...</div>
             <button type="button" id="toggle-panel" class="btn btn-icon btn-toolbar-icon btn-settings" title="Настройки">
-              <svg class="icon icon-gear" viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1.08 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.84 1 1.51 1.08H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1.08Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <svg class="icon icon-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
               </svg>
             </button>
           </div>
@@ -269,32 +274,168 @@
 
       <aside id="panel" class="panel hidden">
         <div class="panel-top">
-          <div class="panel-title">Настройки</div>
+          <button type="button" id="settings-back" class="settings-back-btn hidden" title="Назад">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 18l-6-6 6-6"/>
+            </svg>
+          </button>
+          <div class="panel-title-group">
+            <span class="panel-title-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/>
+              </svg>
+            </span>
+            <div class="panel-title" id="panel-title-text">Настройки</div>
+          </div>
           <div class="panel-actions">
-            <button type="button" id="save-settings" class="btn btn-icon btn-panel-icon btn-save-settings" title="Сохранить настройки">
-              <svg class="icon icon-save" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 3h11l3 3v15H5V3Zm2 0v6h8V3M8 21v-7h8v7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-            <button type="button" id="theme-toggle" class="btn btn-icon btn-panel-icon btn-theme" title="Переключить тему">
-              <svg class="icon icon-moon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <svg class="icon icon-sun" viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="1.8"/>
-                <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <button type="button" id="close-panel" class="btn btn-icon btn-panel-icon" title="Закрыть (Esc)">
-              <svg class="icon icon-close" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M18 6 6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <span id="save-settings" class="save-indicator" aria-hidden="true" title="Автосохранение">
+              <span class="save-indicator-dot"></span>
+            </span>
+            <button type="button" id="close-panel" class="btn-panel-close" title="Закрыть (Esc)">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 6 6 18M6 6l12 12"/>
               </svg>
             </button>
           </div>
         </div>
+
         <div class="panel-body">
         <div id="panel-status" class="panel-status">Готово</div>
-        <details class="card card-collapsible" id="templates-settings-card">
+
+        <!-- === Settings MENU (top-level list) === -->
+        <div id="settings-view-menu" class="settings-view settings-view-menu">
+          <div class="settings-group-label">Настройки</div>
+          <div class="settings-menu-list">
+            <button type="button" class="settings-menu-item" data-open="templates">
+              <span class="settings-menu-ico">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/>
+                  <path d="M14 3v5h5"/>
+                  <path d="M9 13h6M9 17h4"/>
+                </svg>
+              </span>
+              <span class="settings-menu-text">
+                <span class="settings-menu-title">Общие шаблоны</span>
+                <span class="settings-menu-sub" data-sub="templates">загрузка…</span>
+              </span>
+              <span class="settings-menu-arrow" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+              </span>
+            </button>
+
+            <button type="button" class="settings-menu-item" data-open="schedule">
+              <span class="settings-menu-ico">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 2 11 13"/>
+                  <path d="M22 2l-7 20-4-9-9-4 20-7z"/>
+                </svg>
+              </span>
+              <span class="settings-menu-text">
+                <span class="settings-menu-title">Отложенные сообщения</span>
+                <span class="settings-menu-sub" data-sub="schedule">очередь · расписание</span>
+              </span>
+              <span class="settings-menu-arrow" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+              </span>
+            </button>
+
+            <button type="button" class="settings-menu-item" data-open="clocks">
+              <span class="settings-menu-ico">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M12 6v6l4 2"/>
+                </svg>
+              </span>
+              <span class="settings-menu-text">
+                <span class="settings-menu-title">Мировые часы</span>
+                <span class="settings-menu-sub" data-sub="clocks">загрузка…</span>
+              </span>
+              <span class="settings-menu-arrow" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+              </span>
+            </button>
+
+            <button type="button" class="settings-menu-item" data-open="weather">
+              <span class="settings-menu-ico">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+                </svg>
+              </span>
+              <span class="settings-menu-text">
+                <span class="settings-menu-title">Погода</span>
+                <span class="settings-menu-sub" data-sub="weather">загрузка…</span>
+              </span>
+              <span class="settings-menu-arrow" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+              </span>
+            </button>
+
+            <button type="button" class="settings-menu-item" data-open="interface">
+              <span class="settings-menu-ico">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="4" y1="6" x2="14" y2="6"/>
+                  <line x1="18" y1="6" x2="20" y2="6"/>
+                  <circle cx="16" cy="6" r="2"/>
+                  <line x1="4" y1="12" x2="6" y2="12"/>
+                  <line x1="10" y1="12" x2="20" y2="12"/>
+                  <circle cx="8" cy="12" r="2"/>
+                  <line x1="4" y1="18" x2="14" y2="18"/>
+                  <line x1="18" y1="18" x2="20" y2="18"/>
+                  <circle cx="16" cy="18" r="2"/>
+                </svg>
+              </span>
+              <span class="settings-menu-text">
+                <span class="settings-menu-title">Интерфейс</span>
+                <span class="settings-menu-sub" data-sub="interface">переводчик · CRM hover</span>
+              </span>
+              <span class="settings-menu-arrow" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+              </span>
+            </button>
+
+          </div>
+
+          <div class="settings-group-label">О приложении</div>
+          <div class="settings-about">
+            <div class="settings-about-line">WA Deck · <span id="about-app-version">—</span></div>
+            <div class="settings-about-line">Electron <span id="about-electron-version">—</span> · Chromium <span id="about-chromium-version">—</span></div>
+            <div class="settings-about-status"><span class="settings-status-dot"></span><span>Готово к работе</span></div>
+          </div>
+          <button type="button" id="manual-update" class="btn settings-check-update">Проверить обновление</button>
+        </div>
+
+        <!-- === Settings DETAIL (section content) === -->
+        <div id="settings-view-detail" class="settings-view settings-view-detail hidden">
+
+        <section class="settings-section" data-settings-section="interface">
+        <details class="card card-collapsible" id="interface-settings-card" open>
+          <summary>Интерфейс</summary>
+          <label class="toggle-row">
+            <span class="toggle-row-text">
+              <span class="toggle-row-title">Переводчик в чатах</span>
+              <span class="toggle-row-hint">Панель перевода над полем ввода и автоперевод входящих. Отключение удалит бар во всех открытых чатах.</span>
+            </span>
+            <span class="toggle-switch">
+              <input id="setting-translator-enabled" type="checkbox" />
+              <span class="toggle-switch-track"><span class="toggle-switch-thumb"></span></span>
+            </span>
+          </label>
+          <label class="toggle-row">
+            <span class="toggle-row-text">
+              <span class="toggle-row-title">Hover-меню CRM</span>
+              <span class="toggle-row-hint">Всплывающая карточка CRM при наведении на контакт в списке. Отключение оставит доступ к CRM только по кнопке в тулбаре.</span>
+            </span>
+            <span class="toggle-switch">
+              <input id="setting-crm-hover-enabled" type="checkbox" />
+              <span class="toggle-switch-track"><span class="toggle-switch-thumb"></span></span>
+            </span>
+          </label>
+        </details>
+        </section>
+
+        <section class="settings-section" data-settings-section="templates">
+        <details class="card card-collapsible" id="templates-settings-card" open>
           <summary>Общие шаблоны</summary>
           <label>
             Шаблон
@@ -343,8 +484,10 @@
           </div>
           <div class="hint">Шаблоны общие: работают для всех WhatsApp-аккаунтов и всех чатов.</div>
         </details>
+        </section>
 
-        <details class="card card-collapsible" id="schedule-settings-card">
+        <section class="settings-section" data-settings-section="schedule">
+        <details class="card card-collapsible" id="schedule-settings-card" open>
           <summary>Создать отложенное сообщение</summary>
           <label>
             Цель отправки
@@ -367,12 +510,14 @@
           <button type="button" id="create-schedule" class="btn btn-primary full">Запланировать</button>
         </details>
 
-        <details class="card card-collapsible" id="scheduled-list-card">
+        <details class="card card-collapsible" id="scheduled-list-card" open>
           <summary>Запланированные сообщения</summary>
           <div id="scheduled-list" class="scheduled-list"></div>
         </details>
+        </section>
 
-        <details class="card card-collapsible" id="clocks-settings-card">
+        <section class="settings-section" data-settings-section="clocks">
+        <details class="card card-collapsible" id="clocks-settings-card" open>
           <summary>Мировые часы</summary>
           <div id="clocks-settings-list" class="clocks-settings-list"></div>
           <div id="clocks-add-form" class="clocks-add-form hidden">
@@ -402,13 +547,31 @@
           </div>
           <button type="button" id="clock-add-toggle" class="btn btn-add-clock">+ Добавить</button>
         </details>
+        </section>
 
+        <section class="settings-section" data-settings-section="weather">
+        <details class="card card-collapsible" open>
+          <summary>Погода</summary>
+          <label>
+            Город
+            <input id="wsettings-city" type="text" placeholder="Москва" maxlength="60" />
+          </label>
+          <label>
+            Единицы
+            <select id="wsettings-unit">
+              <option value="celsius">°C — Цельсий</option>
+              <option value="fahrenheit">°F — Фаренгейт</option>
+            </select>
+          </label>
+          <button type="button" id="wsettings-refresh" class="btn full">Обновить сейчас</button>
+          <div class="hint">Изменения сохраняются автоматически. Погода показывается в тулбаре сверху и обновляется раз в 30 минут.</div>
+        </details>
+        </section>
+
+        </div>
         </div>
 
         <div class="panel-scroll-fade"></div>
-        <div class="panel-bottom-actions">
-          <button type="button" id="manual-update" class="btn">Обновление</button>
-        </div>
       </aside>
 
     </div>
@@ -553,10 +716,6 @@
           <button type="button" id="crm-edit" class="btn hidden">Изменить</button>
           <button type="button" id="crm-save" class="btn btn-primary">Сохранить</button>
           <button type="button" id="crm-copy" class="btn">Копировать</button>
-          <label class="crm-hover-toggle" title="Показывать CRM при наведении на контакт в чате">
-            <input type="checkbox" id="crm-hover-enabled" checked>
-            <span>Hover</span>
-          </label>
         </div>
         <div id="crm-meta" class="crm-meta">Файл: —</div>
       </div>
@@ -624,6 +783,52 @@
     <script src="auto-update.js"></script>
     <script src="unread.js"></script>
     <script src="crm.js"></script>
+
+    <!-- Floating Tweaks widget (theme + scene), bottom-right corner -->
+    <button type="button" id="tweaks-fab" class="tweaks-fab" title="Оформление">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="4" y1="21" x2="4" y2="14"/>
+        <line x1="4" y1="10" x2="4" y2="3"/>
+        <line x1="12" y1="21" x2="12" y2="12"/>
+        <line x1="12" y1="8" x2="12" y2="3"/>
+        <line x1="20" y1="21" x2="20" y2="16"/>
+        <line x1="20" y1="12" x2="20" y2="3"/>
+        <line x1="1" y1="14" x2="7" y2="14"/>
+        <line x1="9" y1="8" x2="15" y2="8"/>
+        <line x1="17" y1="16" x2="23" y2="16"/>
+      </svg>
+    </button>
+
+    <div id="tweaks-panel" class="tweaks-panel tweaks-panel-floating hidden">
+      <div class="tweaks-head">
+        <span class="tweaks-head-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
+            <line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/>
+            <line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/>
+            <line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/>
+            <line x1="17" y1="16" x2="23" y2="16"/>
+          </svg>
+        </span>
+        <span class="tweaks-head-title">TWEAKS</span>
+        <button type="button" id="tweaks-collapse" class="tweaks-collapse-btn">свернуть</button>
+      </div>
+      <div class="tweaks-body" id="tweaks-body">
+        <div class="tweaks-group">
+          <div class="tweaks-label">ТЕМА</div>
+          <div class="tweaks-pills" data-group="theme">
+            <button type="button" class="tweak-pill" data-theme="dark">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79Z"/></svg>
+              <span>Тёмная</span>
+            </button>
+            <button type="button" class="tweak-pill" data-theme="light">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+              <span>Светлая</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <script src="schedule.js"></script>
     <script src="renderer.js"></script>

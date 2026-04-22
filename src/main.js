@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell, clipboard, session, Menu } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, clipboard, session, Menu, webContents } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs/promises');
@@ -20,12 +20,24 @@ const DEFAULT_SETTINGS = {
   weatherCity: 'Moscow',
   weatherUnit: 'celsius',
   lastSeenReleaseNotesVersion: '',
+  translatorEnabled: true,
+  crmHoverEnabled: true,
+  uiScene: 'night',
+  uiDensity: 'compact',
+  tweaksCollapsed: false,
   worldClocks: [
     { label: 'Москва', tz: 'Europe/Moscow' },
     { label: 'Киев', tz: 'Europe/Kiev' },
     { label: 'Берлин', tz: 'Europe/Berlin' },
   ],
 };
+
+function normalizeBool(value, fallback) {
+  if (value === true || value === false) return value;
+  if (value === 'true' || value === '1' || value === 1) return true;
+  if (value === 'false' || value === '0' || value === 0) return false;
+  return fallback;
+}
 
 function normalizeWeatherUnit(value) {
   return String(value || '').toLowerCase() === 'fahrenheit' ? 'fahrenheit' : 'celsius';
@@ -207,6 +219,13 @@ function sanitizeStore(raw) {
   ).trim();
   clean.settings.weatherCity = String(clean.settings.weatherCity || DEFAULT_SETTINGS.weatherCity).trim() || DEFAULT_SETTINGS.weatherCity;
   clean.settings.weatherUnit = normalizeWeatherUnit(clean.settings.weatherUnit);
+  clean.settings.translatorEnabled = normalizeBool(clean.settings.translatorEnabled, DEFAULT_SETTINGS.translatorEnabled);
+  clean.settings.crmHoverEnabled = normalizeBool(clean.settings.crmHoverEnabled, DEFAULT_SETTINGS.crmHoverEnabled);
+  const validScenes = ['night', 'day', 'rain', 'space', 'minimal'];
+  clean.settings.uiScene = validScenes.includes(String(clean.settings.uiScene)) ? clean.settings.uiScene : DEFAULT_SETTINGS.uiScene;
+  const validDensity = ['compact', 'cozy', 'spacious'];
+  clean.settings.uiDensity = validDensity.includes(String(clean.settings.uiDensity)) ? clean.settings.uiDensity : DEFAULT_SETTINGS.uiDensity;
+  clean.settings.tweaksCollapsed = normalizeBool(clean.settings.tweaksCollapsed, DEFAULT_SETTINGS.tweaksCollapsed);
 
   clean.accounts = clean.accounts
     .map((item, index) => ({
@@ -855,16 +874,18 @@ function guessMime(filePath) {
 
 const MAX_ATTACHMENT_SIZE = 100 * 1024 * 1024; // 100 MB
 async function loadAttachmentPayload(filePath) {
+  // File is delivered to the webview via CDP (DOM.setFileInputFiles) using the
+  // absolute path directly — no need to load the bytes into memory here, which
+  // previously caused a ~1.3× base64 spike per 100 MB file.
   const stat = await fs.stat(filePath);
   if (stat.size > MAX_ATTACHMENT_SIZE) {
     throw new Error(`file_too_large: ${path.basename(filePath)} (${Math.round(stat.size / 1024 / 1024)} MB > 100 MB)`);
   }
-  const buff = await fs.readFile(filePath);
   return {
     path: filePath,
     name: path.basename(filePath),
     mime: guessMime(filePath),
-    dataBase64: buff.toString('base64'),
+    size: stat.size,
   };
 }
 
@@ -886,17 +907,20 @@ async function claimDueScheduled(limit = 5) {
   const out = [];
   for (const item of due) {
     const attachments = [];
+    const attachmentErrors = [];
     for (const att of item.attachments) {
       try {
         attachments.push(await loadAttachmentPayload(att.path));
-      } catch {
-        // пропускаем нечитабельные файлы, отправка текста все равно возможна
+      } catch (err) {
+        // Propagate — without a promised attachment, sending empty text as "ok" is a lie
+        attachmentErrors.push(String(err?.message || err || 'unreadable'));
       }
     }
 
     out.push({
       ...item,
       attachments,
+      attachmentErrors,
     });
   }
 
@@ -1399,6 +1423,28 @@ function registerIpc() {
             .map((c) => ({ label: String(c?.label || '').trim().slice(0, 30), tz: String(c?.tz || '').trim() }))
             .filter((c) => c.label && c.tz)
         : (current.worldClocks || DEFAULT_SETTINGS.worldClocks),
+      translatorEnabled: normalizeBool(
+        payload?.translatorEnabled,
+        normalizeBool(current.translatorEnabled, DEFAULT_SETTINGS.translatorEnabled),
+      ),
+      crmHoverEnabled: normalizeBool(
+        payload?.crmHoverEnabled,
+        normalizeBool(current.crmHoverEnabled, DEFAULT_SETTINGS.crmHoverEnabled),
+      ),
+      uiScene: (() => {
+        const valid = ['night', 'day', 'rain', 'space', 'minimal'];
+        const v = String(payload?.uiScene ?? current.uiScene ?? DEFAULT_SETTINGS.uiScene);
+        return valid.includes(v) ? v : DEFAULT_SETTINGS.uiScene;
+      })(),
+      uiDensity: (() => {
+        const valid = ['compact', 'cozy', 'spacious'];
+        const v = String(payload?.uiDensity ?? current.uiDensity ?? DEFAULT_SETTINGS.uiDensity);
+        return valid.includes(v) ? v : DEFAULT_SETTINGS.uiDensity;
+      })(),
+      tweaksCollapsed: normalizeBool(
+        payload?.tweaksCollapsed,
+        normalizeBool(current.tweaksCollapsed, DEFAULT_SETTINGS.tweaksCollapsed),
+      ),
     };
 
     state.store.settings = next;
@@ -1545,6 +1591,56 @@ function registerIpc() {
 
   ipcMain.handle('cancel-scheduled', async (_event, id) => {
     return cancelScheduled(String(id || ''));
+  });
+
+  /**
+   * Attach local files to a webview's <input type="file"> via Chrome DevTools Protocol.
+   * Used by the scheduled-send runner to deliver photo/video/document attachments —
+   * JS can't set `input.files` programmatically, but CDP's DOM.setFileInputFiles can.
+   */
+  ipcMain.handle('send-attachments-via-cdp', async (_event, payload) => {
+    const id = Number(payload?.webContentsId);
+    const selector = String(payload?.selector || '').trim();
+    const files = Array.isArray(payload?.files) ? payload.files.map(String).filter(Boolean) : [];
+    if (!id || !selector || !files.length) return { ok: false, error: 'bad_args' };
+
+    // Verify every file actually exists on disk before attaching
+    for (const filePath of files) {
+      try {
+        await fs.access(filePath);
+      } catch {
+        return { ok: false, error: `file_missing:${path.basename(filePath)}` };
+      }
+    }
+
+    const contents = webContents.fromId(id);
+    if (!contents || contents.isDestroyed()) {
+      return { ok: false, error: 'webcontents_not_found' };
+    }
+
+    const dbg = contents.debugger;
+    let weAttached = false;
+    try {
+      if (!dbg.isAttached()) {
+        dbg.attach('1.3');
+        weAttached = true;
+      }
+      await dbg.sendCommand('DOM.enable');
+      const { root } = await dbg.sendCommand('DOM.getDocument', { depth: -1, pierce: true });
+      const { nodeId } = await dbg.sendCommand('DOM.querySelector', {
+        nodeId: root.nodeId,
+        selector,
+      });
+      if (!nodeId) return { ok: false, error: 'input_not_found' };
+      await dbg.sendCommand('DOM.setFileInputFiles', { nodeId, files });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) };
+    } finally {
+      if (weAttached) {
+        try { dbg.detach(); } catch { /* ignore */ }
+      }
+    }
   });
 
   ipcMain.handle('open-data-dir', async () => {

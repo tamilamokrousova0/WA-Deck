@@ -503,8 +503,71 @@
       return { ok: false, error: 'chat_not_confirmed_after_click', clickTarget: matchResult };
     }
 
-    /* STEP 6: Send text message */
-    if (!text.trim()) return { ok: true, method: 'native_input' };
+    /* STEP 6: Attachments-first flow.
+       If the message has attachments, we deliver them via WhatsApp Web's own
+       attach flow: click the "+" clip button → wait for hidden <input type="file">
+       to materialize → push file paths into it via CDP (DOM.setFileInputFiles) →
+       wait for the preview modal → type caption (on the last group only) → click
+       the Send button inside the preview.
+       Mixed media + documents cannot share one preview — we send them as two
+       consecutive messages, with the caption attached to whichever group is sent
+       last. */
+    const attachments = Array.isArray(item.attachments) ? item.attachments : [];
+    const attachmentErrors = Array.isArray(item.attachmentErrors) ? item.attachmentErrors : [];
+
+    if (attachmentErrors.length) {
+      return { ok: false, error: 'attachment_load_failed: ' + attachmentErrors.join('; ') };
+    }
+
+    if (attachments.length) {
+      const isMedia = (mime) => /^(image|video)\//i.test(String(mime || ''));
+      const mediaPaths = attachments.filter((a) => isMedia(a.mime)).map((a) => a.path);
+      const docPaths = attachments.filter((a) => !isMedia(a.mime)).map((a) => a.path);
+
+      const groups = [];
+      if (mediaPaths.length) groups.push({ kind: 'media', paths: mediaPaths });
+      if (docPaths.length) groups.push({ kind: 'document', paths: docPaths });
+
+      const webContentsId = typeof webview.getWebContentsId === 'function'
+        ? webview.getWebContentsId()
+        : null;
+      if (!webContentsId) {
+        return { ok: false, error: 'no_web_contents_id' };
+      }
+
+      for (let gi = 0; gi < groups.length; gi++) {
+        const group = groups[gi];
+        const isLast = gi === groups.length - 1;
+        const captionForThisGroup = isLast ? text : '';
+        const groupResult = await sendAttachmentGroup({
+          webview,
+          webContentsId,
+          kind: group.kind,
+          paths: group.paths,
+          caption: captionForThisGroup,
+          query,
+          nativeClick,
+          nativeType,
+          nativeKey,
+          delay,
+        });
+        if (!groupResult.ok) {
+          return { ok: false, error: `attach_${group.kind}_${groupResult.error}`, debug: groupResult };
+        }
+        // Small settle between groups so the UI recovers before next attach
+        if (!isLast) await delay(700);
+      }
+
+      return { ok: true, method: 'cdp_attachments', groups: groups.length };
+    }
+
+    /* STEP 7: Text-only path (no attachments). */
+    if (!text.trim()) {
+      // Neither attachments nor text — backend should have rejected with
+      // `text_or_attachment_required`, but guard anyway so we don't silently
+      // mark empty jobs as "sent".
+      return { ok: false, error: 'empty_message' };
+    }
 
     const composerRect = await query(`(() => {
       const c = document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
@@ -537,9 +600,9 @@
     }
 
     const sendBtnRect = await query(`(() => {
-      const btn = document.querySelector('button[data-testid="send"]') ||
-                  document.querySelector('[data-testid="send"]') ||
-                  document.querySelector('span[data-icon="send"]');
+      const btn = document.querySelector('footer button[data-testid="send"]') ||
+                  document.querySelector('footer [data-testid="send"]') ||
+                  document.querySelector('footer span[data-icon="send"]');
       if (!btn) return { found: false };
       const el = btn.closest('button') || btn;
       const r = el.getBoundingClientRect();
@@ -563,6 +626,188 @@
     }
 
     return { ok: false, error: 'text_send_failed', method: 'native_input', debug: afterSend };
+  }
+
+  /**
+   * Attach a group of files of the same kind (media or document) to the current
+   * WhatsApp Web chat and send them (with optional caption on the last group).
+   *
+   * Why this is non-trivial: WhatsApp Web's <input type="file"> is hidden and
+   * lazy-rendered only after the user expands the attach ("+") menu. We open
+   * the menu with a native click, poll until the hidden input appears, then
+   * deliver paths via CDP's DOM.setFileInputFiles (which JS alone cannot do).
+   * Setting files fires the input's change event — WhatsApp then opens the
+   * preview modal, where we type the caption and click send.
+   */
+  async function sendAttachmentGroup({ webview, webContentsId, kind, paths, caption, query, nativeClick, nativeType, nativeKey, delay }) {
+    // Group → file-input accept selector.
+    // WhatsApp Web has THREE file inputs that all carry "image" in accept:
+    //   • Photos & Videos — accept includes "video/…" (images + videos together)
+    //   • Stickers        — accept is image-only (webp/png), NO video
+    //   • Document        — accept is "*" / missing
+    // Previously we used `accept*="image"` which matched the sticker input first
+    // in DOM order — photos were uploaded as stickers. We now key off the
+    // image+video combination, which is unique to the media picker.
+    const inputSelector = kind === 'media'
+      ? 'input[type="file"][accept*="video"]'
+      : 'input[type="file"][accept="*"], input[type="file"]:not([accept*="image"]):not([accept*="video"])';
+
+    /* A. Expand the attach menu.
+       Covers a few years' worth of WhatsApp Web class renames: plus icon,
+       clip testid, aria-label fallbacks (EN/RU). We only need the menu open
+       long enough for the lazy inputs to mount; WhatsApp closes it itself
+       once files are selected. */
+    const clipRect = await query(`(() => {
+      const candidates = [
+        'footer [data-icon="plus"]',
+        'footer [data-icon="clip"]',
+        'footer [data-icon="plus-rounded"]',
+        'footer [data-testid="clip"]',
+        'footer [data-testid="conversation-clip"]',
+        'footer button[aria-label*="Attach" i]',
+        'footer button[aria-label*="Прикреп" i]',
+        'footer button[title*="Attach" i]',
+        'footer button[title*="Прикреп" i]',
+      ];
+      for (const sel of candidates) {
+        const el = document.querySelector(sel);
+        if (!el) continue;
+        const host = el.closest('button') || el.closest('[role="button"]') || el;
+        const r = host.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2, found: true };
+        }
+      }
+      return { found: false };
+    })()`);
+
+    if (!clipRect?.found) return { ok: false, error: 'clip_button_not_found' };
+
+    await nativeClick(clipRect.x, clipRect.y);
+    await delay(350);
+
+    /* B. Wait for the hidden <input type="file"> for this kind to appear. */
+    let inputReady = false;
+    for (let i = 0; i < 30; i++) {
+      const present = await query(
+        `(() => Boolean(document.querySelector(${JSON.stringify(inputSelector)})))()`,
+      );
+      if (present === true) { inputReady = true; break; }
+      await delay(150);
+    }
+
+    if (!inputReady) {
+      await nativeKey('Escape');
+      return { ok: false, error: 'file_input_not_found' };
+    }
+
+    /* C. Hand paths to the input via CDP. This bypasses the OS file dialog
+       and fires the 'change' event WhatsApp listens for. */
+    const cdp = await window.waDeck.sendAttachmentsViaCDP({
+      webContentsId,
+      selector: inputSelector,
+      files: paths,
+    });
+    if (!cdp?.ok) {
+      await nativeKey('Escape');
+      return { ok: false, error: `cdp_${cdp?.error || 'failed'}` };
+    }
+
+    /* D. Wait for the preview modal. WhatsApp shows a lightbox with a
+       Send button; we detect it by a data-icon="send" that lives OUTSIDE
+       the footer (the composer's send button is always in footer). */
+    let previewReady = false;
+    for (let i = 0; i < 60; i++) { // up to ~12s — media can take a moment to thumbnail
+      const detected = await query(`(() => {
+        const icons = Array.from(document.querySelectorAll(
+          '[data-icon="send"], [data-icon="wds-ic-send-filled"], [aria-label="Send"], [aria-label*="Отправ" i]'
+        ));
+        for (const ic of icons) {
+          if (ic.closest('footer')) continue;
+          const host = ic.closest('button') || ic.closest('[role="button"]') || ic;
+          const r = host.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) return true;
+        }
+        return false;
+      })()`);
+      if (detected === true) { previewReady = true; break; }
+      await delay(200);
+    }
+
+    if (!previewReady) {
+      await nativeKey('Escape');
+      return { ok: false, error: 'preview_modal_not_opened' };
+    }
+
+    /* E. Type caption (only relevant on the last group of a message). */
+    if (caption && caption.trim()) {
+      const captionRect = await query(`(() => {
+        // Find a visible contenteditable that's NOT the main composer (which is in footer).
+        const nodes = Array.from(document.querySelectorAll('div[contenteditable="true"], [contenteditable="true"][role="textbox"]'));
+        for (let i = nodes.length - 1; i >= 0; i--) {
+          const el = nodes[i];
+          if (el.closest('footer')) continue;
+          const r = el.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) {
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2, found: true };
+          }
+        }
+        return { found: false };
+      })()`);
+
+      if (captionRect?.found) {
+        await nativeClick(captionRect.x, captionRect.y);
+        await delay(150);
+        await nativeType(caption);
+        await delay(250);
+      }
+      // If caption input isn't found we still send — WhatsApp allows captionless attachments.
+    }
+
+    /* F. Click the preview's Send button. Same "outside footer" rule. */
+    const sendRect = await query(`(() => {
+      const icons = Array.from(document.querySelectorAll(
+        '[data-icon="send"], [data-icon="wds-ic-send-filled"], [aria-label="Send"], [aria-label*="Отправ" i]'
+      ));
+      for (const ic of icons) {
+        if (ic.closest('footer')) continue;
+        const host = ic.closest('button') || ic.closest('[role="button"]') || ic;
+        const r = host.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2, found: true };
+        }
+      }
+      return { found: false };
+    })()`);
+
+    if (!sendRect?.found) {
+      await nativeKey('Escape');
+      return { ok: false, error: 'preview_send_not_found' };
+    }
+
+    await nativeClick(sendRect.x, sendRect.y);
+    await delay(700);
+
+    /* G. Wait for the preview modal to close — confirms the message uploaded
+       and left the lightbox. Times out at ~15s for very slow uploads. */
+    for (let i = 0; i < 75; i++) {
+      const stillOpen = await query(`(() => {
+        const icons = Array.from(document.querySelectorAll(
+          '[data-icon="send"], [data-icon="wds-ic-send-filled"], [aria-label="Send"], [aria-label*="Отправ" i]'
+        ));
+        for (const ic of icons) {
+          if (ic.closest('footer')) continue;
+          const host = ic.closest('button') || ic.closest('[role="button"]') || ic;
+          const r = host.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) return true;
+        }
+        return false;
+      })()`);
+      if (stillOpen !== true) return { ok: true };
+      await delay(200);
+    }
+
+    return { ok: false, error: 'preview_did_not_close' };
   }
 
   async function processDueSchedules() {
