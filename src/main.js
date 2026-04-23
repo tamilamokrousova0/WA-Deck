@@ -6,10 +6,40 @@ const fsSync = require('fs');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { pathToFileURL } = require('url');
+const os = require('os');
+
+/**
+ * Defense-in-depth: only allow attachment paths that live under the user's
+ * home directory and don't touch known sensitive subtrees. A compromised
+ * renderer (XSS) could otherwise schedule a message with `attachments: [{path:
+ * '/Users/.../.ssh/id_rsa'}]` and exfiltrate secrets through the WA upload.
+ */
+function isAttachmentPathAllowed(filePath) {
+  try {
+    const abs = path.resolve(String(filePath || ''));
+    if (!abs) return false;
+    const home = os.homedir();
+    // macOS + Linux are case-sensitive on filenames but Windows is not;
+    // normalize both sides for the prefix check.
+    const caseInsensitive = process.platform === 'win32' || process.platform === 'darwin';
+    const absCmp = caseInsensitive ? abs.toLowerCase() : abs;
+    const homeCmp = caseInsensitive ? home.toLowerCase() : home;
+    if (!absCmp.startsWith(homeCmp + path.sep) && absCmp !== homeCmp) return false;
+    const SENSITIVE = ['.ssh', '.gnupg', '.aws', '.docker', 'Library/Keychains'];
+    for (const s of SENSITIVE) {
+      const marker = (path.sep + s).toLowerCase();
+      const needle = caseInsensitive ? absCmp : abs;
+      if (needle.includes(marker + path.sep) || needle.endsWith(marker)) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const APP_ID = 'com.local.wadeck';
 const APP_TITLE = 'WA Deck';
-const FALLBACK_CHROME_VERSION = '146.0.7680.179';
+const FALLBACK_CHROME_VERSION = '146.0.7680.188';
 const APP_ICON_PNG_PATH = path.join(__dirname, '..', 'assets', 'icon', 'wadeck-icon-512.png');
 const RELEASES_LATEST_URL = 'https://github.com/tamilamokrousova0/WA-Deck/releases/latest';
 
@@ -51,7 +81,7 @@ function buildWhatsAppUserAgent() {
 const WA_USER_AGENT = buildWhatsAppUserAgent();
 app.userAgentFallback = WA_USER_AGENT;
 
-const COLOR_PALETTE = ['#22c55e', '#0ea5e9', '#f97316', '#e11d48', '#8b5cf6', '#14b8a6', '#f59e0b', '#ef4444'];
+const COLOR_PALETTE = ['#0ea5e9', '#22c55e', '#f97316', '#8b5cf6', '#14b8a6', '#ec4899', '#eab308', '#6366f1'];
 
 const state = {
   paths: {
@@ -294,18 +324,79 @@ function sanitizeStore(raw) {
   return clean;
 }
 
+const STORE_MAX_SIZE = 50 * 1024 * 1024; // 50 MB — guards against OOM on corrupt/runaway store.json
+
+// Centralized size limits for user-supplied payloads coming from the renderer.
+// These protect main-process memory and disk from XSS or runaway renderer
+// state. Most fields are far larger than any legitimate WA message/template,
+// so real users won't notice.
+const LIMITS = {
+  ACCOUNT_NAME: 60,
+  CONTACT_NAME: 120,
+  CHAT_NAME: 200,
+  TEMPLATE_TITLE: 120,
+  TEMPLATE_TEXT: 50000,        // 50K chars — WA message limit is ~65K
+  TEMPLATE_CATEGORY: 60,
+  CRM_TEXT: 50000,             // each of about/myInfo
+  CLIPBOARD_TEXT: 200000,
+  TRANSLATE_TEXT: 20000,       // Google Translate's hard cap is 5K; we're generous
+  MESSAGE_TEXT: 65000,
+  SCHEDULED_PER_USER: 2000,    // total pending+processing items
+  TEMPLATES_PER_USER: 5000,
+  ATTACHMENTS_PER_MSG: 30,
+};
+
+function clampString(val, maxLen) {
+  const s = String(val || '');
+  return s.length > maxLen ? s.slice(0, maxLen) : s;
+}
+
+async function loadStoreFromPath(storePath) {
+  const stat = await fs.stat(storePath);
+  if (!stat.isFile()) throw new Error('store is not a file');
+  if (stat.size > STORE_MAX_SIZE) {
+    throw new Error(`store too large: ${stat.size} bytes > ${STORE_MAX_SIZE}`);
+  }
+  const content = await fs.readFile(storePath, 'utf8');
+  return JSON.parse(content);
+}
+
 async function loadStore() {
+  const primary = state.paths.storePath;
+  const backup = primary + '.backup';
+
   try {
-    if (!fsSync.existsSync(state.paths.storePath)) {
+    if (!fsSync.existsSync(primary)) {
+      // First run — check if we have a leftover backup from an interrupted
+      // previous session and recover from it instead of starting fresh.
+      if (fsSync.existsSync(backup)) {
+        try {
+          const parsed = await loadStoreFromPath(backup);
+          state.store = sanitizeStore(parsed);
+          console.warn('[WA-Deck] Primary store missing, recovered from .backup');
+          await saveStore(); // re-create primary
+          return;
+        } catch { /* fall through to empty */ }
+      }
       state.store = sanitizeStore(null);
       return;
     }
 
-    const content = await fs.readFile(state.paths.storePath, 'utf8');
-    const parsed = JSON.parse(content);
+    const parsed = await loadStoreFromPath(primary);
     state.store = sanitizeStore(parsed);
   } catch (err) {
-    console.warn('[WA-Deck] Failed to load store, resetting:', err?.message || err);
+    console.warn('[WA-Deck] Primary store load failed:', err?.message || err);
+    // Primary corrupt or oversized — try the .backup as a lifeline
+    if (fsSync.existsSync(backup)) {
+      try {
+        const parsed = await loadStoreFromPath(backup);
+        state.store = sanitizeStore(parsed);
+        console.warn('[WA-Deck] Recovered store from .backup');
+        return;
+      } catch (backupErr) {
+        console.warn('[WA-Deck] Backup also unreadable:', backupErr?.message || backupErr);
+      }
+    }
     state.store = sanitizeStore(null);
   }
 }
@@ -332,9 +423,25 @@ let _saveStoreQueue = Promise.resolve();
 async function saveStore() {
   _saveStoreQueue = _saveStoreQueue.then(async () => {
     const payload = JSON.stringify(state.store, null, 2);
-    const tmpPath = state.paths.storePath + '.tmp';
+    const primary = state.paths.storePath;
+    const tmpPath = primary + '.tmp';
+    const backupPath = primary + '.backup';
+
+    // Atomic write sequence:
+    //   1. Write new content to .tmp
+    //   2. If primary exists, copy it to .backup (keep previous good version)
+    //   3. Rename .tmp → primary (atomic on POSIX; close-enough on NTFS)
+    // If any step between 2 and 3 fails, .backup still holds the previous
+    // valid state and loadStore() will recover from it.
     await fs.writeFile(tmpPath, payload, 'utf8');
-    await fs.rename(tmpPath, state.paths.storePath);
+    if (fsSync.existsSync(primary)) {
+      try {
+        await fs.copyFile(primary, backupPath);
+      } catch (err) {
+        console.warn('[saveStore] backup copy failed (proceeding):', err?.message || err);
+      }
+    }
+    await fs.rename(tmpPath, primary);
   }).catch((err) => {
     console.error('[saveStore] write failed:', err);
   });
@@ -656,10 +763,10 @@ async function saveCrmContact(payload = {}) {
   await fs.mkdir(dir, { recursive: true });
 
   const record = {
-    contactName: safeContactName,
-    accountName: safeAccountName || account.name,
-    about: String(payload.about || ''),
-    myInfo: String(payload.myInfo || ''),
+    contactName: clampString(safeContactName, LIMITS.CONTACT_NAME),
+    accountName: clampString(safeAccountName || account.name, LIMITS.ACCOUNT_NAME),
+    about: clampString(String(payload.about || ''), LIMITS.CRM_TEXT),
+    myInfo: clampString(String(payload.myInfo || ''), LIMITS.CRM_TEXT),
     hoverEnabled: payload.hoverEnabled !== false,
   };
 
@@ -729,7 +836,7 @@ async function renameAccount(accountId, name) {
   const account = state.store.accounts.find((acc) => acc.id === id);
   if (!account) return { ok: false, error: 'account_not_found' };
 
-  account.name = nextName.slice(0, 60);
+  account.name = clampString(nextName, LIMITS.ACCOUNT_NAME);
   await saveStore();
   return { ok: true, account: accountToView(account) };
 }
@@ -753,6 +860,10 @@ async function setAccountIcon(accountId, iconPath) {
 
   const nextPath = String(iconPath || '').trim();
   if (!nextPath) {
+    // Clear existing icon: remove the copied file in userData/icons too
+    if (account.iconPath) {
+      try { await fs.unlink(account.iconPath); } catch { /* already gone */ }
+    }
     account.iconPath = '';
     await saveStore();
     return { ok: true, account: accountToView(account) };
@@ -766,7 +877,34 @@ async function setAccountIcon(accountId, iconPath) {
     return { ok: false, error: 'icon_invalid_type' };
   }
 
-  account.iconPath = nextPath;
+  // Size guard: avoid copying a 500MB "image"
+  try {
+    const st = await fs.stat(nextPath);
+    if (!st.isFile()) return { ok: false, error: 'icon_not_file' };
+    if (st.size > 10 * 1024 * 1024) return { ok: false, error: 'icon_too_large' };
+  } catch {
+    return { ok: false, error: 'icon_stat_failed' };
+  }
+
+  // Copy file into userData/icons/ so the stored path is always inside our
+  // sandbox. This defeats path-traversal attempts from the renderer side and
+  // keeps the icon available even if the user deletes the source file.
+  const iconsDir = path.join(state.paths.userData, 'icons');
+  try { await fs.mkdir(iconsDir, { recursive: true }); } catch { /* ignore */ }
+  const safeFilename = `${id}_${Date.now().toString(36)}_${crypto.randomBytes(3).toString('hex')}${ext}`;
+  const safePath = path.join(iconsDir, safeFilename);
+  try {
+    await fs.copyFile(nextPath, safePath);
+  } catch (err) {
+    return { ok: false, error: 'icon_copy_failed', detail: String(err?.message || err) };
+  }
+
+  // Clean up previous copied icon (if any) so we don't accumulate orphans
+  if (account.iconPath && account.iconPath !== safePath) {
+    try { await fs.unlink(account.iconPath); } catch { /* ignore */ }
+  }
+
+  account.iconPath = safePath;
   await saveStore();
   return { ok: true, account: accountToView(account) };
 }
@@ -1214,7 +1352,11 @@ function setupAutoUpdater() {
   }
 
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  // Require explicit user confirmation before applying updates on quit.
+  // The UI already shows an "Install and restart" prompt via the
+  // update-downloaded event, so silent-on-quit offers no UX win but adds
+  // supply-chain risk if the update server or GitHub account is compromised.
+  autoUpdater.autoInstallOnAppQuit = false;
   // NSIS differential patches can be flaky on some Windows setups and cause integrity errors.
   autoUpdater.disableDifferentialDownload = true;
 
@@ -1287,9 +1429,9 @@ function nextTemplateTitle() {
 
 async function saveTemplate(payload = {}) {
   const id = String(payload?.id || '').trim();
-  const title = String(payload?.title || '').trim() || nextTemplateTitle();
-  const text = String(payload?.text || '').replace(/\r/g, '');
-  const category = String(payload?.category || '').trim().slice(0, 60);
+  const title = clampString(String(payload?.title || '').trim() || nextTemplateTitle(), LIMITS.TEMPLATE_TITLE);
+  const text = clampString(String(payload?.text || '').replace(/\r/g, ''), LIMITS.TEMPLATE_TEXT);
+  const category = clampString(String(payload?.category || '').trim(), LIMITS.TEMPLATE_CATEGORY);
 
   if (!text.trim()) {
     return { ok: false, error: 'template_text_required' };
@@ -1299,7 +1441,7 @@ async function saveTemplate(payload = {}) {
     const existing = state.store.templates.find((tpl) => tpl.id === id);
     if (!existing) return { ok: false, error: 'template_not_found' };
 
-    existing.title = title.slice(0, 120);
+    existing.title = title;
     existing.text = text;
     existing.category = category;
     existing.updatedAt = new Date().toISOString();
@@ -1307,9 +1449,14 @@ async function saveTemplate(payload = {}) {
     return { ok: true, template: { ...existing }, templates: state.store.templates.map((tpl) => ({ ...tpl })) };
   }
 
+  // Guard against runaway template creation that could bloat store.json
+  if (state.store.templates.length >= LIMITS.TEMPLATES_PER_USER) {
+    return { ok: false, error: 'templates_limit_reached' };
+  }
+
   const template = {
     id: `tpl_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
-    title: title.slice(0, 120),
+    title,
     text,
     category,
     createdAt: new Date().toISOString(),
@@ -1401,6 +1548,11 @@ function registerIpc() {
     const id = String(payload?.accountId || '').trim();
     const color = String(payload?.color || '').trim();
     if (!id || !color) return { ok: false, error: 'invalid_params' };
+    // Only hex colors (#RGB / #RRGGBB / #RRGGBBAA) — renderer UI only emits these.
+    // Rejects any string that could bleed into attribute injection contexts.
+    if (!/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(color)) {
+      return { ok: false, error: 'invalid_color' };
+    }
     const account = state.store.accounts.find((a) => a.id === id);
     if (!account) return { ok: false, error: 'account_not_found' };
     account.color = color;
@@ -1524,18 +1676,29 @@ function registerIpc() {
 
   ipcMain.handle('schedule-message', async (_event, payload) => {
     const accountId = String(payload?.accountId || '');
-    const chatName = String(payload?.chatName || '').trim();
-    const text = String(payload?.text || '');
+    const chatName = clampString(String(payload?.chatName || '').trim(), LIMITS.CHAT_NAME);
+    const text = clampString(String(payload?.text || ''), LIMITS.MESSAGE_TEXT);
     const sendAt = String(payload?.sendAt || '');
     const parsedDate = new Date(sendAt);
-    const attachments = Array.isArray(payload?.attachments)
-      ? payload.attachments
-          .map((att) => ({
-            path: String(att?.path || ''),
-            name: String(att?.name || path.basename(String(att?.path || ''))),
-          }))
-          .filter((att) => att.path)
-      : [];
+    const rawAtt = Array.isArray(payload?.attachments) ? payload.attachments : [];
+    if (rawAtt.length > LIMITS.ATTACHMENTS_PER_MSG) {
+      return { ok: false, error: 'too_many_attachments' };
+    }
+    const attachments = rawAtt
+      .map((att) => ({
+        path: String(att?.path || ''),
+        name: clampString(String(att?.name || path.basename(String(att?.path || ''))), 255),
+      }))
+      .filter((att) => att.path);
+
+    // Reject attachments outside the user's home directory or touching
+    // sensitive subtrees (.ssh, Keychains, etc.). Defeats XSS-driven
+    // file exfiltration via the scheduled-send path.
+    for (const att of attachments) {
+      if (!isAttachmentPathAllowed(att.path)) {
+        return { ok: false, error: 'attachment_path_not_allowed' };
+      }
+    }
 
     if (!state.store.accounts.find((acc) => acc.id === accountId)) {
       return { ok: false, error: 'account_not_found' };
@@ -1544,6 +1707,13 @@ function registerIpc() {
     if (!text.trim() && !attachments.length) return { ok: false, error: 'text_or_attachment_required' };
     if (Number.isNaN(parsedDate.getTime())) return { ok: false, error: 'invalid_sendAt' };
     if (parsedDate.getTime() < Date.now() + 3000) return { ok: false, error: 'sendAt_in_past' };
+
+    // Prevent runaway scheduling that would bloat store.json
+    const pendingCount = state.store.scheduled
+      .filter((i) => ['pending', 'processing'].includes(i.status)).length;
+    if (pendingCount >= LIMITS.SCHEDULED_PER_USER) {
+      return { ok: false, error: 'scheduled_limit_reached' };
+    }
 
     const item = {
       id: `sched_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
@@ -1606,6 +1776,9 @@ function registerIpc() {
 
     // Verify every file actually exists on disk before attaching
     for (const filePath of files) {
+      if (!isAttachmentPathAllowed(filePath)) {
+        return { ok: false, error: `path_not_allowed:${path.basename(filePath)}` };
+      }
       try {
         await fs.access(filePath);
       } catch {
@@ -1653,7 +1826,7 @@ function registerIpc() {
   });
 
   ipcMain.handle('set-clipboard-text', async (_event, text) => {
-    clipboard.writeText(String(text || ''));
+    clipboard.writeText(clampString(text, LIMITS.CLIPBOARD_TEXT));
     return { ok: true };
   });
 
@@ -1697,9 +1870,12 @@ function registerIpc() {
   });
 
   ipcMain.handle('translate-text', async (_event, payload) => {
-    const text = String(payload?.text || '');
-    const from = String(payload?.from || 'auto');
-    const to = String(payload?.to || 'en');
+    const text = clampString(payload?.text, LIMITS.TRANSLATE_TEXT);
+    const from = String(payload?.from || 'auto').slice(0, 10);
+    const to = String(payload?.to || 'en').slice(0, 10);
+    // Lang codes: lowercase alpha-2/3 + optional 'auto'
+    if (!/^[a-z-]{2,10}$/i.test(from) && from !== 'auto') return { ok: false, error: 'invalid_lang' };
+    if (!/^[a-z-]{2,10}$/i.test(to)) return { ok: false, error: 'invalid_lang' };
     if (!text.trim()) return { ok: false, error: 'empty_text' };
     try {
       const https = require('https');

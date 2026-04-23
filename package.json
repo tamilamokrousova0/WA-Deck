@@ -1,6 +1,6 @@
 {
   "name": "wa-deck",
-  "version": "0.6.5",
+  "version": "0.7.0",
   "description": "WA Deck: multi-account WhatsApp manager",
   "main": "src/main.js",
   "scripts": {
@@ -8,7 +8,7 @@
     "start": "electron .",
     "dev": "electron .",
     "dist:mac": "electron-builder --mac dmg zip --arm64",
-    "dist:win": "electron-builder --win nsis --x64",
+    "dist:win": "electron-builder --win nsis portable --x64",
     "dist:all": "npm run dist:mac && npm run dist:win",
     "dist": "npm run dist:mac && npm run dist:win"
   },
@@ -20,7 +20,7 @@
     "electron-updater": "^6.3.9"
   },
   "devDependencies": {
-    "electron": "^41.2.0",
+    "electron": "^41.2.2",
     "electron-builder": "^26.8.1"
   },
   "build": {
@@ -55,10 +55,16 @@
     },
     "win": {
       "icon": "assets/icon/icon.ico",
-      "artifactName": "WA-Deck-Setup-${version}.${ext}",
+      "artifactName": "WA-Deck-${version}-${arch}.${ext}",
       "target": [
         {
           "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
           "arch": [
             "x64"
           ]
@@ -66,10 +72,17 @@
       ]
     },
     "nsis": {
-      "oneClick": true,
-      "allowToChangeInstallationDirectory": false,
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
       "installerIcon": "assets/icon/icon.ico",
       "uninstallerIcon": "assets/icon/icon.ico"
+    },
+    "portable": {
+      "artifactName": "WA-Deck-${version}-portable-${arch}.${ext}"
     },
     "publish": [
       {

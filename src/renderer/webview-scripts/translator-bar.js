@@ -32,7 +32,17 @@ function translatorBarScript() {
     let dropdownOpen = null;
     let currentChatId = '';
     let barHiddenByUser = false;
-    let translatedCache = new WeakMap();
+    // Map with bounded size (500 entries) — prevents runaway memory on long
+    // sessions while still de-duping translations for active scroll view.
+    const TRANSLATED_CACHE_MAX = 500;
+    let translatedCache = new Map();
+    function rememberTranslated(node, value) {
+      if (translatedCache.size >= TRANSLATED_CACHE_MAX) {
+        const firstKey = translatedCache.keys().next().value;
+        if (firstKey) translatedCache.delete(firstKey);
+      }
+      translatedCache.set(node, value);
+    }
 
     function getChatId() {
       // Primary: standard WhatsApp chat header
@@ -251,11 +261,11 @@ function translatorBarScript() {
         autoTranslate = !autoTranslate;
         paint();
         if (autoTranslate) {
-          translatedCache = new WeakMap();
+          translatedCache = new Map();
           processAllVisibleIncoming();
         } else {
           clearAllOverlays();
-          translatedCache = new WeakMap();
+          translatedCache = new Map();
         }
       });
 
@@ -607,15 +617,27 @@ function translatorBarScript() {
       if (chatObserverRoot === root && chatObserver) return;
       if (chatObserver) { try { chatObserver.disconnect(); } catch {} }
       chatObserverRoot = root;
+      // Batch mutations: on heavy scroll / fast-typing WA fires hundreds of
+      // mutations per second. Collect them and flush at most every 120ms.
+      let pendingBubbles = new Set();
+      let flushTimer = null;
+      const flush = () => {
+        flushTimer = null;
+        if (!autoTranslate || pendingBubbles.size === 0) { pendingBubbles.clear(); return; }
+        const batch = Array.from(pendingBubbles);
+        pendingBubbles.clear();
+        for (let i = 0; i < batch.length; i++) processIncomingBubble(batch[i]);
+      };
       chatObserver = new MutationObserver((mutations) => {
         if (!autoTranslate) return;
         for (let i = 0; i < mutations.length; i++) {
           const added = mutations[i].addedNodes;
           for (let j = 0; j < added.length; j++) {
             const bubbles = getIncomingBubbles(added[j]);
-            for (let k = 0; k < bubbles.length; k++) processIncomingBubble(bubbles[k]);
+            for (let k = 0; k < bubbles.length; k++) pendingBubbles.add(bubbles[k]);
           }
         }
+        if (!flushTimer) flushTimer = setTimeout(flush, 120);
       });
       chatObserver.observe(root, { childList: true, subtree: true });
     }
@@ -648,7 +670,7 @@ function translatorBarScript() {
         currentChatId = next;
         barHiddenByUser = false;
         // Clear translation cache and overlays when switching chats
-        translatedCache = new WeakMap();
+        translatedCache = new Map();
         clearAllOverlays();
       }
 

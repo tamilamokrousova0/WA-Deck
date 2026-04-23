@@ -26,7 +26,9 @@ const state = {
     accountName: '',
     chatName: '',
   },
-  chatPickerCache: new Map(),
+  // Single-entry cache: picker only ever shows chats for the active account.
+  // Shape: { accountId, at, chats }  (null when nothing fetched yet)
+  chatPickerCache: null,
   unreadByAccount: new Map(),
   unreadPollTimer: null,
   dockBadgeTimer: null,
@@ -99,7 +101,6 @@ const els = {
   wsettingsUnit: document.getElementById('wsettings-unit'),
   wsettingsSave: document.getElementById('wsettings-save'),
   wsettingsRefresh: document.getElementById('wsettings-refresh'),
-  panelStatus: document.getElementById('panel-status'),
 
   saveSettings: document.getElementById('save-settings'),
   settingTranslatorEnabled: document.getElementById('setting-translator-enabled'),
@@ -197,11 +198,6 @@ const els = {
   toolbarClockZones: document.getElementById('toolbar-clock-zones'),
   toolbarClockPopover: document.getElementById('toolbar-clock-popover'),
 
-  tqOverlay: document.getElementById('template-quick-overlay'),
-  tqSearch: document.getElementById('tq-search'),
-  tqList: document.getElementById('tq-list'),
-  tqEmpty: document.getElementById('tq-empty'),
-  tqClose: document.getElementById('tq-close'),
   openTemplateQuick: document.getElementById('open-template-quick'),
   openScheduleToolbar: document.getElementById('open-schedule-toolbar'),
   schedulePopover: document.getElementById('schedule-popover'),
@@ -261,21 +257,26 @@ function resetPasswordFieldVisibility(inputEl, toggleBtn) {
   toggleBtn.title = 'Показать ключ';
 }
 
+let _statusClearTimer = null;
 function setStatus(text) {
   const safeText = String(text || '');
   if (els.status) {
     els.status.textContent = safeText;
     els.status.title = safeText;
-  }
-  if (els.panelStatus) {
-    els.panelStatus.textContent = safeText;
-    els.panelStatus.title = safeText;
+    els.status.classList.toggle('hidden', !safeText);
   }
   const lower = safeText.toLowerCase();
+  const isError = lower.includes('ошибка') || lower.includes('не удалось') || lower.includes('неверн');
   if (lower.includes('сохранен') || lower.includes('скопирован') || lower.includes('удален') || lower.includes('разморожен')) {
     showToast(text, 'success');
-  } else if (lower.includes('ошибка') || lower.includes('не удалось') || lower.includes('неверн')) {
+  } else if (isError) {
     showToast(text, 'error', 5000);
+  }
+  if (_statusClearTimer) { clearTimeout(_statusClearTimer); _statusClearTimer = null; }
+  if (safeText && !isError) {
+    _statusClearTimer = setTimeout(() => {
+      if (els.status) { els.status.textContent = ''; els.status.classList.add('hidden'); }
+    }, 3000);
   }
 }
 
@@ -395,6 +396,18 @@ function playBrandClickAnimation() {
 /* ── CRM Hover Popover (read-only on contact hover) ── */
 let _crmHoverCache = new Map(); // contactKey → { data, ts }
 let _crmHoverGen = new Map();   // contactKey → generation counter (bumps on save/invalidate)
+const CRM_HOVER_CACHE_MAX = 200;
+function _crmHoverCacheSet(key, value) {
+  if (_crmHoverCache.size >= CRM_HOVER_CACHE_MAX) {
+    // Evict oldest (first key in insertion-order Map)
+    const oldest = _crmHoverCache.keys().next().value;
+    if (oldest !== undefined) {
+      _crmHoverCache.delete(oldest);
+      _crmHoverGen.delete(oldest);
+    }
+  }
+  _crmHoverCache.set(key, value);
+}
 let _crmHoverTimer = null;
 
 function _crmHoverGenOf(key) {
@@ -417,7 +430,7 @@ window._invalidateCrmHoverCache = function (accountId, contactName) {
 window._updateCrmHoverCache = function (accountId, contactName, record) {
   const key = accountId + '::' + contactName;
   _crmHoverGenBump(key);
-  _crmHoverCache.set(key, { data: record || {}, ts: Date.now() });
+  _crmHoverCacheSet(key, { data: record || {}, ts: Date.now() });
 };
 let _crmHoverVisible = false;
 let _crmHoverShowName = ''; // track which contact the current show is for
@@ -485,11 +498,18 @@ function showCrmHoverPopover(contactName, record, webview, rect) {
   // Position popover next to the contact in sidebar
   const wvRect = webview.getBoundingClientRect();
   const popoverWidth = 340;
-  const left = Math.round(wvRect.left + rect.right + 4);
-  let top = Math.round(wvRect.top + rect.top);
-
   popover.style.width = popoverWidth + 'px';
   popover.classList.remove('hidden');
+
+  // Default: place to the right of the contact row
+  let left = Math.round(wvRect.left + rect.right + 4);
+  let top = Math.round(wvRect.top + rect.top);
+
+  // Flip to the left side if it would spill off the right edge
+  if (left + popoverWidth > window.innerWidth - 10) {
+    const flipped = Math.round(wvRect.left + rect.left - popoverWidth - 4);
+    left = flipped > 8 ? flipped : Math.max(8, window.innerWidth - popoverWidth - 10);
+  }
 
   const popoverHeight = popover.offsetHeight || 120;
   if (top + popoverHeight > window.innerHeight - 10) {
@@ -575,7 +595,7 @@ async function handleCrmHover(account, webview, payload) {
         record = fresh ? fresh.data : fetched;
       } else {
         record = fetched;
-        _crmHoverCache.set(cacheKey, { data: record, ts: Date.now() });
+        _crmHoverCacheSet(cacheKey, { data: record, ts: Date.now() });
         trimMapSize(_crmHoverCache, 50);
       }
     } catch (err) {
@@ -1272,7 +1292,7 @@ function closeAccountContextMenu() {
   tooltip.addEventListener('mouseleave', hide);
   window.addEventListener('resize', () => {
     if (tooltip.style.opacity === '1') reposition();
-  });
+  }, { passive: true });
 })();
 
 function updateToolbarClock() {
@@ -1281,30 +1301,6 @@ function updateToolbarClock() {
   els.toolbarClockTime.textContent = new Intl.DateTimeFormat('ru', {
     hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(now);
-
-  // Inline abbreviations next to the local clock ("MSK · KYIV · BER · LON").
-  // The full zone times live in the floating tooltip (see setupClockTooltip),
-  // which is rebuilt on every hover — nothing to update here.
-  const zones = (state.settings && Array.isArray(state.settings.worldClocks) && state.settings.worldClocks.length)
-    ? state.settings.worldClocks
-    : [
-        { label: 'Москва', tz: 'Europe/Moscow' },
-        { label: 'Киев', tz: 'Europe/Kiev' },
-        { label: 'Берлин', tz: 'Europe/Berlin' },
-      ];
-  const abbrEl = document.getElementById('toolbar-clock-abbr');
-  if (abbrEl) {
-    const abbrMap = {
-      'Europe/Moscow': 'MSK', 'Europe/Kiev': 'KYIV', 'Europe/Kyiv': 'KYIV',
-      'Europe/Berlin': 'BER', 'Europe/London': 'LON',
-      'America/New_York': 'NYC', 'America/Los_Angeles': 'LAX',
-      'Asia/Tokyo': 'TYO', 'Asia/Shanghai': 'SHA', 'Asia/Dubai': 'DXB',
-      'Pacific/Auckland': 'AKL', 'Pacific/Honolulu': 'HNL',
-    };
-    abbrEl.textContent = zones
-      .map((z) => abbrMap[z.tz] || String(z.label || '').slice(0, 3).toUpperCase())
-      .join(' · ');
-  }
 }
 
 // ── Hub Dashboard ──
@@ -1416,9 +1412,9 @@ function updateHubFilters() {
   const el = document.getElementById('hub-filters');
   if (!el) return;
   const filters = [
-    { id: 'all', label: 'Все' },
-    { id: 'unread', label: 'Непрочитанные' },
-    { id: 'online', label: 'Онлайн' },
+    { id: 'all', label: 'Все', hint: 'Все аккаунты' },
+    { id: 'unread', label: 'Непрочитанные', hint: 'Только аккаунты с новыми сообщениями' },
+    { id: 'online', label: 'Онлайн', hint: 'Только подключённые (не замороженные) аккаунты' },
   ];
   el.innerHTML = '';
   for (const f of filters) {
@@ -1426,6 +1422,8 @@ function updateHubFilters() {
     btn.type = 'button';
     btn.className = 'hub-filter-chip' + (state.hubFilter === f.id ? ' active' : '');
     btn.textContent = f.label;
+    btn.title = f.hint;
+    btn.setAttribute('aria-label', f.hint);
     btn.addEventListener('click', () => {
       state.hubFilter = f.id;
       updateHubDashboard();
@@ -1531,12 +1529,6 @@ async function updateHubDashboard() {
     typeTag.className = 'hub-acct-tag hub-acct-tag-' + (account.type === 'telegram' ? 'blue' : 'accent');
     typeTag.textContent = account.type === 'telegram' ? 'Telegram' : 'WhatsApp';
     row3.appendChild(typeTag);
-    if (unread > 0) {
-      const t = document.createElement('span');
-      t.className = 'hub-acct-tag hub-acct-tag-rose';
-      t.textContent = 'Новые';
-      row3.appendChild(t);
-    }
     if (account.frozen) {
       const t = document.createElement('span');
       t.className = 'hub-acct-tag hub-acct-tag-warn';
@@ -1556,24 +1548,30 @@ async function updateHubDashboard() {
   const actions = document.createElement('div');
   actions.className = 'hub-actions';
 
-  const settingsBtn = document.createElement('button');
-  settingsBtn.className = 'btn hub-action-btn';
-  settingsBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> Настройки';
-  settingsBtn.addEventListener('click', () => { if (state.panelHidden) openSettingsPanel(); else closeSettingsPanel(); });
-
   const addWaBtn = document.createElement('button');
-  addWaBtn.className = 'btn btn-ghost hub-action-btn hub-action-wa';
+  addWaBtn.className = 'btn hub-action-btn hub-action-wa hub-action-primary';
   addWaBtn.type = 'button';
-  addWaBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#25D366" stroke-width="2.2" stroke-linecap="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> WhatsApp';
+  addWaBtn.title = 'Добавить WhatsApp-аккаунт';
+  addWaBtn.setAttribute('aria-label', 'Добавить WhatsApp-аккаунт');
+  addWaBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> Добавить WhatsApp';
   addWaBtn.addEventListener('click', () => addAccount('whatsapp'));
 
   const addTgBtn = document.createElement('button');
   addTgBtn.className = 'btn btn-ghost hub-action-btn hub-action-tg';
   addTgBtn.type = 'button';
-  addTgBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2AABEE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg> Telegram';
+  addTgBtn.title = 'Добавить Telegram-аккаунт';
+  addTgBtn.setAttribute('aria-label', 'Добавить Telegram-аккаунт');
+  addTgBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2AABEE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg> Добавить Telegram';
   addTgBtn.addEventListener('click', () => addAccount('telegram'));
 
-  actions.append(settingsBtn, addWaBtn, addTgBtn);
+  const settingsBtn = document.createElement('button');
+  settingsBtn.className = 'btn btn-ghost hub-action-btn hub-action-settings';
+  settingsBtn.title = 'Настройки';
+  settingsBtn.setAttribute('aria-label', 'Настройки');
+  settingsBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+  settingsBtn.addEventListener('click', () => { if (state.panelHidden) openSettingsPanel(); else closeSettingsPanel(); });
+
+  actions.append(addWaBtn, addTgBtn, settingsBtn);
   actionsHost.appendChild(actions);
 }
 
@@ -1844,6 +1842,45 @@ function showWebviewLoading(show) {
   }
 }
 
+/**
+ * Idle webview sweeper — destroys WhatsApp/Telegram webviews that haven't been
+ * visited for WEBVIEW_IDLE_MS. This is the core memory-saver for power-users
+ * with 20+ accounts: instead of keeping every WebContents alive forever (each
+ * ~80-150 MB RAM), we keep only the recently active ones. A destroyed webview
+ * is transparently recreated on the next setActiveAccount() / ensureWebview()
+ * call, restored from its session partition cache (login persists).
+ */
+const WEBVIEW_IDLE_MS = 15 * 60 * 1000;  // 15 min
+function startIdleWebviewSweeper() {
+  if (state._idleWebviewTimer) clearInterval(state._idleWebviewTimer);
+  state._idleWebviewTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [accountId, webview] of Array.from(state.webviews.entries())) {
+      // Never suspend the currently active account
+      if (accountId === state.activeAccountId) {
+        if (webview) webview._lastActive = now;
+        continue;
+      }
+      const lastActive = Number(webview?._lastActive || 0);
+      if (!lastActive) {
+        // Initialize on first sweep so freshly created webviews get one full
+        // cycle before being considered for suspension.
+        if (webview) webview._lastActive = now;
+        continue;
+      }
+      if (now - lastActive > WEBVIEW_IDLE_MS) {
+        try {
+          cleanupWebview(webview);
+          state.webviews.delete(accountId);
+          WaDeckUnreadModule.setUnreadCount(accountId, 0);
+        } catch (err) {
+          console.warn('[idle-sweeper]', err?.message || err);
+        }
+      }
+    }
+  }, 60 * 1000); // check every minute
+}
+
 function refreshWebviewVisibility() {
   const showHub = state.startupHubVisible || !state.activeAccountId || !selectedWebview();
   setHubVisibility(showHub);
@@ -1924,6 +1961,19 @@ function setActiveAccount(accountId) {
 function _setActiveAccountInner(accountId) {
   const nextId = String(accountId || '').trim();
   state.activeAccountId = nextId;
+  // Lazy-create the webview on first activation and bump its last-active
+  // timestamp so the idle sweeper knows to keep it alive.
+  if (nextId) {
+    const account = state.accounts.find((a) => a.id === nextId);
+    if (account && !account.frozen) {
+      if (!state.webviews.has(nextId)) {
+        try { ensureWebview(account); }
+        catch (err) { console.error('[setActiveAccount] ensureWebview failed:', err); }
+      }
+      const wv = state.webviews.get(nextId);
+      if (wv) wv._lastActive = Date.now();
+    }
+  }
   if (nextId && state.startupHubVisible) {
     const webview = state.webviews.get(nextId);
     if (!webview || !webview.isLoading?.()) {
@@ -1963,7 +2013,8 @@ function isCrmHoverEnabled() {
   return state.settings?.crmHoverEnabled !== false;
 }
 
-function applySettingsToForm() {
+function applySettingsToForm(options = {}) {
+  const { renderWeather = false } = options;
   state.settings.uiTheme = normalizeTheme(state.settings.uiTheme);
   state.settings.weatherCity = WaDeckWeatherModule.normalizeWeatherCity(state.settings.weatherCity);
   state.settings.weatherUnit = WaDeckWeatherModule.normalizeWeatherUnit(state.settings.weatherUnit);
@@ -1977,11 +2028,17 @@ function applySettingsToForm() {
   if (els.settingCrmHoverEnabled) {
     els.settingCrmHoverEnabled.checked = isCrmHoverEnabled();
   }
-  WaDeckWeatherModule.renderWeatherSummary({
-    city: state.settings.weatherCity,
-    unit: state.settings.weatherUnit,
-    loading: false,
-  });
+  // Only render the weather summary when explicitly requested (init / weather
+  // settings save). Rendering it with `loading: false` after every
+  // save-settings call blanks the temperature until the next 30-min refresh,
+  // which looked like "weather reset" when the user just toggled translator.
+  if (renderWeather) {
+    WaDeckWeatherModule.renderWeatherSummary({
+      city: state.settings.weatherCity,
+      unit: state.settings.weatherUnit,
+      loading: false,
+    });
+  }
   renderClocksSettings();
   // Keep menu subtitles + about block in sync with current settings
   if (typeof refreshSettingsMenuSubtitles === 'function') {
@@ -2184,7 +2241,21 @@ function renderTemplatesLibrary() {
   if (!templates.length) {
     const empty = document.createElement('div');
     empty.className = 'tmpl-lib-empty';
-    empty.textContent = 'Пока нет шаблонов — создайте первый в форме ниже';
+    const title = document.createElement('div');
+    title.className = 'tmpl-lib-empty-title';
+    title.textContent = 'Пока нет шаблонов';
+    const hint = document.createElement('div');
+    hint.className = 'tmpl-lib-empty-hint';
+    hint.textContent = 'Шаблоны доступны для всех WhatsApp-аккаунтов и всех чатов.';
+    const cta = document.createElement('button');
+    cta.type = 'button';
+    cta.className = 'tmpl-lib-empty-cta';
+    cta.textContent = '+ Создать первый шаблон';
+    cta.addEventListener('click', () => {
+      const newBtn = document.getElementById('tmpl-lib-new');
+      if (newBtn) newBtn.click();
+    });
+    empty.append(title, hint, cta);
     listEl.appendChild(empty);
     return;
   }
@@ -2202,63 +2273,91 @@ function renderTemplatesLibrary() {
     return a.localeCompare(b, 'ru');
   });
 
-  for (const cat of sortedCats) {
-    const section = document.createElement('details');
-    section.className = 'tmpl-lib-section';
-    // Collapsed by default per UX spec.
-    const summary = document.createElement('summary');
-    summary.className = 'tmpl-lib-section-label';
-    summary.textContent = cat;
-    section.appendChild(summary);
+  // Build a single shared item renderer so we can reuse it both for
+  // lazy-expand and search-mode (which needs all items upfront).
+  function buildTemplateItemEl(tpl, n) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'tmpl-lib-item';
+    const lang = (typeof detectTemplateLang === 'function')
+      ? detectTemplateLang(tpl)
+      : { code: '', color: 'oklch(0.60 0.05 250)' };
+    item.style.setProperty('--tmpl-lang-color', lang.color);
 
-    const items = groups.get(cat);
-    items.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'ru'));
+    const num = document.createElement('div');
+    num.className = 'tmpl-lib-num';
+    num.textContent = String(n);
 
+    const body = document.createElement('div');
+    body.className = 'tmpl-lib-body';
+    if (lang.code) {
+      const langEl = document.createElement('span');
+      langEl.className = 'tmpl-lib-lang';
+      langEl.textContent = lang.code;
+      body.appendChild(langEl);
+    }
+    const title = document.createElement('div');
+    title.className = 'tmpl-lib-title';
+    title.textContent = tpl.title || 'Без названия';
+    body.appendChild(title);
+    const preview = document.createElement('div');
+    preview.className = 'tmpl-lib-preview';
+    const txt = String(tpl.text || '');
+    preview.textContent = txt.length > 100 ? txt.slice(0, 100) + '…' : txt;
+    body.appendChild(preview);
+
+    item.append(num, body);
+    item.addEventListener('click', () => {
+      if (typeof window._showTemplateEditForm === 'function') window._showTemplateEditForm();
+      if (els.templateSelect) {
+        els.templateSelect.value = tpl.id || '';
+        els.templateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      const card = document.getElementById('templates-settings-card');
+      if (card && !card.open) card.open = true;
+    });
+    return item;
+  }
+
+  // Lazy-hydrate a category section: items are only materialized the first
+  // time the user expands the <details>. With hundreds of templates spread
+  // across multiple categories this keeps the initial render near O(categories)
+  // instead of O(templates).
+  function hydrateSection(section, items) {
+    if (section.dataset.hydrated === '1') return;
+    section.dataset.hydrated = '1';
+    const frag = document.createDocumentFragment();
     let n = 0;
     for (const tpl of items) {
       n += 1;
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.className = 'tmpl-lib-item';
-      const lang = (typeof detectTemplateLang === 'function')
-        ? detectTemplateLang(tpl)
-        : { code: '', color: 'oklch(0.60 0.05 250)' };
-      item.style.setProperty('--tmpl-lang-color', lang.color);
-
-      const num = document.createElement('div');
-      num.className = 'tmpl-lib-num';
-      num.textContent = String(n);
-
-      const body = document.createElement('div');
-      body.className = 'tmpl-lib-body';
-      if (lang.code) {
-        const langEl = document.createElement('span');
-        langEl.className = 'tmpl-lib-lang';
-        langEl.textContent = lang.code;
-        body.appendChild(langEl);
-      }
-      const title = document.createElement('div');
-      title.className = 'tmpl-lib-title';
-      title.textContent = tpl.title || 'Без названия';
-      body.appendChild(title);
-      const preview = document.createElement('div');
-      preview.className = 'tmpl-lib-preview';
-      const txt = String(tpl.text || '');
-      preview.textContent = txt.length > 100 ? txt.slice(0, 100) + '…' : txt;
-      body.appendChild(preview);
-
-      item.append(num, body);
-      item.addEventListener('click', () => {
-        if (typeof window._showTemplateEditForm === 'function') window._showTemplateEditForm();
-        if (els.templateSelect) {
-          els.templateSelect.value = tpl.id || '';
-          els.templateSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        const card = document.getElementById('templates-settings-card');
-        if (card && !card.open) card.open = true;
-      });
-      section.appendChild(item);
+      frag.appendChild(buildTemplateItemEl(tpl, n));
     }
+    section.appendChild(frag);
+  }
+
+  for (const cat of sortedCats) {
+    const section = document.createElement('details');
+    section.className = 'tmpl-lib-section';
+    const items = groups.get(cat);
+    items.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'ru'));
+
+    const summary = document.createElement('summary');
+    summary.className = 'tmpl-lib-section-label';
+    const label = document.createElement('span');
+    label.className = 'tmpl-lib-section-label-text';
+    label.textContent = cat;
+    const count = document.createElement('span');
+    count.className = 'tmpl-lib-section-count';
+    count.textContent = ` (${items.length})`;
+    summary.append(label, count);
+    section.appendChild(summary);
+
+    // Render on first expand (toggle). Also supports programmatic hydration
+    // below (search path / pre-expanded state).
+    section.addEventListener('toggle', () => {
+      if (section.open) hydrateSection(section, items);
+    });
+
     listEl.appendChild(section);
   }
 }
@@ -2591,7 +2690,9 @@ async function setAccountFrozenState(accountId, nextFrozen, options = {}) {
   if (response.account.frozen) {
     cleanupWebview(state.webviews.get(accountId));
     state.webviews.delete(accountId);
-    state.chatPickerCache.delete(accountId);
+    if (state.chatPickerCache && state.chatPickerCache.accountId === accountId) {
+      state.chatPickerCache = null;
+    }
     WaDeckUnreadModule.setUnreadCount(accountId, 0);
     if (state.activeAccountId === accountId) {
       refreshWebviewVisibility();
@@ -2740,7 +2841,9 @@ async function removeAccount(accountId) {
 
   cleanupWebview(state.webviews.get(accountId));
   state.webviews.delete(accountId);
-  state.chatPickerCache.delete(accountId);
+  if (state.chatPickerCache && state.chatPickerCache.accountId === accountId) {
+    state.chatPickerCache = null;
+  }
   state.unreadByAccount.delete(accountId);
   WaDeckUnreadModule.scheduleDockBadgeSync();
 
@@ -2755,13 +2858,18 @@ async function removeAccount(accountId) {
     setActiveAccount(nextId);
   } else {
     state.activeAccountId = null;
-    renderAccounts();
     updateFreezeButtonState();
     WaDeckUnreadModule.updateActiveUnreadIndicator();
     refreshWebviewVisibility();
     await WaDeckScheduleModule.renderScheduled();
-    setStatus('Аккаунт удален');
   }
+  // Always re-render the sidebar and hub after a removal so the deleted
+  // account's badge disappears immediately, regardless of whether a next
+  // active account was assigned. Previously this happened only in the
+  // "no accounts left" branch, causing the ghost-icon bug.
+  renderAccounts();
+  updateHubDashboard().catch(console.error);
+  setStatus('Аккаунт удалён');
   closeAccountMenu();
 }
 
@@ -3020,16 +3128,9 @@ function bindActions() {
   // Settings menu: card clicks → open section (or dedicated drawer for
   // scheduled messages, so it matches the toolbar button UX).
   document.querySelectorAll('.settings-menu-item[data-open]').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', () => {
       const key = btn.getAttribute('data-open');
       if (!key) return;
-      if (key === 'schedule' && typeof window._openScheduleDrawer === 'function') {
-        e.stopPropagation();
-        // Defer a tick so the "outside click" handler on the drawer sees a
-        // fresh click rather than the one that just fired on this button.
-        setTimeout(() => window._openScheduleDrawer(), 0);
-        return;
-      }
       showSettingsSection(key);
     });
   });
@@ -3126,54 +3227,48 @@ function bindActions() {
     setStatus('Обновляю погоду…');
   });
 
-  // ── Promote the templates edit form into a full-screen modal ─────────
-  // The form was originally inline inside the settings card, which made
-  // the card dominated by the editor. We wrap it in a modal overlay that
-  // is only shown on "+ Новый шаблон" or when a library item is clicked.
+  // Template edit form lives inline inside the Templates settings card.
+  // Opened/closed in place to match the other drawer sections' style.
   const tmplEditWrap = document.getElementById('tmpl-edit-wrap');
-  let tmplEditModal = null;
+  const tmplEditCloseBtn = document.getElementById('tmpl-edit-close');
+  const tmplEditTitleEl = document.getElementById('tmpl-edit-title');
   if (tmplEditWrap) {
-    tmplEditModal = document.createElement('div');
-    tmplEditModal.id = 'template-edit-modal';
-    tmplEditModal.className = 'modal hidden';
-    const card = document.createElement('div');
-    card.className = 'modal-card modal-card-template-edit';
-    const head = document.createElement('div');
-    head.className = 'modal-head';
-    head.innerHTML = [
-      '<div class="crm-modal-title" style="display:flex;align-items:center;gap:10px">',
-      '  <div class="crm-icon" style="width:26px;height:26px;padding:6px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center">',
-      '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h5"/></svg>',
-      '  </div>',
-      '  <h3 style="margin:0;font-size:15px;font-weight:600">Редактировать шаблон</h3>',
-      '</div>',
-      '<button type="button" id="template-edit-close" class="crm-close-btn" title="Закрыть (Esc)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>',
-    ].join('');
-    card.appendChild(head);
-    tmplEditWrap.classList.remove('hidden'); // show inside modal
-    card.appendChild(tmplEditWrap);
-    tmplEditModal.appendChild(card);
-    document.body.appendChild(tmplEditModal);
+    const openTemplateEdit = () => {
+      tmplEditWrap.classList.remove('hidden');
+      setTimeout(() => {
+        tmplEditWrap.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }, 20);
+    };
+    const closeTemplateEdit = () => tmplEditWrap.classList.add('hidden');
 
-    const openTemplateEdit = () => tmplEditModal.classList.remove('hidden');
-    const closeTemplateEdit = () => tmplEditModal.classList.add('hidden');
-
-    document.getElementById('template-edit-close')?.addEventListener('click', closeTemplateEdit);
-    tmplEditModal.addEventListener('click', (e) => {
-      if (e.target === tmplEditModal) closeTemplateEdit();
-    });
+    tmplEditCloseBtn?.addEventListener('click', closeTemplateEdit);
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !tmplEditModal.classList.contains('hidden')) closeTemplateEdit();
+      if (e.key === 'Escape' && !tmplEditWrap.classList.contains('hidden')) {
+        closeTemplateEdit();
+      }
     });
 
-    // Auto-close after save/delete
+    // Update header title based on whether this is a new or existing template
+    const updateTmplEditTitle = () => {
+      if (!tmplEditTitleEl) return;
+      const titleVal = els.templateTitle?.value?.trim();
+      const hasId = els.templateSelect && els.templateSelect.value;
+      tmplEditTitleEl.textContent = hasId
+        ? `Редактирование · ${titleVal || 'без названия'}`
+        : 'Новый шаблон';
+    };
+    els.templateSelect?.addEventListener('change', updateTmplEditTitle);
+    els.templateTitle?.addEventListener('input', updateTmplEditTitle);
+
+    // Hide form automatically after save/delete
     els.templateSave?.addEventListener('click', () => setTimeout(closeTemplateEdit, 50));
     els.templateDelete?.addEventListener('click', () => setTimeout(closeTemplateEdit, 50));
 
-    window._showTemplateEditForm = openTemplateEdit;
+    window._showTemplateEditForm = () => { openTemplateEdit(); updateTmplEditTitle(); };
     window._hideTemplateEditForm = closeTemplateEdit;
   } else {
     window._showTemplateEditForm = () => {};
+    window._hideTemplateEditForm = () => {};
   }
 
   // "+ Новый шаблон" (settings library header) → open edit modal fresh
@@ -3387,75 +3482,35 @@ function bindActions() {
   els.clearAttachments?.addEventListener('click', WaDeckScheduleModule.clearAttachments);
   els.openChatPicker?.addEventListener('click', () => WaDeckScheduleModule.openChatPicker().catch(console.error));
 
-  /* ── Schedule drawer (toolbar → "Отложенные") ──
-     Moved to document.body so it renders above the chat webview layer.
-     Opens with the "Create message" details expanded + current time
-     prefilled, per UX spec. */
-  if (els.schedulePopover && els.schedulePopover.parentElement !== document.body) {
-    document.body.appendChild(els.schedulePopover);
-  }
-  els.schedulePopover?.classList.add('is-drawer');
-
-  function prefillScheduleNow() {
-    if (els.spAt) {
-      // Default to the current system time — user explicitly asked for it.
-      els.spAt.value = nextSendAtLocal(0);
+  /* ── Schedule: toolbar "Отложенные" opens the settings → Schedule drawer,
+     consistent with Templates. The old floating popover was removed. ── */
+  function openScheduleSection() {
+    if (state.panelHidden) openSettingsPanel();
+    showSettingsSection('schedule');
+    // Always prefill "send at" with the current system time on every open —
+    // even if the card was already expanded from a previous visit. Otherwise
+    // the field keeps a stale value (often a few minutes old), which was the
+    // source of the "time is slightly off" bug.
+    if (els.scheduleAt) {
+      els.scheduleAt.value = nextSendAtLocal(0);
     }
   }
-  function openSchedulePopover() {
-    if (!els.schedulePopover) return;
-    els.schedulePopover.classList.remove('hidden');
-    // Expand the "Create message" details by default
-    const createDetails = document.getElementById('sp-create-details');
-    if (createDetails) createDetails.open = true;
-    prefillScheduleNow();
-    populateSpAccounts();
-    const selectedAccount = els.spAccount?.value || '';
-    if (selectedAccount) populateSpChats(selectedAccount);
-    renderSchedulePopoverList();
-  }
-
-  function closeSchedulePopover() {
-    if (!els.schedulePopover) return;
-    els.schedulePopover.classList.add('hidden');
-  }
-
-  function toggleSchedulePopover() {
-    if (!els.schedulePopover) return;
-    if (els.schedulePopover.classList.contains('hidden')) {
-      openSchedulePopover();
-    } else {
-      closeSchedulePopover();
-    }
-  }
-
-  // Expose so the settings menu button can open the same drawer.
-  window._openScheduleDrawer = openSchedulePopover;
-  window._closeScheduleDrawer = closeSchedulePopover;
 
   if (els.openScheduleToolbar) {
     els.openScheduleToolbar.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      toggleSchedulePopover();
+      openScheduleSection();
     });
   }
-  els.schedulePopoverClose?.addEventListener('click', closeSchedulePopover);
-
-  /* Close drawer on click outside of both the trigger button and the
-     drawer itself (the drawer is a direct child of body now). */
-  document.addEventListener('click', (e) => {
-    if (!els.schedulePopover || els.schedulePopover.classList.contains('hidden')) return;
-    if (els.schedulePopover.contains(e.target)) return;
-    if (els.openScheduleToolbar && els.openScheduleToolbar.contains(e.target)) return;
-    closeSchedulePopover();
-  });
-
-  /* Reset datetime when "Create" details expands */
-  els.spCreateDetails?.addEventListener('toggle', () => {
-    if (els.spCreateDetails.open && els.spAt) {
-      els.spAt.value = nextSendAtLocal(0);
-    }
+  // Also refresh when user navigates via Settings → Отложенные сообщения
+  document.querySelectorAll('.settings-menu-item[data-open="schedule"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      // showSettingsSection already fired by the generic handler — just refresh time.
+      setTimeout(() => {
+        if (els.scheduleAt) els.scheduleAt.value = nextSendAtLocal(0);
+      }, 0);
+    });
   });
 
   /* Keep settings card toggle handler for datetime reset */
@@ -3762,11 +3817,18 @@ function bindActions() {
     removeAccount(id).catch(console.error);
   });
   els.pickerApply?.addEventListener('click', () => {
-    const accountId = String(els.pickerAccount.value || '').trim();
+    // Always tie the pick to the currently active account — renderer ignores
+    // the hidden picker-account select entirely to match the "chats from the
+    // open account only" UX.
+    const accountId = String(state.activeAccountId || '').trim();
     const chatName = String(els.pickerChat.value || '').trim();
     const account = state.accounts.find((row) => row.id === accountId);
-    if (!accountId || !account || !chatName) {
-      setStatus('Выберите WhatsApp и чат');
+    if (!accountId || !account) {
+      setStatus('Откройте WhatsApp-аккаунт');
+      return;
+    }
+    if (!chatName) {
+      setStatus('Выберите чат');
       return;
     }
     state.scheduleTarget = {
@@ -3918,12 +3980,26 @@ async function init() {
   // Render sidebar immediately so accounts are visible right away
   renderAccounts();
 
-  for (const account of state.accounts) {
-    try {
-      ensureWebview(account);
-    } catch (err) {
-      console.error(`[init] failed to create webview for ${account.id}:`, err);
-    }
+  // Staged background load: kick off webview creation for every account but
+  // staggered by STAGGER_MS so the UI stays responsive during initial paint.
+  // Startup time to "app usable" stays fast; unread counters populate over
+  // the next few seconds as each account boots. For 30 accounts this takes
+  // ~15s total, but the UI never freezes.
+  //
+  // Idle-suspend (startIdleWebviewSweeper) still destroys webviews inactive
+  // for >15 min, so memory stays bounded for power-users.
+  const STAGGER_MS = 400;
+  for (let i = 0; i < state.accounts.length; i += 1) {
+    const account = state.accounts[i];
+    setTimeout(() => {
+      try {
+        ensureWebview(account);
+        const wv = state.webviews.get(account.id);
+        if (wv) wv._lastActive = Date.now();
+      } catch (err) {
+        console.error(`[init] failed to create webview for ${account.id}:`, err);
+      }
+    }, i * STAGGER_MS);
   }
 
   state.startupHubVisible = true;
@@ -3935,7 +4011,7 @@ async function init() {
   // Стартуем всегда в хабе без активного WhatsApp.
   setActiveAccount('');
   updatePanelVisibility();
-  applySettingsToForm();
+  applySettingsToForm({ renderWeather: true });
   WaDeckScheduleModule.renderAttachmentsDraft();
   WaDeckScheduleModule.renderScheduleTarget();
   els.crmContactName.value = '';
@@ -3962,6 +4038,7 @@ async function init() {
   WaDeckScheduleModule.startScheduleRunner();
   WaDeckUnreadModule.startUnreadPolling();
   WaDeckUnreadModule.scheduleDockBadgeSync();
+  startIdleWebviewSweeper();
   renderClocksSettings();
   // Toolbar clock — update immediately and every 15s
   updateToolbarClock();
@@ -3975,309 +4052,29 @@ async function init() {
   }
   WaDeckAutoUpdateModule.maybeShowReleaseNotes().catch(console.error);
 
-  setStatus(
-    `Готово. Аккаунтов: ${state.accounts.length}, Electron ${state.runtime.electron || '?'}, Chromium ${state.runtime.chrome || '?'}`,
-  );
+  setStatus('');
 }
 
-/* ── Toolbar "Шаблоны" button → open settings panel, reveal templates card ── */
-/* ── Toolbar "Шаблоны" button → opens the quick palette below.
-   The IIFE that follows wires the click handler from within the palette
-   module so the button always matches the palette's actual behaviour. ── */
-
-/* ── Template Quick palette (Ctrl+T / toolbar button) ── */
-(function setupTemplateQuickAccess() {
-  const overlay = els.tqOverlay;
-  const searchInput = els.tqSearch;
-  const listEl = els.tqList;
-  const emptyEl = els.tqEmpty;
-  if (!overlay || !searchInput || !listEl) return;
-
-  let activeIndex = -1;
-  let visibleItems = [];
-  /* Persist category expand/collapse state in localStorage */
-  const TQ_CATEGORY_KEY = 'wa-deck-tq-category-state';
-  const tqCategoryState = (() => {
-    try {
-      const raw = localStorage.getItem(TQ_CATEGORY_KEY);
-      return raw ? new Map(JSON.parse(raw)) : new Map();
-    } catch { return new Map(); }
-  })();
-  let _tqCategorySaveTimer = null;
-  function saveTqCategoryState() {
-    clearTimeout(_tqCategorySaveTimer);
-    _tqCategorySaveTimer = setTimeout(() => {
-      try { localStorage.setItem(TQ_CATEGORY_KEY, JSON.stringify([...tqCategoryState])); } catch {}
-    }, 300);
+/* ── Toolbar "Шаблоны" button and Ctrl+T → open the settings drawer on
+   the Templates section. The old full-screen tq-overlay palette has been
+   removed in favour of the unified right-drawer UX. ── */
+(function setupTemplatesShortcut() {
+  function openTemplatesDrawer() {
+    if (state.panelHidden) openSettingsPanel();
+    showSettingsSection('templates');
   }
 
-  function getTemplates() {
-    return Array.isArray(state.templates) ? state.templates : [];
-  }
-
-  function truncate(str, len) {
-    const s = String(str || '');
-    return s.length > len ? s.slice(0, len) + '…' : s;
-  }
-
-  // Heuristic: guess the template language from a small set of markers.
-  // Used purely for the colour-coded chip next to each template. It does not
-  // affect insert behaviour, so false positives are cheap.
-  function detectTemplateLang(tpl) {
-    const text = String(tpl.lang || tpl.text || '').toLowerCase();
-    if (tpl.lang) {
-      const code = String(tpl.lang).toUpperCase().slice(0, 3);
-      return { code, color: langColor(code) };
-    }
-    if (/\b(hallo|guten|wie geht|danke|bitte|schön|ich bin|morgen)\b/.test(text)) return { code: 'DE', color: langColor('DE') };
-    if (/\b(hi|hello|how are|good morning|thank|please|i am|i'm)\b/.test(text)) return { code: 'EN', color: langColor('EN') };
-    if (/\b(hoi|hallo|dank je|goed|hoe gaat|ik ben|morgen)\b/.test(text)) return { code: 'NL', color: langColor('NL') };
-    if (/\b(salut|bonjour|merci|ça va|je suis|s'il|matin)\b/.test(text)) return { code: 'FR', color: langColor('FR') };
-    if (/[а-яё]/.test(text)) return { code: 'RU', color: langColor('RU') };
-    return { code: '', color: langColor('') };
-  }
-  function langColor(code) {
-    switch (code) {
-      case 'DE': return 'oklch(0.72 0.14 240)';
-      case 'EN': return 'oklch(0.72 0.17 152)';
-      case 'NL': return 'oklch(0.78 0.14 75)';
-      case 'FR': return 'oklch(0.72 0.16 15)';
-      case 'RU': return 'oklch(0.72 0.14 295)';
-      default:   return 'oklch(0.60 0.05 250)';
-    }
-  }
-
-  function renderList(filter) {
-    const q = String(filter || '').trim().toLowerCase();
-    const templates = getTemplates();
-    const filtered = q
-      ? templates.filter(t => {
-          const title = String(t.title || '').toLowerCase();
-          const text = String(t.text || '').toLowerCase();
-          const category = String(t.category || '').toLowerCase();
-          return title.includes(q) || text.includes(q) || category.includes(q);
-        })
-      : templates;
-
-    listEl.innerHTML = '';
-    visibleItems = [];
-    activeIndex = -1;
-
-    if (!filtered.length) {
-      if (emptyEl) {
-        emptyEl.classList.remove('hidden');
-        emptyEl.textContent = q
-          ? `Ничего не найдено по «${truncate(q, 30)}»`
-          : 'Нет шаблонов. Создайте в Настройках → Общие шаблоны';
-      }
-      return;
-    }
-    if (emptyEl) emptyEl.classList.add('hidden');
-
-    /* Group by category */
-    const groups = new Map();
-    for (const tpl of filtered) {
-      const cat = String(tpl.category || '').trim() || '';
-      if (!groups.has(cat)) groups.set(cat, []);
-      groups.get(cat).push(tpl);
-    }
-
-    /* Sort categories alphabetically, empty ("Без категории") last */
-    const sortedKeys = [...groups.keys()].sort((a, b) => {
-      if (!a) return 1;
-      if (!b) return -1;
-      return a.localeCompare(b, 'ru');
-    });
-
-    /* Sort templates within each group alphabetically */
-    for (const [, list] of groups) {
-      list.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'ru'));
-    }
-
-    for (const cat of sortedKeys) {
-      const catTemplates = groups.get(cat);
-      const details = document.createElement('details');
-      details.className = 'tq-category';
-      // Expand-all only while searching. Fresh opens of the palette always
-      // start with every category collapsed, regardless of the previous
-      // session's state (per current UX spec).
-      details.open = Boolean(q);
-
-      const summary = document.createElement('summary');
-      summary.className = 'tq-category-title';
-      summary.textContent = cat || 'Без категории';
-      details.appendChild(summary);
-
-      const grid = document.createElement('div');
-      grid.className = 'tq-category-grid';
-      details.appendChild(grid);
-
-      let numInCat = 0;
-      for (const tpl of catTemplates) {
-        numInCat += 1;
-        const item = document.createElement('div');
-        item.className = 'tq-item';
-        item.dataset.index = visibleItems.length;
-        item.dataset.templateId = tpl.id;
-        // Colour the number chip based on detected language
-        const langInfo = detectTemplateLang(tpl);
-        item.style.setProperty('--tq-lang-color', langInfo.color);
-
-        const num = document.createElement('div');
-        num.className = 'tq-item-num';
-        num.textContent = String(tpl.num || numInCat);
-
-        const body = document.createElement('div');
-        body.className = 'tq-item-body';
-
-        if (langInfo.code) {
-          const langEl = document.createElement('span');
-          langEl.className = 'tq-item-lang';
-          langEl.textContent = langInfo.code;
-          body.appendChild(langEl);
-        }
-
-        const title = document.createElement('div');
-        title.className = 'tq-item-title';
-        title.textContent = tpl.title || 'Без названия';
-        body.appendChild(title);
-
-        const preview = document.createElement('div');
-        preview.className = 'tq-item-preview';
-        preview.textContent = truncate(tpl.text, 80);
-        body.appendChild(preview);
-
-        item.appendChild(num);
-        item.appendChild(body);
-
-        item.addEventListener('click', () => insertAndClose(tpl));
-        grid.appendChild(item);
-        visibleItems.push({ el: item, tpl });
-      }
-
-      listEl.appendChild(details);
-    }
-
-    setActive(0);
-  }
-
-  function setActive(idx) {
-    if (!visibleItems.length) return;
-    if (activeIndex >= 0 && activeIndex < visibleItems.length) {
-      visibleItems[activeIndex].el.classList.remove('tq-active');
-    }
-    activeIndex = Math.max(0, Math.min(idx, visibleItems.length - 1));
-    const item = visibleItems[activeIndex];
-    item.el.classList.add('tq-active');
-    item.el.scrollIntoView({ block: 'nearest' });
-  }
-
-  async function insertAndClose(tpl) {
-    const text = String(tpl.text || '').trim();
-    if (!text) return;
-
-    /* Block insert if no active WhatsApp/Telegram account */
-    const account = state.accounts.find((a) => a.id === state.activeAccountId);
-    if (!account) {
-      setStatus('Шаблон: выберите аккаунт и откройте чат');
-      return; /* keep palette open */
-    }
-
-    closePalette();
-    const result = await insertTextIntoActiveChat(text);
-    if (result?.ok) {
-      setStatus(`Шаблон «${truncate(tpl.title, 20)}» вставлен`);
-    } else {
-      setStatus(`Шаблон: не удалось вставить (${result?.error || 'ошибка'})`);
-    }
-  }
-
-  function openPalette() {
-    overlay.classList.remove('hidden');
-    searchInput.value = '';
-    renderList('');
-    searchInput.focus();
-
-    /* Update context indicator */
-    const ctxEl = document.getElementById('tq-context');
-    if (ctxEl) {
-      const account = state.accounts.find((a) => a.id === state.activeAccountId);
-      if (account) {
-        ctxEl.textContent = '→ ' + account.name;
-        ctxEl.classList.remove('no-chat');
-      } else {
-        ctxEl.textContent = 'нет активного чата';
-        ctxEl.classList.add('no-chat');
-      }
-    }
-  }
-
-  function closePalette() {
-    overlay.classList.add('hidden');
-    searchInput.value = '';
-    listEl.innerHTML = '';
-    activeIndex = -1;
-    visibleItems = [];
-  }
-
-  // Event listeners
-  searchInput.addEventListener('input', () => renderList(searchInput.value));
-
-  searchInput.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setActive(activeIndex + 1);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setActive(activeIndex - 1);
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (activeIndex >= 0 && activeIndex < visibleItems.length) {
-        insertAndClose(visibleItems[activeIndex].tpl);
-      }
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      closePalette();
-    }
-  });
-
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closePalette();
-  });
-
-  if (els.tqClose) {
-    els.tqClose.addEventListener('click', closePalette);
-  }
-
-  // Toolbar button
   if (els.openTemplateQuick) {
-    els.openTemplateQuick.addEventListener('click', openPalette);
+    els.openTemplateQuick.addEventListener('click', openTemplatesDrawer);
   }
 
-  // "Новый шаблон" in the palette header — close the palette and open
-  // the template edit modal directly. Faster than routing through the
-  // settings panel.
-  const tqNewHeaderBtn = document.getElementById('tq-new-header');
-  if (tqNewHeaderBtn) {
-    tqNewHeaderBtn.addEventListener('click', () => {
-      closePalette();
-      if (els.templateNew) els.templateNew.click();
-      if (typeof window._showTemplateEditForm === 'function') {
-        window._showTemplateEditForm();
-      }
-      setTimeout(() => els.templateTitle?.focus(), 30);
-    });
-  }
-
-  // Global Ctrl+T / Cmd+T — toggle the palette (unless an editor is focused)
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && (e.key === 't' || e.key === 'T') && !e.shiftKey && !e.altKey) {
       const active = document.activeElement;
       const inInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
-      if (inInput && active !== searchInput) return;
+      if (inInput) return;
       e.preventDefault();
-      if (overlay.classList.contains('hidden')) openPalette();
-      else closePalette();
+      openTemplatesDrawer();
     }
   });
 })();

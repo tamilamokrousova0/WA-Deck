@@ -1,6 +1,4 @@
 (function setupScheduleModule() {
-  const CHAT_PICKER_CACHE_LIMIT = 24;
-
   let state, els, setStatus, trimMapSize, runWithBusyButton;
   let accountById, ensureWebview, isWebviewReady, sendWebviewInput, delay;
   let formatDateTime, nextSendAtLocal, showConfirm;
@@ -33,8 +31,13 @@
     const safeAccountId = String(accountId || '').trim();
     if (!safeAccountId) return [];
 
-    const cached = state.chatPickerCache.get(safeAccountId);
-    if (!force && cached && Date.now() - cached.at < 30000) {
+    // Single-entry cache — picker is always scoped to the active account now,
+    // so keeping a per-account Map was dead weight. 30s TTL kept for the
+    // "pick chat → apply → reopen picker" fast path.
+    const cached = state.chatPickerCache;
+    if (!force && cached
+        && cached.accountId === safeAccountId
+        && Date.now() - cached.at < 30000) {
       return cached.chats;
     }
 
@@ -52,8 +55,7 @@
       ? chats.map((chat) => String(chat || '').trim()).filter(Boolean)
       : [];
 
-    state.chatPickerCache.set(safeAccountId, { at: Date.now(), chats: normalized });
-    trimMapSize(state.chatPickerCache, CHAT_PICKER_CACHE_LIMIT);
+    state.chatPickerCache = { accountId: safeAccountId, at: Date.now(), chats: normalized };
     return normalized;
   }
 
@@ -95,19 +97,50 @@
   }
 
   async function openChatPicker() {
+    // Chat picker is always scoped to the currently active account — the user
+    // picks only from *that* account's chats, never across accounts.
+    const activeId = String(state.activeAccountId || '').trim();
+    const active = accountById(activeId);
+    const display = document.getElementById('picker-account-display');
+
+    // Sync the hidden select to the active account for legacy consumers.
     els.pickerAccount.innerHTML = '';
-    for (const account of state.accounts) {
-      const option = document.createElement('option');
-      option.value = account.id;
-      option.textContent = account.frozen ? `${account.name} (заморожен)` : account.name;
-      els.pickerAccount.appendChild(option);
+    if (active) {
+      const opt = document.createElement('option');
+      opt.value = active.id;
+      opt.textContent = active.name;
+      els.pickerAccount.appendChild(opt);
+      els.pickerAccount.value = active.id;
+    } else {
+      els.pickerAccount.value = '';
     }
 
-    const preferred = state.scheduleTarget.accountId || state.activeAccountId || state.accounts[0]?.id || '';
-    els.pickerAccount.value = preferred;
+    if (display) {
+      if (!active) {
+        display.textContent = 'Нет активного аккаунта — откройте WhatsApp-аккаунт';
+        display.classList.add('is-empty');
+      } else if (active.frozen) {
+        display.textContent = `${active.name} · заморожен — сначала разморозьте`;
+        display.classList.add('is-empty');
+      } else {
+        display.textContent = `Аккаунт: ${active.name}`;
+        display.classList.remove('is-empty');
+      }
+    }
+
+    els.pickerChat.innerHTML = '';
+    if (!active || active.frozen) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = active?.frozen ? 'Аккаунт заморожен' : 'Откройте аккаунт для выбора чата';
+      els.pickerChat.appendChild(opt);
+      els.chatPickerModal.classList.remove('hidden');
+      return;
+    }
 
     await refreshPickerChats(true);
-    if (state.scheduleTarget.accountId === preferred && state.scheduleTarget.chatName) {
+    // Preselect last-used chat if it was for this same account
+    if (state.scheduleTarget.accountId === active.id && state.scheduleTarget.chatName) {
       els.pickerChat.value = state.scheduleTarget.chatName;
     }
 
@@ -149,9 +182,13 @@
     }
   }
 
+  // Pagination state — kept module-level so "Показать ещё" preserves across re-renders
+  const SCHEDULED_PAGE_SIZE = 30;
+  let _scheduledVisibleLimit = SCHEDULED_PAGE_SIZE;
+
   async function renderScheduled() {
     els.scheduledList.innerHTML = '';
-    const response = await window.waDeck.listScheduled({ limit: 120 });
+    const response = await window.waDeck.listScheduled({ limit: 2000 });
     const items = Array.isArray(response?.items) ? response.items : [];
 
     /* Update toolbar schedule button indicator */
@@ -186,10 +223,16 @@
       empty.className = 'scheduled-item scheduled-meta';
       empty.textContent = 'Активных отложенных сообщений нет';
       els.scheduledList.appendChild(empty);
+      _scheduledVisibleLimit = SCHEDULED_PAGE_SIZE;
       return;
     }
 
-    for (const item of items) {
+    // Show only first _scheduledVisibleLimit items — renders of 500+ scheduled
+    // messages become expensive otherwise. User clicks "Показать ещё" to grow.
+    const visibleItems = items.slice(0, _scheduledVisibleLimit);
+    const remaining = items.length - visibleItems.length;
+
+    for (const item of visibleItems) {
       const account = state.accounts.find((row) => row.id === item.accountId);
       const card = document.createElement('div');
       card.className = 'scheduled-item';
@@ -256,6 +299,18 @@
       }
 
       els.scheduledList.appendChild(card);
+    }
+
+    if (remaining > 0) {
+      const showMore = document.createElement('button');
+      showMore.type = 'button';
+      showMore.className = 'btn scheduled-show-more';
+      showMore.textContent = `Показать ещё (${remaining})`;
+      showMore.addEventListener('click', () => {
+        _scheduledVisibleLimit += SCHEDULED_PAGE_SIZE;
+        renderScheduled().catch(console.error);
+      });
+      els.scheduledList.appendChild(showMore);
     }
   }
 

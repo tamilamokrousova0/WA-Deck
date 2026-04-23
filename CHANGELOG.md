@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.7.0
+
+**Первый polished-релиз** — серия аудитов дизайна, кросс-платформенного ревью и hardening-фиксов привела к существенной переделке UX, улучшению производительности на слабых машинах и укреплению security-модели.
+
+### Переделка интерфейса
+- Единый drawer-паттерн для всех настроек (шаблоны, отложенные сообщения, мировые часы, погода, интерфейс) с back-навигацией и иконкой в header. Убраны полноэкранные оверлеи шаблонов и floating schedule-popover — всё в правой панели.
+- Редактирование шаблона теперь inline в том же drawer'е (раньше открывалось отдельное окно). В header'е формы: заголовок `Новый шаблон / Редактирование · <имя>` + кнопка закрытия.
+- Список шаблонов рендерится lazy: категории свёрнуты по умолчанию, items появляются только при expand. Для 500 шаблонов — ~20 DOM-узлов на старте вместо 500+.
+- Отложенные сообщения: chunked render (первые 30 + кнопка «Показать ещё (N)») — не виснет при 200+ записях.
+- Chat picker в отложенной отправке показывает только чаты **активного** аккаунта (убрано переключение между аккаунтами внутри модала). Время отправки теперь всегда свежее при открытии drawer'а.
+- Footer дашборда: `Добавить WhatsApp` (filled primary зелёный) / `Добавить Telegram` (outline) / шестерёнка (icon-only) — выстроена иерархия действий.
+- Toolbar: компактные часы (убран лишний chip `MSK·KYIV·BER·LON`, зоны остались в hover-popover). Status-pill — теперь оформлен с border/background и auto-clear через 3с; debug-инфо (Electron/Chromium версии) убрана.
+- Темы: dark и light объединены единым визуальным языком. Фон дашборда — subtle dot-grid вместо гор/солнца/звёзд/облаков. Новая палитра account-цветов (8 различимых оттенков без дубликатов красного).
+- Семантические signal-токены: `--signal-error`, `--signal-warn`, `--signal-info`, `--signal-ok`. Красная точка «Нет активного WhatsApp» заменена на amber warn, unread-индикатор в toolbar — на accent вместо red.
+
+### Доступность
+- Глобальный `prefers-reduced-motion: reduce` — все анимации схлопываются при системной настройке «Уменьшить движение».
+- Focus-visible fallback для всех interactive-элементов (2px green ring).
+- Hit-area 32×32 у всех close-кнопок (× в панелях, модалах).
+- Контраст toolbar-меток повышен (10px → 11-12px, темнее серый).
+
+### Производительность
+- **Lazy-load webviews:** при старте приложения webview'ы создаются с задержкой 400мс между каждым — UI отзывчив сразу, unread-счётчики заполняются в фоне. Для 30 аккаунтов стартовая загрузка быстрее и плавнее.
+- **Idle-suspend webviews:** при бездействии >15 минут webview уничтожается, сохраняя session-cache (login остаётся). При повторной активации — мгновенная reload. Экономия памяти для power-users: ~2GB+ при 30-аккаунтном сетапе.
+- Translator MutationObserver: batched flush через 120мс вместо fire-on-every-mutation — снижение CPU на слабых GPU.
+- Cache-limits: CRM hover cache LRU-200, translator translation cache LRU-500.
+- Single-entry chatPickerCache (Map → одна запись для активного аккаунта).
+
+### Исправления багов
+- Иконка удалённого аккаунта больше не висит в sidebar до рестарта — `renderAccounts()` + `updateHubDashboard()` вызываются всегда после удаления.
+- Время в «Отложенная отправка» по умолчанию = текущее системное при каждом открытии раздела (раньше отставало на несколько минут).
+- Toggle Переводчика/CRM hover больше не сбрасывает температуру погоды в toolbar.
+- CRM hover popover теперь flip'ается влево если не помещается справа, z-index выше WhatsApp webview content, transition на позицию.
+- Hero-card на дашборде не растягивается в пустое пространство при малом числе аккаунтов (`height: fit-content`).
+- Sidebar `+` кнопка добавления аккаунта — sticky bottom, не исчезает при длинном списке.
+- Sidebar и hub: счётчик непрочитанных не слипается с именем, цветная полоса карточки убрана (цвет только в chip-аватаре).
+
+### Security & Data integrity
+- **Path traversal защита:** иконки аккаунтов копируются в `userData/icons/<id>_<hash>.ext` с size-limit 10MB; вложения отложенных сообщений проверяются по whitelist (только внутри `$HOME`, блок на `.ssh/.gnupg/.aws/.docker/Keychains`), case-insensitive на Windows/macOS.
+- **Validation IPC:** централизованные `LIMITS.*` для всех user-supplied строк (`ACCOUNT_NAME:60`, `TEMPLATE_TEXT:50000`, `MESSAGE_TEXT:65000`, `TRANSLATE_TEXT:20000` и т.п.); quota-limits (`TEMPLATES_PER_USER:5000`, `SCHEDULED_PER_USER:2000`).
+- **Color validation:** `set-account-color` принимает только hex (`^#[0-9a-f]{3-8}$`).
+- **Auto-update:** `autoInstallOnAppQuit=false` — обновление только по явной команде пользователя. Supply-chain risk (compromised GitHub) снижен.
+- **Store safety:** `STORE_MAX_SIZE=50MB` против OOM при corrupt JSON; atomic save через `.backup` — recovery при power-loss.
+
+### Кросс-платформа
+- Windows NSIS: `oneClick: false`, `allowToChangeInstallationDirectory: true` — install без admin, с выбором папки и созданием shortcuts.
+- **Windows portable** target добавлен — `.exe` без install, для restricted-окружений.
+- Electron **41.2.0 → 41.2.2** (+23 CVE backports, fix PDF save, AudioWorklet nodeIntegration, always-on-top events). Chromium 146.0.7680.188.
+- `npm audit fix` — обновлены транзитивные уязвимости (lodash, brace-expansion, picomatch).
+- Удалён дубликат CI workflow (`build-windows.yml`) — race на артефактах устранён.
+
+### Техдолг / cleanup
+- Удалено ~900 строк dead-кода: `.hub-clouds/.hub-star/.hub-cloud-drift`, `.tq-*` (~17KB CSS), fullscreen template-edit модал, schedule-popover, mountain SVG фоны, `Playground-Beta/` каталог (~600MB).
+- Устаревшие memory/cache Map'ы упрощены до single-entry.
+
 ## 0.6.5
 
 ### Исправления ошибок
