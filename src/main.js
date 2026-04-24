@@ -640,6 +640,13 @@ async function migrateLegacyCrmContactFile({
     return null;
   }
 
+  // Strict name-match: only migrate a legacy file whose embedded
+  // "Контакт:" field exactly matches the contact we're loading. Prior
+  // versions fuzzy-picked the "richest" file in the directory regardless
+  // of whose contact it was — which caused CRM data to bleed between
+  // unrelated contacts (bug reported in 0.7.5 testing).
+  const normalizedTarget = normalizeCrmName(targetContactName);
+
   const candidates = [];
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.txt')) continue;
@@ -660,6 +667,10 @@ async function migrateLegacyCrmContactFile({
     const sourceAccount = String(parsed.accountName || '').trim();
     if (isBlockedCrmContactName(sourceContact)) continue;
     if (sourceAccount && accountName && sourceAccount !== accountName) continue;
+    // Hard gate: the embedded contact name must match the requested target.
+    // Without this a CRM file for "Вика" would get migrated onto a freshly
+    // opened "Robert" contact and then onto "Cher", etc.
+    if (!sourceContact || normalizeCrmName(sourceContact) !== normalizedTarget) continue;
 
     const payloadSize =
       String(parsed.fullName || '').trim().length +
