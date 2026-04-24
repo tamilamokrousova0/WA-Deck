@@ -13,13 +13,14 @@ function translatorBarScript() {
     const LANGS = [
       { code: 'auto', label: '🔍 Авто' },
       { code: 'ru', label: 'Русский' },
-      { code: 'en', label: 'English' },
-      { code: 'de', label: 'Deutsch' },
-      { code: 'fr', label: 'Français' },
-      { code: 'nl', label: 'Nederlands' },
-      { code: 'it', label: 'Italiano' },
-      { code: 'no', label: 'Norsk' },
-      { code: 'sv', label: 'Svenska' },
+      { code: 'en', label: 'Английский' },
+      { code: 'de', label: 'Немецкий' },
+      { code: 'fr', label: 'Французский' },
+      { code: 'nl', label: 'Нидерландский' },
+      { code: 'it', label: 'Итальянский' },
+      { code: 'no', label: 'Норвежский' },
+      { code: 'sv', label: 'Шведский' },
+      { code: 'fi', label: 'Финский' },
     ];
     const TARGET_LANGS = LANGS.filter((l) => l.code !== 'auto');
     const INCOMING_TARGET = 'ru'; // fixed: incoming always auto → ru

@@ -146,6 +146,7 @@ const els = {
   accountMenuChip: document.getElementById('account-menu-chip'),
   accountMenuStatus: document.getElementById('account-menu-status'),
   accountMenuFreeze: document.getElementById('account-menu-freeze'),
+  accountMenuPin: document.getElementById('account-menu-pin'),
   accountMenuDelete: document.getElementById('account-menu-delete'),
   sidebarResizeHandle: document.getElementById('sidebar-resize-handle'),
 
@@ -1040,6 +1041,14 @@ function renderAccounts() {
       card.appendChild(frozenTag);
     }
 
+    if (account.pinned) {
+      const pinTag = document.createElement('div');
+      pinTag.className = 'account-pin-tag';
+      pinTag.title = 'Закреплён в хабе';
+      pinTag.textContent = '★';
+      card.appendChild(pinTag);
+    }
+
     // Account type badge (WhatsApp / Telegram)
     const typeBadge = document.createElement('div');
     typeBadge.className = 'account-type-badge';
@@ -1120,20 +1129,52 @@ function scrollAccountsList(direction) {
 }
 
 // ── Контекстное меню аккаунта ──
-function showAccountContextMenu(event, account) {
+// Leading 14×14 SVG icons — subtle, same stroke as text, match the app's
+// existing lucide-style iconography.
+const CM_ICON = {
+  refresh: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>',
+  star: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+  starFilled: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+  snowflake: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M6.2 6.2l11.6 11.6M17.8 6.2L6.2 17.8M2 12h20M5 9l3 3-3 3M19 9l-3 3 3 3M9 5l3 3 3-3M9 19l3-3 3 3"/></svg>',
+  settings: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+};
+
+function showAccountContextMenu(event, accountOrId) {
   closeAccountContextMenu();
+  // Always resolve the FRESH account from state. patchLocalAccount replaces
+  // the account object on every mutation, so the closure-captured `account`
+  // here could be stale (e.g. after pin/unpin, frozen toggle). Re-fetching by
+  // id guarantees the menu reflects current state — this was the root cause
+  // of "Закрепить works, Открепить doesn't" reported in 0.7.4 testing.
+  const id = typeof accountOrId === 'string' ? accountOrId : accountOrId?.id;
+  const account = accountById(String(id || ''));
+  if (!account) return;
+
   const menu = document.createElement('div');
-  menu.className = 'context-menu';
+  menu.className = 'context-menu context-menu--account';
   menu.id = 'account-context-menu';
 
   const isWa = account.type !== 'telegram';
+
   const items = [
-    { label: 'Обновить', action: () => { setActiveAccount(account.id); requestAnimationFrame(() => refreshActiveWebview()); } },
-    ...(isWa ? [{ label: account.frozen ? 'Разморозить' : 'Заморозить', action: () => { setAccountFrozenState(account.id, !account.frozen).catch(console.error); } }] : []),
+    { label: 'Обновить', icon: CM_ICON.refresh, action: () => { setActiveAccount(account.id); requestAnimationFrame(() => refreshActiveWebview()); } },
+    {
+      label: account.pinned ? 'Открепить' : 'Закрепить',
+      icon: account.pinned ? CM_ICON.starFilled : CM_ICON.star,
+      iconClass: account.pinned ? 'is-on' : '',
+      action: () => { setAccountPinnedState(account.id, !account.pinned).catch(console.error); },
+    },
+    ...(isWa ? [{
+      label: account.frozen ? 'Разморозить' : 'Заморозить',
+      icon: CM_ICON.snowflake,
+      iconClass: account.frozen ? 'is-on' : '',
+      action: () => { setAccountFrozenState(account.id, !account.frozen).catch(console.error); },
+    }] : []),
     { divider: true },
-    { label: 'Управление', action: () => openAccountMenu(account.id) },
+    { label: 'Управление', icon: CM_ICON.settings, action: () => openAccountMenu(account.id) },
     { divider: true },
-    { label: 'Удалить', danger: true, action: () => removeAccount(account.id).catch(console.error) },
+    { label: 'Удалить', icon: CM_ICON.trash, danger: true, action: () => removeAccount(account.id).catch(console.error) },
   ];
 
   for (const item of items) {
@@ -1144,12 +1185,33 @@ function showAccountContextMenu(event, account) {
       continue;
     }
     const el = document.createElement('div');
-    el.className = 'context-menu-item' + (item.danger ? ' danger' : '');
-    el.textContent = item.label;
-    el.addEventListener('click', () => {
-      closeAccountContextMenu();
-      item.action();
-    });
+    el.className = 'context-menu-item'
+      + (item.danger ? ' danger' : '')
+      + (item.disabled ? ' is-disabled' : '');
+
+    const iconHost = document.createElement('span');
+    iconHost.className = 'context-menu-icon' + (item.iconClass ? ' ' + item.iconClass : '');
+    iconHost.innerHTML = item.icon || '';
+    el.appendChild(iconHost);
+
+    const labelHost = document.createElement('span');
+    labelHost.className = 'context-menu-label';
+    labelHost.textContent = item.label;
+    el.appendChild(labelHost);
+
+    if (item.hint) {
+      const hint = document.createElement('span');
+      hint.className = 'context-menu-hint';
+      hint.textContent = item.hint;
+      el.appendChild(hint);
+    }
+
+    if (!item.disabled) {
+      el.addEventListener('click', () => {
+        closeAccountContextMenu();
+        item.action();
+      });
+    }
     menu.appendChild(el);
   }
 
@@ -1335,6 +1397,34 @@ function updateHubClocks() {
   }
 }
 
+/* Motivational phrases shown in the hub title between 23:00 and 09:00 local
+   time — a tiny reward for early-birds / night-owls working out of hours.
+   Regular 09:00-23:00 keeps the plain "WA Deck" brand. */
+const HUB_MOTIVATION_PHRASES = [
+  'Пока другие спят — ты зарабатываешь 🌙',
+  'Миллион сам себя не сделает 💵',
+  'Каждое сообщение — шаг к богатству 📈',
+  'Работай, пока остальные в кровати 🦉',
+  'Деньги приходят к тем, кто не спит 🦅',
+  'Сегодня трудись — завтра отдыхай 🔥',
+  'Мечты не работают, пока не работаешь ты 💪',
+  'Время — деньги, не теряй ни минуты ⏳',
+  'Твой успех в твоих руках 🎯',
+  'Не жди удачи — создавай её ⚡',
+  'Богатые встают рано ☕',
+  'Лень сегодня — пустой счёт завтра 🏦',
+  'Сильные работают, слабые спят 💯',
+  'Ещё один чат — ещё один рубль в копилке 💼',
+  'Сон переоценён, деньги — нет 💸',
+  'Ты сам проектируешь свой завтрашний доход 🛠️',
+  'Делай больше, чем от тебя ждут 🏆',
+  'Солнце ещё не встало — а ты уже в деле ☀️',
+  'Пока город просыпается — твой доход уже растёт 🏙️',
+  'Пока слабые видят сны — сильные шлют счета 🧾',
+  'Кофе сварен — пора зарабатывать ☕',
+  'Усталость — цена, деньги — награда 🎁',
+];
+
 function updateHubGreeting() {
   const el = document.getElementById('hub-greeting');
   if (!el) return;
@@ -1358,6 +1448,20 @@ function updateHubGreeting() {
   dateSpan.className = 'hub-greeting-date';
   dateSpan.textContent = '· ' + dateStr;
   el.append(iconSpan, textSpan, dateSpan);
+
+  // Motivational hub-title swap — active 23:00–08:59, plain "WA Deck" otherwise.
+  const titleEl = document.getElementById('hub-title');
+  if (titleEl) {
+    const offHours = h < 9 || h >= 23;
+    if (offHours) {
+      const phrase = HUB_MOTIVATION_PHRASES[Math.floor(Math.random() * HUB_MOTIVATION_PHRASES.length)];
+      titleEl.textContent = phrase;
+      titleEl.classList.add('hub-title--motivation');
+    } else {
+      titleEl.textContent = 'WA Deck';
+      titleEl.classList.remove('hub-title--motivation');
+    }
+  }
 }
 
 function updateHubMetrics() {
@@ -1480,9 +1584,9 @@ async function updateHubDashboard() {
     container.appendChild(empty);
   }
 
-  for (const account of accounts) {
+  const buildHubAccountCard = (account, { isPinned } = {}) => {
     const card = document.createElement('div');
-    card.className = 'hub-acct-card';
+    card.className = 'hub-acct-card' + (isPinned ? ' hub-acct-card--pinned' : '');
     card.style.setProperty('--card-c', account.color || 'var(--accent-blue)');
     card.addEventListener('click', () => setActiveAccount(account.id));
 
@@ -1494,8 +1598,6 @@ async function updateHubDashboard() {
     avWrap.style.background = account.color || 'var(--bg-3)';
     const labelText = (account.name || '').split(' ')[0].slice(0, 2).toUpperCase() || (account.type === 'telegram' ? 'TG' : 'WA');
     avWrap.textContent = labelText;
-    // Only the frozen state is shown — online detection from WhatsApp Web
-    // is unreliable, so we skip on/off indicators entirely.
     if (account.frozen) {
       const status = document.createElement('span');
       status.className = 'hub-acct-status frozen';
@@ -1536,9 +1638,34 @@ async function updateHubDashboard() {
       row3.appendChild(t);
     }
 
+    if (isPinned) {
+      const star = document.createElement('span');
+      star.className = 'hub-acct-pin-star';
+      star.textContent = '★';
+      star.title = 'Закреплён';
+      card.appendChild(star);
+    }
+
     info.append(row1, preview, row3);
     card.append(bar, avWrap, info);
-    container.appendChild(card);
+    return card;
+  };
+
+  const pinnedAccounts = accounts.filter((a) => a.pinned);
+  const pinnedIds = new Set(pinnedAccounts.map((a) => a.id));
+  const restAccounts = accounts.filter((a) => !pinnedIds.has(a.id));
+
+  if (pinnedAccounts.length) {
+    const pinnedRow = document.createElement('div');
+    pinnedRow.className = 'hub-pinned-row';
+    for (const account of pinnedAccounts) {
+      pinnedRow.appendChild(buildHubAccountCard(account, { isPinned: true }));
+    }
+    container.appendChild(pinnedRow);
+  }
+
+  for (const account of restAccounts) {
+    container.appendChild(buildHubAccountCard(account, { isPinned: false }));
   }
 
   // Кнопки — отрисовываем в отдельный ряд под сеткой аккаунтов, чтобы
@@ -1608,7 +1735,11 @@ function ensureWebview(account) {
     webview.setAttribute('useragent', state.runtime.waUserAgent);
   }
   webview.setAttribute('allowpopups', 'false');
-  webview.setAttribute('webpreferences', 'contextIsolation=yes');
+  // backgroundThrottling=false is the third layer of our keep-alive fix.
+  // See comments at the top of main.js — without this, hidden webviews
+  // (display:none in styles.css) get their timers throttled to 1/min after
+  // ~5 minutes, which kills the WhatsApp Web WebSocket heartbeat.
+  webview.setAttribute('webpreferences', 'contextIsolation=yes,backgroundThrottling=no');
   webview.dataset.waReady = '0';
   webview.dataset.accountType = account.type || 'whatsapp';
 
@@ -1680,6 +1811,14 @@ function ensureWebview(account) {
   const onDomReady = () => {
     webview.dataset.waReady = '1';
     _domReadyFired = true;
+
+    // Keep-alive visibility spoof — runs for BOTH WhatsApp and Telegram so
+    // neither app voluntarily pauses its WebSocket while hidden behind
+    // another active account. Must run before any other inject.
+    if (typeof keepAliveScript === 'function') {
+      webview.executeJavaScript(keepAliveScript(), true)
+        .catch((e) => console.warn('[keep-alive]', e));
+    }
 
     // WhatsApp-specific script injection
     if (isWhatsApp) {
@@ -1976,7 +2115,16 @@ function _setActiveAccountInner(accountId) {
   }
   if (nextId && state.startupHubVisible) {
     const webview = state.webviews.get(nextId);
-    if (!webview || !webview.isLoading?.()) {
+    // webview.isLoading() throws on a freshly-created webview until dom-ready
+    // has fired. Treat "not-yet-ready" as "still loading" and only trust a
+    // clean false (finished loading) to hide the startup hub.
+    let stillLoading = true;
+    if (webview && webview.dataset?.waReady === '1') {
+      try {
+        stillLoading = typeof webview.isLoading === 'function' && webview.isLoading();
+      } catch { /* not attached yet — treat as loading */ }
+    }
+    if (!stillLoading) {
       state.startupHubVisible = false;
     }
   }
@@ -2276,8 +2424,11 @@ function renderTemplatesLibrary() {
   // Build a single shared item renderer so we can reuse it both for
   // lazy-expand and search-mode (which needs all items upfront).
   function buildTemplateItemEl(tpl, n) {
-    const item = document.createElement('button');
-    item.type = 'button';
+    // `<div role="button">` instead of nested <button> so the in-card
+    // delete control (also a button) doesn't become an invalid child.
+    const item = document.createElement('div');
+    item.setAttribute('role', 'button');
+    item.setAttribute('tabindex', '0');
     item.className = 'tmpl-lib-item';
     const lang = (typeof detectTemplateLang === 'function')
       ? detectTemplateLang(tpl)
@@ -2306,8 +2457,39 @@ function renderTemplatesLibrary() {
     preview.textContent = txt.length > 100 ? txt.slice(0, 100) + '…' : txt;
     body.appendChild(preview);
 
-    item.append(num, body);
-    item.addEventListener('click', () => {
+    // Inline delete (× in top-right of the card). Fades in on hover so it
+    // doesn't clutter the list in its resting state.
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'tmpl-lib-del';
+    del.title = 'Удалить шаблон';
+    del.setAttribute('aria-label', 'Удалить шаблон');
+    del.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+    del.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const accepted = await showConfirm(
+        'Удаление шаблона',
+        `Удалить «${tpl.title || 'Без названия'}»?`,
+        'Удалить',
+      );
+      if (!accepted) return;
+      const response = await window.waDeck.deleteTemplate(tpl.id);
+      if (!response?.ok) {
+        setStatus(`Шаблон: ${response?.error || 'ошибка удаления'}`);
+        return;
+      }
+      // Mirror the templates-controller flow: update state + refresh palette.
+      state.templates = Array.isArray(response.templates)
+        ? response.templates.map((t) => ({ ...t }))
+        : [];
+      setStatus('Шаблон удалён');
+      try { refreshSettingsMenuSubtitles(); } catch { /* ignore */ }
+    });
+
+    item.append(num, body, del);
+
+    const openInEditor = () => {
       if (typeof window._showTemplateEditForm === 'function') window._showTemplateEditForm();
       if (els.templateSelect) {
         els.templateSelect.value = tpl.id || '';
@@ -2315,6 +2497,13 @@ function renderTemplatesLibrary() {
       }
       const card = document.getElementById('templates-settings-card');
       if (card && !card.open) card.open = true;
+    };
+    item.addEventListener('click', openInEditor);
+    item.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openInEditor();
+      }
     });
     return item;
   }
@@ -2457,9 +2646,27 @@ function openAccountMenu(accountId) {
     els.accountMenuStatus.textContent = statusText;
   }
 
-  // Freeze button text
+  // Freeze toggle — flips is-active + textual state
   if (els.accountMenuFreeze) {
-    els.accountMenuFreeze.textContent = account.frozen ? 'Разморозить' : 'Заморозить';
+    const frozen = Boolean(account.frozen);
+    els.accountMenuFreeze.classList.toggle('is-active', frozen);
+    const label = els.accountMenuFreeze.querySelector('.toggle-text');
+    if (label) label.textContent = frozen ? 'Разморозить' : 'Заморозить';
+    els.accountMenuFreeze.title = frozen
+      ? 'Разморозить и возобновить загрузку WhatsApp'
+      : 'Заморозить аккаунт (выгрузить webview)';
+  }
+
+  // Pin toggle — no limit; user can pin as many accounts as they want.
+  if (els.accountMenuPin) {
+    const pinned = Boolean(account.pinned);
+    els.accountMenuPin.classList.toggle('is-active', pinned);
+    els.accountMenuPin.disabled = false;
+    const label = els.accountMenuPin.querySelector('.toggle-text');
+    if (label) label.textContent = pinned ? 'Закреплено' : 'Закрепить';
+    els.accountMenuPin.title = pinned
+      ? 'Снять с главной полки хаба'
+      : 'Закрепить на главной полке хаба';
   }
 
   // Show/hide reset icon button
@@ -2651,8 +2858,21 @@ async function changeAccountIconFromMenu() {
   const picked = await window.waDeck.pickAccountIcon();
   if (!picked || picked.canceled || !picked.path) return;
   state.accountMenuDraftIconPath = String(picked.path || '').trim();
+
+  // Immediate preview in the chip — doesn't persist until Save, but gives
+  // the user visual confirmation that the pick worked.
+  if (els.accountMenuChip && picked.url) {
+    els.accountMenuChip.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = picked.url;
+    img.alt = account.name;
+    els.accountMenuChip.appendChild(img);
+  }
+  if (els.accountMenuResetIcon) {
+    els.accountMenuResetIcon.classList.remove('hidden');
+  }
   if (els.accountMenuIcon) {
-    els.accountMenuIcon.style.borderColor = state.accountMenuDraftIconPath ? '#3dd68c' : '';
+    els.accountMenuIcon.style.borderColor = '#3dd68c';
   }
   setStatus(`Иконка выбрана: ${account.name}. Нажмите «Сохранить»`);
 }
@@ -2724,6 +2944,30 @@ async function toggleActiveFreeze() {
     return;
   }
   await setAccountFrozenState(account.id, !Boolean(account.frozen), { reopenMenu: false });
+}
+
+async function setAccountPinnedState(accountId, nextPinned, options = {}) {
+  const account = accountById(accountId);
+  if (!account) return { ok: false };
+
+  const response = await window.waDeck.setAccountPinned({ accountId, pinned: nextPinned });
+  if (!response?.ok || !response.account) {
+    setStatus(`Не удалось изменить пин: ${response?.error || 'error'}`);
+    return { ok: false, response };
+  }
+
+  patchLocalAccount(response.account);
+  renderAccounts();
+  updateHubDashboard();
+  setStatus(
+    response.account.pinned
+      ? `${response.account.name} закреплён в хабе`
+      : `${response.account.name} откреплён`,
+  );
+  if (options.reopenMenu) {
+    openAccountMenu(accountId);
+  }
+  return { ok: true, account: response.account };
 }
 
 
@@ -2853,16 +3097,12 @@ async function removeAccount(accountId) {
     WaDeckScheduleModule.renderScheduleTarget();
   }
 
-  const nextId = String(response.nextActiveAccountId || state.accounts[0]?.id || '');
-  if (nextId) {
-    setActiveAccount(nextId);
-  } else {
-    state.activeAccountId = null;
-    updateFreezeButtonState();
-    WaDeckUnreadModule.updateActiveUnreadIndicator();
-    refreshWebviewVisibility();
-    await WaDeckScheduleModule.renderScheduled();
-  }
+  // After deletion, always return to the Hub screen instead of jumping to a
+  // neighbouring account — that jump was disorienting (users land on an
+  // unrelated workspace). Empty activeAccountId triggers the hub in
+  // refreshWebviewVisibility() via the !state.activeAccountId branch.
+  setActiveAccount('');
+  await WaDeckScheduleModule.renderScheduled();
   // Always re-render the sidebar and hub after a removal so the deleted
   // account's badge disappears immediately, regardless of whether a next
   // active account was assigned. Previously this happened only in the
@@ -3810,6 +4050,12 @@ function bindActions() {
     if (!account) return;
     setAccountFrozenState(id, !account.frozen, { reopenMenu: true }).catch(console.error);
   });
+  els.accountMenuPin?.addEventListener('click', () => {
+    const id = state.accountMenuAccountId;
+    const account = accountById(id);
+    if (!account) return;
+    setAccountPinnedState(id, !account.pinned, { reopenMenu: true }).catch(console.error);
+  });
   els.accountMenuDelete?.addEventListener('click', () => {
     const id = state.accountMenuAccountId;
     if (!id) return;
@@ -3986,8 +4232,9 @@ async function init() {
   // the next few seconds as each account boots. For 30 accounts this takes
   // ~15s total, but the UI never freezes.
   //
-  // Idle-suspend (startIdleWebviewSweeper) still destroys webviews inactive
-  // for >15 min, so memory stays bounded for power-users.
+  // Note: all webviews stay alive for the lifetime of the app — idle-suspend
+  // was removed because it caused WhatsApp accounts to drop messages while
+  // suspended and forced users to re-click each account to reload WA Web.
   const STAGGER_MS = 400;
   for (let i = 0; i < state.accounts.length; i += 1) {
     const account = state.accounts[i];
@@ -4025,6 +4272,12 @@ async function init() {
       els,
       setStatus,
       insertTextToActiveChat: insertTextIntoActiveChat,
+      // Notify the settings palette whenever templates change so that
+      // newly-added categories show up in the library list immediately
+      // (without needing an app restart).
+      onChange: () => {
+        try { refreshSettingsMenuSubtitles(); } catch (e) { console.warn('[tmpl:onChange]', e); }
+      },
     });
     await templateController.init(state.templates);
   }
@@ -4038,7 +4291,14 @@ async function init() {
   WaDeckScheduleModule.startScheduleRunner();
   WaDeckUnreadModule.startUnreadPolling();
   WaDeckUnreadModule.scheduleDockBadgeSync();
-  startIdleWebviewSweeper();
+  // Idle-suspend disabled: destroying inactive webviews after 15 min forced
+  // users to re-click every account to reload WhatsApp Web, which in turn
+  // missed incoming messages while suspended. Keeping all webviews alive for
+  // the lifetime of the app is the correct trade-off for the 10–20 account
+  // use case. The original memory optimisation target (30+ accounts on
+  // low-RAM machines) can be re-introduced behind a settings toggle if
+  // needed — see startIdleWebviewSweeper() which remains as dead code.
+  // startIdleWebviewSweeper();
   renderClocksSettings();
   // Toolbar clock — update immediately and every 15s
   updateToolbarClock();

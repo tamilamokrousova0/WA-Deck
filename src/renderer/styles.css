@@ -479,6 +479,28 @@ html[data-theme='light'] .sidebar-resize-handle.active {
   z-index: 2;
 }
 
+/* Pin marker in the sidebar — bottom-right. Other three corners are
+   already used: top-left (.account-remove ×), top-right (.account-unread),
+   bottom-left (.account-type-badge / .account-frozen-tag). */
+.account-pin-tag {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--green, #3dd68c);
+  color: #08140b;
+  font-size: 9px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  box-shadow: 0 0 0 2px var(--bg-0, #151a24), 0 2px 6px rgba(61, 214, 140, 0.45);
+  z-index: 2;
+  pointer-events: none;
+}
+
 .workspace {
   min-width: 0;
   display: grid;
@@ -2777,9 +2799,9 @@ html[data-theme='light'] .account-menu-status {
 
 /* ── Управление аккаунтом — модал (Lovable-стиль) ── */
 .modal-card-account {
-  max-width: 340px;
+  max-width: 300px;
   position: relative;
-  padding: 20px;
+  padding: 14px 16px 16px;
 }
 
 .btn-close-round {
@@ -2810,23 +2832,24 @@ html[data-theme='light'] .account-menu-status {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 16px;
+  gap: 4px;
+  margin-bottom: 10px;
 }
 
 .account-menu-chip {
-  width: 64px;
-  height: 64px;
-  border-radius: 18px;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font: 800 26px/1 'Avenir Next', 'Segoe UI', sans-serif;
+  font: 800 20px/1 'Avenir Next', 'Segoe UI', sans-serif;
   color: #fff;
   overflow: hidden;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   transition: transform 0.2s ease;
+  margin-top: 2px;
 }
 .account-menu-chip:hover {
   transform: scale(1.05);
@@ -2839,41 +2862,216 @@ html[data-theme='light'] .account-menu-status {
 }
 
 .account-menu-title {
-  font-size: 15px;
+  font-size: 13.5px;
   font-weight: 700;
   color: #e5eaf0;
   margin: 0;
+  letter-spacing: -0.01em;
 }
 
 .account-menu-status {
-  font-size: 11px;
+  font-size: 10.5px;
   color: #7e8ea0;
-  line-height: 1;
+  line-height: 1.1;
+  margin-top: 1px;
 }
 
 .account-menu-label {
   display: grid;
-  gap: 4px;
+  gap: 5px;
   font-size: 11px;
   color: #7e8ea0;
-  margin-bottom: 12px;
+  margin: 0;
+}
+.account-menu-label > span {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+  font-size: 10px;
+  color: var(--muted);
+}
+.account-menu-label > input {
+  padding: 7px 10px;
+  font-size: 12.5px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--stroke-soft);
+  color: var(--text);
+  outline: none;
+  min-height: 32px;
+  font-family: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.account-menu-label > input:focus {
+  border-color: color-mix(in oklab, var(--green, #3dd68c) 50%, var(--stroke));
+  background: rgba(255, 255, 255, 0.06);
 }
 
-.account-menu-actions {
+/* ── Compact sections — matches settings-drawer voice ── */
+.account-menu-section {
   display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  border-top: 1px solid color-mix(in oklab, var(--line) 60%, transparent);
+}
+.account-menu-section:first-of-type {
+  border-top: 0;
+  padding-top: 0;
 }
 
-.account-menu-actions .btn {
-  flex: 1;
+.account-menu-section-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  /* Matches .settings-group-label for a unified uppercase voice across
+     settings, account modal, and any other section header. */
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+.account-menu-appearance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  /* Anchor the color-popover here (not on the tiny swatch wrap) so it pins
+     to the right edge of the section instead of overflowing the modal. */
+  position: relative;
+}
+
+.account-menu-appearance-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.account-menu-toggles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* Toggle-style button: icon-tile + text, styled to match settings-menu-item
+   voice (rounded card, hover lift) but compact. Green-accented when active. */
+.toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 10px;
+  min-height: 32px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
+}
+.toggle-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.4);
+}
+.toggle-btn:active:not(:disabled) {
+  transform: translateY(0);
+  background: rgba(255, 255, 255, 0.035);
+}
+.toggle-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toggle-btn .toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  transition: color 0.18s ease, transform 0.18s ease;
+  flex-shrink: 0;
+}
+.toggle-btn .toggle-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.toggle-btn.is-active {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.28);
+  color: var(--green, #3dd68c);
+}
+.toggle-btn.is-active:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.14);
+  border-color: rgba(34, 197, 94, 0.4);
+}
+.toggle-btn.is-active .toggle-icon {
+  color: var(--green, #3dd68c);
+  transform: scale(1.08);
+}
+.toggle-btn.is-active .toggle-icon svg {
+  fill: currentColor;
+}
+
+html[data-theme='light'] .toggle-btn {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.07);
+}
+html[data-theme='light'] .toggle-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+/* Save button on its own wide row */
+.account-menu-save-btn {
+  width: 100%;
+  margin: 6px 0 0;
+  min-height: 34px;
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+/* Danger zone: reset + delete visually grouped at the bottom */
+.account-menu-danger-zone {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in oklab, var(--line) 60%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.account-menu-reset-btn {
+  width: 100%;
+  font-size: 11px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--stroke-soft);
+  padding: 5px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  min-height: 28px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.account-menu-reset-btn:hover {
+  color: var(--text);
+  border-color: var(--stroke);
+  background: color-mix(in oklab, var(--bg-1) 85%, transparent);
 }
 
 .btn-action-icon {
-  width: 38px;
-  min-width: 38px;
-  flex: 0 0 38px !important;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  flex: 0 0 32px !important;
   padding: 0;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2881,17 +3079,20 @@ html[data-theme='light'] .account-menu-status {
 
 /* ── Color picker ── */
 .color-picker-wrap {
-  position: relative;
-  flex: 0 0 38px !important;
-  width: 38px;
-  height: 38px;
+  /* Intentionally not position:relative anymore — the popover anchors to
+     .account-menu-appearance instead so it can use right:0 without
+     overflowing the modal. */
+  flex: 0 0 32px !important;
+  width: 32px;
+  height: 32px;
 }
 
 .btn-color-picker {
-  width: 38px;
-  height: 38px;
-  min-width: 38px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
   padding: 0;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2899,11 +3100,14 @@ html[data-theme='light'] .account-menu-status {
 }
 
 .color-swatch {
+  /* Dimensions match the sibling SVG icons exactly (16×16) so "Сменить
+     иконку" and "Цвет" read as equal tiles inside their 38×38 buttons. */
   display: block;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.2);
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 html[data-theme='light'] .color-swatch {
@@ -2911,20 +3115,24 @@ html[data-theme='light'] .color-swatch {
 }
 
 .color-picker-popover {
+  /* Anchored to .account-menu-appearance (right edge) so it stays inside
+     the modal and doesn't shift the layout. Shows above the controls. */
   position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--card-bg, #1c2230);
-  border: 1px solid var(--line, #2b313b);
+  bottom: calc(100% + 8px);
+  right: 0;
+  left: auto;
+  transform: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
   border-radius: 12px;
   padding: 8px;
   display: grid;
   grid-template-columns: repeat(10, 1fr);
   gap: 5px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255, 255, 255, 0.03) inset;
   z-index: 70;
-  width: 290px;
+  width: 280px;
+  max-width: 100%;
 }
 
 .color-picker-popover.hidden {
@@ -2986,8 +3194,9 @@ html[data-theme='light'] .color-dot.active {
   color: #e87070;
   font-size: 11px;
   font-weight: 600;
-  padding: 8px;
-  border-radius: 12px;
+  padding: 6px 10px;
+  min-height: 28px;
+  border-radius: 8px;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
@@ -3153,36 +3362,93 @@ html[data-theme='light'] .color-dot.active {
 .context-menu {
   position: fixed;
   z-index: 200;
-  min-width: 170px;
+  min-width: 190px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 4px 0;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  border-radius: 10px;
+  padding: 5px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255, 255, 255, 0.03) inset;
   animation: contextMenuIn 0.12s ease;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .context-menu-item {
-  padding: 7px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px 7px 9px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
   color: var(--text);
-  transition: background 0.1s ease;
+  border-radius: 6px;
+  transition: background 0.1s ease, color 0.1s ease;
   user-select: none;
 }
 
 .context-menu-item:hover {
-  background: var(--line);
+  background: color-mix(in oklab, var(--line) 80%, transparent);
+}
+
+.context-menu-item.is-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.context-menu-item.is-disabled:hover {
+  background: transparent;
 }
 
 .context-menu-item.danger {
-  color: #ff4f7c;
+  color: #ff6b8a;
+}
+.context-menu-item.danger:hover {
+  background: rgba(217, 64, 64, 0.14);
+  color: #ff8fa7;
+}
+
+.context-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.context-menu-item:hover .context-menu-icon {
+  color: var(--text);
+}
+.context-menu-item.danger .context-menu-icon {
+  color: currentColor;
+}
+.context-menu-icon.is-on {
+  color: var(--green, #3dd68c);
+}
+.context-menu-item:hover .context-menu-icon.is-on {
+  color: var(--green, #3dd68c);
+}
+
+.context-menu-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.context-menu-hint {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: var(--mono, ui-monospace);
+  opacity: 0.7;
+  white-space: nowrap;
 }
 
 .context-menu-divider {
   height: 1px;
   background: var(--line);
-  margin: 4px 0;
+  margin: 4px 6px;
+  opacity: 0.7;
 }
 
 /* ── Hub Dashboard ── */
@@ -5379,6 +5645,30 @@ html[data-theme='light'] .add-account-btn:hover {
   text-align: left;
   margin: 0 0 4px;
 }
+/* Out-of-hours motivational phrase (23:00–08:59) — gradient text, subtle
+   breathing glow, oversized emoji tail. Hard to miss, but not obnoxious. */
+.hub-title--motivation {
+  background: linear-gradient(110deg, #3dd68c 0%, #f5a623 55%, #ff4d88 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 800;
+  font-size: 26px;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  filter: drop-shadow(0 2px 12px rgba(245, 166, 35, 0.35));
+  animation: hubMotivationGlow 3.2s ease-in-out infinite;
+}
+@keyframes hubMotivationGlow {
+  0%, 100% { filter: drop-shadow(0 2px 10px rgba(245, 166, 35, 0.30)); }
+  50%      { filter: drop-shadow(0 2px 16px rgba(61, 214, 140, 0.55)); }
+}
+html[data-theme='light'] .hub-title--motivation {
+  background: linear-gradient(110deg, #22b46e 0%, #e58a00 55%, #e6286c 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 .hub-subtitle {
   margin-top: 0;
   margin-bottom: 18px;
@@ -5566,20 +5856,52 @@ html[data-theme='light'] .add-account-btn:hover {
   gap: 8px;
 }
 
-/* Grid of account cards — compact, scales to 15-20+ accounts.
-   Three narrow columns on wide screens, collapsing to two/one on
-   narrower windows. Row height stays around ~46px. */
+/* Hub layout:
+   - Optional top row of up to 4 "pinned" (starred) accounts — horizontal
+     flex, visually distinct cards.
+   - Below — single-column inbox list of remaining accounts. Scan-order is
+     unambiguous top-to-bottom, scales to 15-20+ without orphaned last-row. */
 .hub-dashboard {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   margin-top: 0;
   padding: 0;
   max-height: none;
   overflow: visible;
 }
+.hub-pinned-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--stroke-soft);
+}
+.hub-acct-card--pinned {
+  /* Distinguish pinned cards: subtle gradient + accent border + star badge */
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--card-c, var(--accent)) 10%, var(--bg-1)) 0%,
+    color-mix(in oklab, var(--bg-1) 92%, transparent) 100%
+  );
+  border-color: color-mix(in oklab, var(--card-c, var(--accent)) 40%, var(--stroke));
+  min-height: 56px;
+}
+.hub-acct-card--pinned:hover {
+  border-color: color-mix(in oklab, var(--card-c, var(--accent)) 60%, var(--stroke));
+}
+.hub-acct-pin-star {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 10px;
+  color: color-mix(in oklab, var(--card-c, var(--accent)) 70%, var(--text));
+  line-height: 1;
+  pointer-events: none;
+  opacity: 0.85;
+}
 .hub-empty {
-  grid-column: 1 / -1;
   padding: 16px;
   text-align: center;
   color: var(--text-3);
@@ -6221,6 +6543,47 @@ html[data-theme='light'] .scheduled-list .sp-item {
 }
 html[data-theme='light'] .sp-item-text { color: #42526e; }
 
+/* Category chips under the template-category input — styled replacement for
+   the browser's native (unstyled) datalist dropdown. Click to fill the input. */
+.tmpl-category-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.tmpl-category-chips:empty {
+  display: none;
+}
+.tmpl-category-chip {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--stroke-soft);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  font-family: inherit;
+  letter-spacing: -0.005em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.tmpl-category-chip:hover {
+  color: var(--text);
+  border-color: color-mix(in oklab, var(--green, #3dd68c) 40%, var(--stroke));
+  background: rgba(61, 214, 140, 0.08);
+}
+html[data-theme='light'] .tmpl-category-chip {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+html[data-theme='light'] .tmpl-category-chip:hover {
+  background: rgba(34, 180, 110, 0.08);
+  border-color: rgba(34, 180, 110, 0.35);
+  color: #1a2b4a;
+}
+
 /* ── Templates library inside the settings panel (standalone-style) ── */
 .tmpl-lib {
   display: flex;
@@ -6359,10 +6722,12 @@ html[data-theme='light'] .tmpl-edit-close:hover {
   font-size: 12.5px;
 }
 .tmpl-lib-item {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 10px;
   padding: 8px 10px;
+  padding-right: 28px;
   background: color-mix(in oklab, var(--bg-2) 40%, transparent);
   border: 1px solid var(--stroke-soft);
   border-radius: 10px;
@@ -6375,6 +6740,37 @@ html[data-theme='light'] .tmpl-edit-close:hover {
 .tmpl-lib-item:hover {
   border-color: var(--stroke);
   background: var(--bg-2);
+}
+.tmpl-lib-item:focus-visible {
+  outline: none;
+  border-color: color-mix(in oklab, var(--green, #3dd68c) 55%, var(--stroke));
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--green, #3dd68c) 25%, transparent);
+}
+.tmpl-lib-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.tmpl-lib-item:hover .tmpl-lib-del,
+.tmpl-lib-item:focus-within .tmpl-lib-del {
+  opacity: 1;
+}
+.tmpl-lib-del:hover {
+  background: rgba(217, 64, 64, 0.14);
+  border-color: rgba(217, 64, 64, 0.35);
+  color: #ff6b8a;
 }
 .tmpl-lib-num {
   flex: 0 0 26px;

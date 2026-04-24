@@ -8,6 +8,27 @@ const { spawnSync } = require('child_process');
 const { pathToFileURL } = require('url');
 const os = require('os');
 
+/*
+ * Keep WhatsApp/Telegram webviews online while hidden.
+ *
+ * Without these switches, Chromium throttles timers in hidden <webview>
+ * renderers (display:none) and — critically — enables IntensiveWakeUpThrottling
+ * after ~5 min, which clamps setInterval to 1/min. WhatsApp Web's
+ * application-level heartbeat then misses a tick, the server drops the socket,
+ * and the account "freezes" until the user re-selects it (re-showing the
+ * webview wakes timers and WA reloads).
+ *
+ * Important: we intentionally DO NOT pass --disable-renderer-backgrounding.
+ * A previous iteration used it and pegged CPU with many accounts, because it
+ * pins every hidden renderer to foreground OS priority. The switches below
+ * only affect timer throttling and occlusion detection — process priority is
+ * still lowered by the OS, so CPU stays sane with 10–20 accounts while the
+ * WebSocket heartbeat keeps ticking.
+ */
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-features', 'IntensiveWakeUpThrottling,CalculateNativeWinOcclusion');
+
 /**
  * Defense-in-depth: only allow attachment paths that live under the user's
  * home directory and don't touch known sensitive subtrees. A compromised
@@ -265,6 +286,7 @@ function sanitizeStore(raw) {
       color: String(item?.color || pickColor(index + 1)),
       iconPath: String(item?.iconPath || '').trim(),
       frozen: Boolean(item?.frozen),
+      pinned: Boolean(item?.pinned),
       order: Math.max(1, Number(item?.order) || index + 1),
       createdAt: String(item?.createdAt || new Date().toISOString()),
     }))
@@ -852,6 +874,17 @@ async function setAccountFrozen(accountId, frozen) {
   return { ok: true, account: accountToView(account) };
 }
 
+async function setAccountPinned(accountId, pinned) {
+  const id = String(accountId || '').trim();
+  if (!id) return { ok: false, error: 'account_not_found' };
+  const account = state.store.accounts.find((acc) => acc.id === id);
+  if (!account) return { ok: false, error: 'account_not_found' };
+
+  account.pinned = Boolean(pinned);
+  await saveStore();
+  return { ok: true, account: accountToView(account) };
+}
+
 async function setAccountIcon(accountId, iconPath) {
   const id = String(accountId || '').trim();
   if (!id) return { ok: false, error: 'account_not_found' };
@@ -1176,6 +1209,14 @@ function setupWebviewGuards() {
     if (!isTelegram()) {
       contents.setUserAgent(WA_USER_AGENT);
     }
+
+    // Per-webContents guard against Chromium background throttling. The
+    // command-line switches above handle the process-wide features
+    // (IntensiveWakeUpThrottling etc.); this API call disables the
+    // per-page timer/scheduler throttling that kicks in when the hosted
+    // page reports visibilityState='hidden' (which our display:none does).
+    try { contents.setBackgroundThrottling(false); } catch { /* older Electron: no-op */ }
+
     contents.setWindowOpenHandler(({ url }) => {
       safeOpenExternal(url);
       return { action: 'deny' };
@@ -1519,6 +1560,9 @@ function registerIpc() {
   ipcMain.handle('set-account-frozen', async (_event, payload) => {
     return setAccountFrozen(payload?.accountId, payload?.frozen);
   });
+  ipcMain.handle('set-account-pinned', async (_event, payload) => {
+    return setAccountPinned(payload?.accountId, payload?.pinned);
+  });
 
   ipcMain.handle('move-account', async (_event, payload) => {
     return moveAccount(payload?.accountId, payload?.direction);
@@ -1536,7 +1580,12 @@ function registerIpc() {
     if (result.canceled || !result.filePaths?.length) {
       return { canceled: true };
     }
-    return { canceled: false, path: result.filePaths[0] };
+    const picked = result.filePaths[0];
+    // Return a file:// URL too so the renderer can preview the icon in the
+    // modal chip immediately, before the user clicks Save.
+    let url = '';
+    try { url = pathToFileURL(picked).href; } catch { /* non-fatal */ }
+    return { canceled: false, path: picked, url };
   });
 
   ipcMain.handle('set-account-icon', async (_event, payload) => {
@@ -1918,8 +1967,11 @@ async function bootstrap() {
   setupAutoUpdater();
 }
 
-// Note: disable-renderer-backgrounding removed for performance (30 processes = extreme CPU).
-// Scheduled sends use targeted webview.reload() wake-up when needed (schedule.js).
+// Keep-alive strategy lives at the top of this file (commandLine switches) and
+// in setupWebviewGuards (contents.setBackgroundThrottling(false)). We avoid
+// --disable-renderer-backgrounding because it pinned CPU with many accounts.
+// Scheduled sends still use targeted webview.reload() wake-up (schedule.js)
+// for cases where WA Web needs a fresh DOM pass before composing a message.
 
 /* Global error handlers — prevent silent crashes and data loss */
 process.on('uncaughtException', (err) => {

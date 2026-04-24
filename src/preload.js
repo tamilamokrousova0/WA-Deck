@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('waDeck', {
   removeAccount: (accountId) => ipcRenderer.invoke('remove-account', accountId),
   renameAccount: (payload) => ipcRenderer.invoke('rename-account', payload),
   setAccountFrozen: (payload) => ipcRenderer.invoke('set-account-frozen', payload),
+  setAccountPinned: (payload) => ipcRenderer.invoke('set-account-pinned', payload),
   moveAccount: (payload) => ipcRenderer.invoke('move-account', payload),
   pickAccountIcon: () => ipcRenderer.invoke('pick-account-icon'),
   setAccountIcon: (payload) => ipcRenderer.invoke('set-account-icon', payload),

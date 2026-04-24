@@ -9,6 +9,7 @@
       els,
       setStatus,
       insertTextToActiveChat,
+      onChange,
     } = ctx;
 
     let selectedTemplateId = '';
@@ -16,6 +17,10 @@
     let searchMatches = [];
 
     const byId = (id) => state.templates.find((tpl) => tpl.id === id) || null;
+    const notifyChange = () => {
+      if (typeof onChange !== 'function') return;
+      try { onChange(); } catch (e) { console.warn('[tmpl:onChange]', e); }
+    };
 
     function renderSelect() {
       if (!els.templateSelect) return;
@@ -75,17 +80,43 @@
     }
 
     function updateCategoryDatalist() {
-      if (!els.templateCategoryList) return;
       const categories = [...new Set(
         state.templates
           .map((tpl) => String(tpl.category || '').trim())
           .filter(Boolean)
-      )].sort();
-      els.templateCategoryList.innerHTML = '';
-      for (const cat of categories) {
-        const option = document.createElement('option');
-        option.value = cat;
-        els.templateCategoryList.appendChild(option);
+      )].sort((a, b) => a.localeCompare(b, 'ru'));
+
+      // Native <datalist> — kept for keyboard autocomplete (↑/↓ while typing).
+      // Can't be styled (it's browser system UI).
+      if (els.templateCategoryList) {
+        els.templateCategoryList.innerHTML = '';
+        for (const cat of categories) {
+          const option = document.createElement('option');
+          option.value = cat;
+          els.templateCategoryList.appendChild(option);
+        }
+      }
+
+      // Styled chip row — matches the app's theme and always visible. Click a
+      // chip to fill the input with that category.
+      const chipsHost = document.getElementById('template-category-chips');
+      if (chipsHost) {
+        chipsHost.innerHTML = '';
+        for (const cat of categories) {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'tmpl-category-chip';
+          chip.textContent = cat;
+          chip.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (els.templateCategory) {
+              els.templateCategory.value = cat;
+              els.templateCategory.dispatchEvent(new Event('input', { bubbles: true }));
+              els.templateCategory.focus();
+            }
+          });
+          chipsHost.appendChild(chip);
+        }
       }
     }
 
@@ -115,6 +146,7 @@
       renderSelect();
       fillEditorFromTemplate(byId(selectedTemplateId));
       setStatus('Шаблон сохранён');
+      notifyChange();
     }
 
     async function deleteCurrentTemplate() {
@@ -133,6 +165,7 @@
       renderSelect();
       fillEditorFromTemplate(null);
       setStatus('Шаблон удалён');
+      notifyChange();
     }
 
     async function insertIntoChat() {
