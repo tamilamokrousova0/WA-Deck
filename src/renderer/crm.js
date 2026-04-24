@@ -165,11 +165,12 @@
 
   function closeCrmModal() {
     setCrmEditable(false);
-    if (typeof closeModalAnimated === 'function') {
-      closeModalAnimated(els.crmModal);
-    } else {
-      els.crmModal.classList.add('hidden');
-    }
+    // Synchronous hide — skip the `closeModalAnimated` path. The CRM drawer
+    // has its own slide-in-only animation on the card; there's no matching
+    // close animation, so the fallback timeout just added a 250ms window
+    // during which the toolbar toggle misread the state.
+    els.crmModal.classList.remove('is-closing');
+    els.crmModal.classList.add('hidden');
     els.crmModal.style.removeProperty('--crm-modal-left');
   }
 

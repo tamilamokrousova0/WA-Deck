@@ -2457,8 +2457,26 @@ function renderTemplatesLibrary() {
     preview.textContent = txt.length > 100 ? txt.slice(0, 100) + '…' : txt;
     body.appendChild(preview);
 
-    // Inline delete (× in top-right of the card). Fades in on hover so it
-    // doesn't clutter the list in its resting state.
+    // Inline edit (pencil) + delete (×) in top-right corner. Fade in on
+    // hover so the card looks clean at rest.
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'tmpl-lib-edit';
+    edit.title = 'Редактировать шаблон';
+    edit.setAttribute('aria-label', 'Редактировать шаблон');
+    edit.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+    edit.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (typeof window._showTemplateEditForm === 'function') window._showTemplateEditForm();
+      if (els.templateSelect) {
+        els.templateSelect.value = tpl.id || '';
+        els.templateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      const card = document.getElementById('templates-settings-card');
+      if (card && !card.open) card.open = true;
+    });
+
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'tmpl-lib-del';
@@ -2479,7 +2497,6 @@ function renderTemplatesLibrary() {
         setStatus(`Шаблон: ${response?.error || 'ошибка удаления'}`);
         return;
       }
-      // Mirror the templates-controller flow: update state + refresh palette.
       state.templates = Array.isArray(response.templates)
         ? response.templates.map((t) => ({ ...t }))
         : [];
@@ -2487,22 +2504,35 @@ function renderTemplatesLibrary() {
       try { refreshSettingsMenuSubtitles(); } catch { /* ignore */ }
     });
 
-    item.append(num, body, del);
+    item.append(num, body, edit, del);
 
-    const openInEditor = () => {
-      if (typeof window._showTemplateEditForm === 'function') window._showTemplateEditForm();
-      if (els.templateSelect) {
-        els.templateSelect.value = tpl.id || '';
-        els.templateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    // Primary click = insert template text into the active WhatsApp chat.
+    // Edit/delete are reached via the inline buttons that stopPropagation.
+    const insertToChat = async () => {
+      const text = String(tpl.text || '').trim();
+      if (!text) {
+        setStatus('Шаблон пустой — нечего вставлять');
+        return;
       }
-      const card = document.getElementById('templates-settings-card');
-      if (card && !card.open) card.open = true;
+      const result = await insertTextIntoActiveChat(text);
+      if (!result?.ok) {
+        const map = {
+          text_required: 'Шаблон пустой',
+          no_active_account: 'Выберите аккаунт',
+          account_frozen: 'Аккаунт заморожен',
+          no_active_chat: 'Откройте нужный чат',
+          insert_failed: 'Не удалось вставить',
+        };
+        setStatus(`Шаблон: ${map[result?.error] || result?.error || 'ошибка вставки'}`);
+        return;
+      }
+      setStatus(`Шаблон вставлен: ${tpl.title || 'Без названия'}`);
     };
-    item.addEventListener('click', openInEditor);
+    item.addEventListener('click', () => { insertToChat().catch(console.error); });
     item.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
-        openInEditor();
+        insertToChat().catch(console.error);
       }
     });
     return item;
@@ -3351,7 +3381,20 @@ function bindActions() {
     showRefreshContextMenu(e);
   });
   els.freezeActive?.addEventListener('click', () => toggleActiveFreeze().catch(console.error));
-  els.openCrmModal?.addEventListener('click', () => WaDeckCrmModule.openCrmModal().catch(console.error));
+  els.openCrmModal?.addEventListener('click', () => {
+    if (!els.crmModal) return;
+    // Treat both "hidden" and in-flight "is-closing" as closed for toggle
+    // purposes — otherwise a click arriving during the 250ms close-animation
+    // window would see "not hidden yet", wrongly call close again, and break
+    // the user's next click. Open is genuinely required → call openCrmModal.
+    const isClosed = els.crmModal.classList.contains('hidden')
+      || els.crmModal.classList.contains('is-closing');
+    if (isClosed) {
+      WaDeckCrmModule.openCrmModal().catch(console.error);
+    } else {
+      WaDeckCrmModule.closeCrmModal();
+    }
+  });
   els.sendVoiceMsg?.addEventListener('click', () => sendAudioAsVoiceMessage().catch(console.error));
 
   els.togglePanel.addEventListener('click', () => {
@@ -3740,7 +3783,12 @@ function bindActions() {
     els.openScheduleToolbar.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      openScheduleSection();
+      const isOpenOnSchedule = !state.panelHidden && state._openSettingsSection === 'schedule';
+      if (isOpenOnSchedule) {
+        closeSettingsPanel();
+      } else {
+        openScheduleSection();
+      }
     });
   }
   // Also refresh when user navigates via Settings → Отложенные сообщения
@@ -4325,7 +4373,14 @@ async function init() {
   }
 
   if (els.openTemplateQuick) {
-    els.openTemplateQuick.addEventListener('click', openTemplatesDrawer);
+    els.openTemplateQuick.addEventListener('click', () => {
+      const isOpenOnTemplates = !state.panelHidden && state._openSettingsSection === 'templates';
+      if (isOpenOnTemplates) {
+        closeSettingsPanel();
+      } else {
+        openTemplatesDrawer();
+      }
+    });
   }
 
   document.addEventListener('keydown', (e) => {
