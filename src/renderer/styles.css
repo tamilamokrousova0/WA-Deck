@@ -1290,11 +1290,28 @@ html[data-theme='light'] .account-type-tg {
   inset: 0;
   width: 100%;
   height: 100%;
-  display: none;
+  /* Switch via opacity, NOT display:none.
+     Reason: WhatsApp Web ship'нул новый bundle 2026-04-30 ~15:46 UTC, который
+     заметно тяжелее (3.4s navigate vs ~1s раньше). На Windows компоновщик
+     Chromium (ANGLE → DirectX) при display:none → display:flex выбрасывает
+     GPU-слой webview-а и при возврате должен его перерастеризовать заново —
+     это даёт «исчезновение иконки на 2-3 секунды» при switch. macOS Metal
+     делает это незаметно, поэтому жалобы только с Windows.
+     opacity:0 + pointer-events:none держит слой композитора горячим,
+     переключение становится мгновенным. transform:translateZ(0) принудительно
+     создаёт собственный compositor layer, чтобы избежать промахивания мимо
+     GPU. visibility:hidden или contentVisibility тут не подходят — они тоже
+     сбрасывают слой. */
+  opacity: 0;
+  pointer-events: none;
+  transform: translateZ(0);
+  z-index: 0;
 }
 
 .webviews webview.active {
-  display: flex;
+  opacity: 1;
+  pointer-events: auto;
+  z-index: 1;
 }
 
 .hub-screen {

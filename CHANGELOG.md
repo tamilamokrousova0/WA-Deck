@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.9
+
+**Hotfix** для Windows-юзеров: швыряло в blank на 2–3 секунды при переключении между аккаунтами. Появилось у всех Windows-юзеров одновременно 30 апреля 2026 после ката нового бандла WhatsApp Web (build `__spin_t=1777563974`, ~15:46 UTC). На macOS не воспроизводилось.
+
+### Root cause
+
+WhatsApp Web 30 апреля задеплоил заметно более тяжёлый JS-бандл — navigation duration вырос с ~1с до ~3.4с, плюс появилась новая инструментация `responsiveness-db.unresponsiveness-events-v2` (теперь они сами трекают unresponsiveness события). На каждое `display:none → display:flex` переключение `<webview>` Chromium на Windows (ANGLE → DirectX 11) выбрасывал GPU-слой webview-а и при возврате должен был перерастеризовать его заново — это и давало «исчезновение иконки на 2-3 секунды». macOS Metal делает re-attach незаметно.
+
+### Fix
+
+Переключение теперь через `opacity: 0/1` + `pointer-events: none/auto` + `transform: translateZ(0)` (форсирует свой compositor layer) вместо `display: none`. GPU-слой держится горячим у всех webview одновременно — переключение измерено в **~13мс** вне зависимости от платформы.
+
+Trade-off минимальный: каждый неактивный webview добавляет ~5MB GPU-памяти на компоновщик (для 10 аккаунтов — ~50MB). Логика keep-alive (Chromium-флаги, `setBackgroundThrottling(false)`, `visibilityState` spoof в `keep-alive.js`) не изменилась — всё ещё держит WebSocket WhatsApp Web живым в фоне.
+
+---
+
 ## 0.7.8
 
 **Стабильность и производительность.** Лаги при переключении между аккаунтами заметно сократились, добавлена опциональная гибернация неактивных webview, чистка HTTP-кэша и orphan partitions, корректная реакция на пробуждение системы. Бамп Electron до 41.3.0. Современнее установщик для Windows.
