@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell, clipboard, session, Menu, webContents } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, clipboard, session, Menu, webContents, powerMonitor } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs/promises');
@@ -76,12 +76,28 @@ const DEFAULT_SETTINGS = {
   uiScene: 'night',
   uiDensity: 'compact',
   tweaksCollapsed: false,
+  // Hibernation: 0 = off (default). When > 0, non-pinned non-active webviews
+  // that have been idle for at least this many minutes are unloaded from
+  // memory. They reload automatically on next click. Trade-off: while a
+  // webview is hibernated, that account does NOT receive incoming messages
+  // (the renderer process is gone). Pinned accounts and the active account
+  // are never hibernated.
+  hibernateAfterMinutes: 0,
   worldClocks: [
     { label: 'Москва', tz: 'Europe/Moscow' },
     { label: 'Киев', tz: 'Europe/Kiev' },
     { label: 'Берлин', tz: 'Europe/Berlin' },
   ],
 };
+
+const VALID_HIBERNATE_MINUTES = [0, 30, 60, 120, 240];
+
+function normalizeHibernateMinutes(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  if (VALID_HIBERNATE_MINUTES.includes(n)) return n;
+  return fallback;
+}
 
 function normalizeBool(value, fallback) {
   if (value === true || value === false) return value;
@@ -272,6 +288,10 @@ function sanitizeStore(raw) {
   clean.settings.weatherUnit = normalizeWeatherUnit(clean.settings.weatherUnit);
   clean.settings.translatorEnabled = normalizeBool(clean.settings.translatorEnabled, DEFAULT_SETTINGS.translatorEnabled);
   clean.settings.crmHoverEnabled = normalizeBool(clean.settings.crmHoverEnabled, DEFAULT_SETTINGS.crmHoverEnabled);
+  clean.settings.hibernateAfterMinutes = normalizeHibernateMinutes(
+    clean.settings.hibernateAfterMinutes,
+    DEFAULT_SETTINGS.hibernateAfterMinutes,
+  );
   const validScenes = ['night', 'day', 'rain', 'space', 'minimal'];
   clean.settings.uiScene = validScenes.includes(String(clean.settings.uiScene)) ? clean.settings.uiScene : DEFAULT_SETTINGS.uiScene;
   const validDensity = ['compact', 'cozy', 'spacious'];
@@ -994,6 +1014,9 @@ async function removeAccount(accountId) {
     const partitionSession = session.fromPartition(partition);
     await partitionSession.clearStorageData();
     await partitionSession.clearCache();
+    if (typeof partitionSession.clearCodeCaches === 'function') {
+      await partitionSession.clearCodeCaches({}).catch(() => {});
+    }
   } catch {
     // ignore storage cleanup failures
   }
@@ -1254,6 +1277,20 @@ function setupWebviewGuards() {
           exitCode: details?.exitCode || 0,
         });
       }
+    });
+
+    /* did-fail-load: filter out transient/expected errors that cause false
+       "Не удалось загрузить" toasts on a flaky network. Per Chromium net error
+       codes:
+         -3   ERR_ABORTED — load was cancelled (often by our own reload())
+         -21  ERR_NETWORK_CHANGED — VPN/Wi-Fi switch; the page just retries
+       Sub-frames (analytics, FB Pixel, embedded media) failing is also fine —
+       only main-frame failures matter for our UI. WA Web pulls in 20-30
+       sub-resources, any of which can flap without affecting the chat. */
+    contents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame) return;
+      if (errorCode === -3 || errorCode === -21) return;
+      console.warn('[webview] did-fail-load (main):', errorCode, errorDescription, validatedURL);
     });
 
     contents.on('context-menu', (_event, params) => {
@@ -1657,6 +1694,10 @@ function registerIpc() {
         payload?.tweaksCollapsed,
         normalizeBool(current.tweaksCollapsed, DEFAULT_SETTINGS.tweaksCollapsed),
       ),
+      hibernateAfterMinutes: normalizeHibernateMinutes(
+        payload?.hibernateAfterMinutes,
+        normalizeHibernateMinutes(current.hibernateAfterMinutes, DEFAULT_SETTINGS.hibernateAfterMinutes),
+      ),
     };
 
     state.store.settings = next;
@@ -1960,6 +2001,178 @@ function registerIpc() {
       return { ok: false, error: String(e?.message || 'translate_failed') };
     }
   });
+
+  ipcMain.handle('cleanup-cache', async () => cleanupHttpCachesForAllAccounts());
+}
+
+/*
+ * Periodic safe HTTP cache cleanup.
+ *
+ * Chromium's per-partition HTTP cache (cached images/JS/CSS responses) and V8
+ * code cache grow without bound across long sessions and slow disk reads after
+ * a few days of usage. We clear these on a 6h interval — and crucially we DO
+ * NOT touch cookies, localStorage, IndexedDB, or service-worker storage, which
+ * is where WhatsApp Web (and Telegram Web) keeps the login session and message
+ * history. Users stay logged in across cleanups; only redundant on-disk
+ * response/code caches are reclaimed.
+ *
+ * The clear is awaited per-partition with a small gap so we never block the
+ * event loop with N parallel disk operations on a busy machine.
+ */
+const CACHE_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+let _cacheCleanupTimer = null;
+let _cacheCleanupBusy = false;
+
+async function cleanupHttpCachesForAllAccounts() {
+  if (_cacheCleanupBusy) return { ok: false, error: 'already_running' };
+  _cacheCleanupBusy = true;
+  const startedAt = Date.now();
+  let cleared = 0;
+  try {
+    const accounts = Array.isArray(state.store.accounts) ? state.store.accounts : [];
+    for (const acc of accounts) {
+      try {
+        const partition = partitionForAccount(acc.id, acc.type || 'whatsapp');
+        const partitionSession = session.fromPartition(partition);
+        await partitionSession.clearCache();
+        if (typeof partitionSession.clearCodeCaches === 'function') {
+          await partitionSession.clearCodeCaches({}).catch(() => {});
+        }
+        cleared++;
+      } catch (err) {
+        console.warn('[cache-cleanup] failed for account', acc.id, err?.message || err);
+      }
+    }
+    console.log(`[cache-cleanup] cleared HTTP cache for ${cleared}/${accounts.length} accounts in ${Date.now() - startedAt}ms`);
+    return { ok: true, cleared, total: accounts.length, ms: Date.now() - startedAt };
+  } finally {
+    _cacheCleanupBusy = false;
+  }
+}
+
+/*
+ * Power suspend/resume handling.
+ *
+ * After a long macOS sleep (closing the lid for >10 min), WhatsApp Web
+ * sessions in our hidden webviews often end up in a "zombie" state: the
+ * Electron-side socket is still alive, but the WA server has long since
+ * dropped the connection. Without intervention, the user has to click each
+ * account to force a reload — and incoming messages are silently missed in
+ * the gap. We listen for `powerMonitor.resume` and, if the suspend lasted
+ * over 10 min, ask the renderer to reload every webview in a staggered
+ * sequence (200ms apart) so we do not hammer the disk with N concurrent
+ * page loads.
+ */
+const RESUME_RELOAD_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+let _suspendStartedAt = null;
+
+/*
+ * Cleanup orphaned partition directories.
+ *
+ * Each account gets a Chromium partition (persist:wa_<id> or persist:tg_<id>)
+ * that lives under <userData>/Partitions/. When the user removes an account
+ * we already call `clearStorageData()`, but the Partitions directory itself
+ * is left on disk. Across many add/remove cycles these orphan directories
+ * accumulate — gigabytes of IndexedDB and HTTP cache that Chromium still
+ * scans on every cold start, slowing everything down. On startup we
+ * enumerate Partitions/, match against the live account list, and delete
+ * directories whose owning account no longer exists. Safe by construction:
+ * we only touch partitions whose name encodes an account id we no longer
+ * have, and we never touch the active app's userData root.
+ */
+async function cleanupOrphanPartitions() {
+  if (!state.paths.userData) return;
+  const partitionsDir = path.join(state.paths.userData, 'Partitions');
+  let entries = [];
+  try {
+    entries = await fs.readdir(partitionsDir);
+  } catch {
+    return; // Partitions dir doesn't exist yet — nothing to clean
+  }
+  const liveIds = new Set(
+    (state.store.accounts || []).map((acc) => {
+      const prefix = (acc.type === 'telegram') ? 'tg' : 'wa';
+      // Chromium URL-encodes the partition name; persist:wa_X becomes "wa_X"
+      // on disk (the "persist:" prefix is stripped). Match against bare IDs.
+      return `${prefix}_${acc.id}`;
+    })
+  );
+  let removed = 0;
+  let totalBytes = 0;
+  for (const entry of entries) {
+    // Only consider names that match our scheme. Leave anything else alone.
+    if (!/^(wa|tg)_/.test(entry)) continue;
+    if (liveIds.has(entry)) continue;
+    const full = path.join(partitionsDir, entry);
+    try {
+      const stat = await fs.stat(full).catch(() => null);
+      if (stat && stat.isDirectory()) {
+        // Approximate size — best-effort, don't recurse on failure
+        try {
+          const size = await dirSizeBytes(full);
+          totalBytes += size;
+        } catch { /* ignore */ }
+        await fs.rm(full, { recursive: true, force: true });
+        removed++;
+      }
+    } catch (err) {
+      console.warn('[orphan-cleanup] failed to remove', entry, err?.message || err);
+    }
+  }
+  if (removed > 0) {
+    console.log(`[orphan-cleanup] removed ${removed} orphaned partition(s), reclaimed ~${Math.round(totalBytes / 1024 / 1024)} MB`);
+  }
+}
+
+async function dirSizeBytes(dirPath) {
+  let total = 0;
+  const entries = await fs.readdir(dirPath, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const full = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      total += await dirSizeBytes(full);
+    } else {
+      try {
+        const s = await fs.stat(full);
+        total += s.size;
+      } catch { /* ignore */ }
+    }
+  }
+  return total;
+}
+
+function setupPowerMonitor() {
+  powerMonitor.on('suspend', () => {
+    _suspendStartedAt = Date.now();
+    console.log('[power] system suspended');
+  });
+  powerMonitor.on('resume', () => {
+    const wasSuspendedFor = _suspendStartedAt ? Date.now() - _suspendStartedAt : 0;
+    _suspendStartedAt = null;
+    console.log(`[power] system resumed after ${Math.round(wasSuspendedFor / 1000)}s`);
+    if (wasSuspendedFor >= RESUME_RELOAD_THRESHOLD_MS && mainWindow && !mainWindow.isDestroyed()) {
+      // Give the network stack a moment to re-establish before triggering reloads.
+      setTimeout(() => {
+        try {
+          mainWindow.webContents.send('system-resumed-after-sleep', { suspendedMs: wasSuspendedFor });
+        } catch (err) {
+          console.warn('[power] failed to notify renderer:', err?.message || err);
+        }
+      }, 2000);
+    }
+  });
+}
+
+function startPeriodicCacheCleanup() {
+  if (_cacheCleanupTimer) return;
+  // Run once at startup after a short delay (let webviews finish loading first
+  // so the clear hits a quiescent disk), then every 6 hours.
+  setTimeout(() => {
+    cleanupHttpCachesForAllAccounts().catch((err) => console.error('[cache-cleanup]', err));
+  }, 5 * 60 * 1000); // 5 minutes after launch
+  _cacheCleanupTimer = setInterval(() => {
+    cleanupHttpCachesForAllAccounts().catch((err) => console.error('[cache-cleanup]', err));
+  }, CACHE_CLEANUP_INTERVAL_MS);
 }
 
 async function bootstrap() {
@@ -1976,6 +2189,9 @@ async function bootstrap() {
   registerIpc();
   createWindow();
   setupAutoUpdater();
+  startPeriodicCacheCleanup();
+  setupPowerMonitor();
+  cleanupOrphanPartitions().catch((err) => console.warn('[orphan-cleanup]', err?.message || err));
 }
 
 // Keep-alive strategy lives at the top of this file (commandLine switches) and

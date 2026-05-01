@@ -478,6 +478,12 @@ function translatorBarScript() {
         'box-sizing:border-box',
         'pointer-events:auto',
         'box-shadow:0 2px 10px rgba(0,0,0,0.4)',
+        // WhatsApp Web sets user-select:none on most chat surfaces so its
+        // own bubble copy/paste can stay controlled. We explicitly opt back
+        // in for our overlay so users can select & copy translated text.
+        'user-select:text',
+        '-webkit-user-select:text',
+        'cursor:text',
       ].join(';');
 
       const closeBtn = document.createElement('span');
@@ -526,8 +532,34 @@ function translatorBarScript() {
 
       const body = document.createElement('div');
       body.textContent = translated;
-      body.style.cssText = 'white-space:pre-wrap;word-wrap:break-word;';
+      body.style.cssText = [
+        'white-space:pre-wrap',
+        'word-wrap:break-word',
+        'user-select:text',
+        '-webkit-user-select:text',
+        'cursor:text',
+      ].join(';');
       ov.appendChild(body);
+
+      // Belt-and-suspenders copy handler: WhatsApp Web installs a 'copy'
+      // listener on chat ancestors that can swallow our selection (it tries
+      // to format the copied bubble itself). When the user copies from
+      // inside our overlay, intercept at capture phase and write the plain
+      // selection to clipboardData ourselves before WA's handler runs.
+      ov.addEventListener('copy', (e) => {
+        try {
+          const sel = window.getSelection();
+          const text = sel ? sel.toString() : '';
+          if (text && e.clipboardData) {
+            e.clipboardData.setData('text/plain', text);
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        } catch {}
+      }, true);
+      // Stop ancestor mousedown handlers (WA scrolls/focuses on bubble click)
+      // from clobbering our text selection mid-drag.
+      ov.addEventListener('mousedown', (e) => { e.stopPropagation(); }, true);
 
       const cs = getComputedStyle(target);
       if (cs.position === 'static') target.style.position = 'relative';

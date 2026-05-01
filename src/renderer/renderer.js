@@ -105,6 +105,7 @@ const els = {
   saveSettings: document.getElementById('save-settings'),
   settingTranslatorEnabled: document.getElementById('setting-translator-enabled'),
   settingCrmHoverEnabled: document.getElementById('setting-crm-hover-enabled'),
+  settingHibernateMinutes: document.getElementById('setting-hibernate-minutes'),
   templateSelect: document.getElementById('template-select'),
   templateSearch: document.getElementById('template-search'),
   templateSearchRow: document.getElementById('template-search-row'),
@@ -158,6 +159,13 @@ const els = {
   updateInstallBtn: document.getElementById('update-install-btn'),
   updateDismissBtn: document.getElementById('update-dismiss-btn'),
   closeUpdateModal: document.getElementById('close-update-modal'),
+  updateToast: document.getElementById('update-toast'),
+  updateToastTitle: document.getElementById('update-toast-title'),
+  updateToastSub: document.getElementById('update-toast-sub'),
+  updateToastProgress: document.getElementById('update-toast-progress'),
+  updateToastProgressFill: document.getElementById('update-toast-progress-fill'),
+  updateToastAction: document.getElementById('update-toast-action'),
+  updateToastClose: document.getElementById('update-toast-close'),
 
   releaseNotesModal: document.getElementById('release-notes-modal'),
   releaseNotesTitle: document.getElementById('release-notes-title'),
@@ -953,7 +961,8 @@ function renderAccounts() {
 
   for (const account of state.accounts) {
     const card = document.createElement('div');
-    card.className = `account-item ${state.activeAccountId === account.id ? 'active' : ''} ${account.frozen ? 'frozen' : ''}`;
+    const hibernatedCls = (state._hibernated && state._hibernated.has(account.id)) ? 'is-hibernated' : '';
+    card.className = `account-item ${state.activeAccountId === account.id ? 'active' : ''} ${account.frozen ? 'frozen' : ''} ${hibernatedCls}`.trim();
     card.dataset.accountId = account.id;
     // tooltip вместо title (добавляется ниже)
     card.draggable = state.accounts.length > 1;
@@ -1374,11 +1383,27 @@ function updateHubClocks() {
     { label: 'Киев', tz: 'Europe/Kiev' },
     { label: 'Берлин', tz: 'Europe/Berlin' },
   ];
-  container.innerHTML = '';
   const now = new Date();
-  for (const zone of zones) {
-    const el = document.createElement('div');
-    el.className = 'hub-clock-item';
+  // Reuse existing DOM nodes when zone count matches — avoids reflow every 30s.
+  // Only rebuild from scratch if the structure itself changed (zones added/removed).
+  const existing = container.children;
+  if (existing.length !== zones.length) {
+    container.textContent = '';
+    for (const zone of zones) {
+      const el = document.createElement('div');
+      el.className = 'hub-clock-item';
+      const timeSpan = document.createElement('span');
+      timeSpan.className = 'hub-clock-time';
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'hub-clock-label';
+      el.append(timeSpan, labelSpan);
+      container.appendChild(el);
+    }
+  }
+  for (let i = 0; i < zones.length; i++) {
+    const zone = zones[i];
+    const el = container.children[i];
+    if (!el) continue;
     let time = '--:--';
     try {
       time = new Intl.DateTimeFormat('ru', {
@@ -1386,14 +1411,10 @@ function updateHubClocks() {
         timeZone: zone.tz, hour12: false,
       }).format(now);
     } catch { /* invalid tz */ }
-    const timeSpan = document.createElement('span');
-    timeSpan.className = 'hub-clock-time';
-    timeSpan.textContent = time;
-    const labelSpan = document.createElement('span');
-    labelSpan.className = 'hub-clock-label';
-    labelSpan.textContent = zone.label;
-    el.append(timeSpan, labelSpan);
-    container.appendChild(el);
+    const timeSpan = el.querySelector('.hub-clock-time');
+    const labelSpan = el.querySelector('.hub-clock-label');
+    if (timeSpan && timeSpan.textContent !== time) timeSpan.textContent = time;
+    if (labelSpan && labelSpan.textContent !== zone.label) labelSpan.textContent = zone.label;
   }
 }
 
@@ -1982,14 +2003,76 @@ function showWebviewLoading(show) {
 }
 
 /**
- * Idle webview sweeper — destroys WhatsApp/Telegram webviews that haven't been
- * visited for WEBVIEW_IDLE_MS. This is the core memory-saver for power-users
- * with 20+ accounts: instead of keeping every WebContents alive forever (each
- * ~80-150 MB RAM), we keep only the recently active ones. A destroyed webview
- * is transparently recreated on the next setActiveAccount() / ensureWebview()
- * call, restored from its session partition cache (login persists).
+ * Hibernation sweeper — destroys idle non-pinned non-active webviews to free
+ * memory. Opt-in via settings.hibernateAfterMinutes (0 = off; 30/60/120/240
+ * are the user-facing options). Trade-off the user accepts when enabling:
+ * a hibernated account does NOT receive incoming messages — they reappear
+ * on the next click which transparently recreates the webview from the
+ * persistent partition cookies (no QR scan needed).
+ *
+ * Pinned and active accounts are always exempt. Frozen accounts have no
+ * webview at all so they are inherently exempt.
  */
-const WEBVIEW_IDLE_MS = 15 * 60 * 1000;  // 15 min
+function applyHibernationSetting(minutes) {
+  if (state._hibernationTimer) {
+    clearInterval(state._hibernationTimer);
+    state._hibernationTimer = null;
+  }
+  if (!state._hibernated) state._hibernated = new Set();
+  if (!minutes || minutes <= 0) return;
+  // Sweep once per minute — granular enough that users see hibernation kick
+  // in within a minute of crossing the threshold, cheap enough to run
+  // forever (just iterates over state.webviews).
+  state._hibernationTimer = setInterval(() => {
+    runHibernationTick(minutes);
+  }, 60 * 1000);
+}
+
+function runHibernationTick(minutes) {
+  if (!minutes || minutes <= 0) return;
+  const idleThresholdMs = minutes * 60 * 1000;
+  const now = Date.now();
+  for (const [accountId, webview] of Array.from(state.webviews.entries())) {
+    if (accountId === state.activeAccountId) {
+      if (webview) webview._lastActive = now;
+      continue;
+    }
+    const account = accountById(accountId);
+    if (!account) continue;
+    if (account.pinned) continue;
+    const lastActive = Number(webview?._lastActive || 0);
+    if (!lastActive) {
+      if (webview) webview._lastActive = now;
+      continue;
+    }
+    if (now - lastActive > idleThresholdMs) {
+      console.log('[hibernate] suspending', accountId, `(idle ${Math.round((now - lastActive) / 60000)} min)`);
+      try {
+        cleanupWebview(webview);
+        state.webviews.delete(accountId);
+        state._hibernated.add(accountId);
+        markAccountHibernated(accountId, true);
+      } catch (err) {
+        console.warn('[hibernate] failed for', accountId, err?.message || err);
+      }
+    }
+  }
+}
+
+function markAccountHibernated(accountId, hibernated) {
+  if (!els.accountsList) return;
+  const card = Array.from(els.accountsList.children || []).find(
+    (node) => node.dataset?.accountId === accountId,
+  );
+  if (!card) return;
+  card.classList.toggle('is-hibernated', !!hibernated);
+}
+
+/* Old interval-based dead code retained below for reference only — replaced
+ * by applyHibernationSetting() + runHibernationTick() above. Kept to avoid
+ * losing the original docstring context for future maintainers.
+ */
+const WEBVIEW_IDLE_MS = 15 * 60 * 1000;  // legacy constant — unused
 function startIdleWebviewSweeper() {
   if (state._idleWebviewTimer) clearInterval(state._idleWebviewTimer);
   state._idleWebviewTimer = setInterval(() => {
@@ -2101,10 +2184,17 @@ function _setActiveAccountInner(accountId) {
   const nextId = String(accountId || '').trim();
   state.activeAccountId = nextId;
   // Lazy-create the webview on first activation and bump its last-active
-  // timestamp so the idle sweeper knows to keep it alive.
+  // timestamp so the idle sweeper knows to keep it alive. If the account was
+  // hibernated, ensureWebview() recreates it from the persistent partition
+  // (cookies/IndexedDB stay intact, so WhatsApp auto-logs back in) — we just
+  // need to clear the hibernation flag so the UI updates.
   if (nextId) {
     const account = state.accounts.find((a) => a.id === nextId);
     if (account && !account.frozen) {
+      if (state._hibernated && state._hibernated.has(nextId)) {
+        state._hibernated.delete(nextId);
+        markAccountHibernated(nextId, false);
+      }
       if (!state.webviews.has(nextId)) {
         try { ensureWebview(account); }
         catch (err) { console.error('[setActiveAccount] ensureWebview failed:', err); }
@@ -2151,7 +2241,14 @@ function _setActiveAccountInner(accountId) {
     setStatus('Нет активного аккаунта');
   }
   WaDeckUnreadModule.scheduleDockBadgeSync();
-  WaDeckScheduleModule.renderScheduled().catch(console.error);
+  // Scheduled list is global (not per-account), so it does not need to be
+  // re-rendered on every switch. The first activation seeds the toolbar
+  // indicator; subsequent updates flow from create/cancel/edit handlers in
+  // schedule.js which call renderScheduled() directly when data changes.
+  if (!state._scheduledInitialized) {
+    state._scheduledInitialized = true;
+    WaDeckScheduleModule.renderScheduled().catch(console.error);
+  }
 }
 
 function isTranslatorEnabled() {
@@ -2159,6 +2256,11 @@ function isTranslatorEnabled() {
 }
 function isCrmHoverEnabled() {
   return state.settings?.crmHoverEnabled !== false;
+}
+function getHibernateMinutes() {
+  const valid = [0, 30, 60, 120, 240];
+  const n = Number(state.settings?.hibernateAfterMinutes);
+  return valid.includes(n) ? n : 0;
 }
 
 function applySettingsToForm(options = {}) {
@@ -2175,6 +2277,9 @@ function applySettingsToForm(options = {}) {
   }
   if (els.settingCrmHoverEnabled) {
     els.settingCrmHoverEnabled.checked = isCrmHoverEnabled();
+  }
+  if (els.settingHibernateMinutes) {
+    els.settingHibernateMinutes.value = String(getHibernateMinutes());
   }
   // Only render the weather summary when explicitly requested (init / weather
   // settings save). Rendering it with `loading: false` after every
@@ -3044,6 +3149,7 @@ async function saveSettings() {
     uiScene: VALID_SCENES.includes(state.settings?.uiScene) ? state.settings.uiScene : 'night',
     uiDensity: VALID_DENSITY.includes(state.settings?.uiDensity) ? state.settings.uiDensity : 'compact',
     tweaksCollapsed: !!state.settings?.tweaksCollapsed,
+    hibernateAfterMinutes: getHibernateMinutes(),
   };
 
   try {
@@ -3674,6 +3780,20 @@ function bindActions() {
       event.target.checked = isCrmHoverEnabled();
     }
   });
+
+  els.settingHibernateMinutes?.addEventListener('change', async (event) => {
+    const valid = [0, 30, 60, 120, 240];
+    const requested = Number(event.target.value);
+    const minutes = valid.includes(requested) ? requested : 0;
+    state.settings = { ...(state.settings || {}), hibernateAfterMinutes: minutes };
+    applyHibernationSetting(minutes);
+    try {
+      await saveSettings();
+      setStatus(minutes === 0 ? 'Гибернация выключена' : `Гибернация через ${minutes} мин`);
+    } catch {
+      event.target.value = String(getHibernateMinutes());
+    }
+  });
   window.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       if (event.defaultPrevented) return;
@@ -3741,6 +3861,8 @@ function bindActions() {
   els.closeUpdateModal?.addEventListener('click', () => WaDeckAutoUpdateModule.closeUpdateModal());
   els.updateDismissBtn?.addEventListener('click', () => WaDeckAutoUpdateModule.closeUpdateModal());
   els.updateInstallBtn?.addEventListener('click', () => WaDeckAutoUpdateModule.installUpdate().catch(console.error));
+  els.updateToastClose?.addEventListener('click', () => WaDeckAutoUpdateModule.closeUpdateToast());
+  els.updateToastAction?.addEventListener('click', () => WaDeckAutoUpdateModule.installUpdate().catch(console.error));
 
 
 
@@ -4249,6 +4371,31 @@ async function init() {
     });
   }
 
+  /* System wake-up: after a long laptop sleep WhatsApp Web sessions go zombie
+     (socket alive on our side, server already dropped). Stagger soft reloads
+     across all webviews so we do not hammer the disk and network at once. */
+  if (typeof window.waDeck.onSystemResumed === 'function') {
+    window.waDeck.onSystemResumed((payload) => {
+      const minutes = Math.round((payload?.suspendedMs || 0) / 60000);
+      console.log(`[power] resumed after ~${minutes} min, staggering reloads`);
+      setStatus(`Система проснулась (${minutes} мин сна) — обновляю аккаунты…`);
+      const entries = Array.from(state.webviews.entries());
+      let i = 0;
+      for (const [accountId, webview] of entries) {
+        const delay = i * 250; // 250ms between reloads — never N parallel
+        i++;
+        setTimeout(() => {
+          if (!webview || !webview.isConnected) return;
+          try {
+            webview.reload();
+          } catch (err) {
+            console.warn('[power] reload failed for', accountId, err?.message || err);
+          }
+        }, delay);
+      }
+    });
+  }
+
   const boot = await window.waDeck.bootstrap();
   state.accounts = Array.isArray(boot.accounts) ? boot.accounts : [];
   state.settings = {
@@ -4358,6 +4505,9 @@ async function init() {
       if (hs && !hs.classList.contains('hidden')) updateHubClocks();
     }, 30000);
   }
+  // Hibernation: applied based on the persisted setting. Default 0 = off,
+  // so this is a no-op for users who haven't opted in.
+  applyHibernationSetting(getHibernateMinutes());
   WaDeckAutoUpdateModule.maybeShowReleaseNotes().catch(console.error);
 
   setStatus('');

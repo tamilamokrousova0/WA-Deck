@@ -5352,6 +5352,190 @@ html[data-theme='light'] .toggle-switch-track {
 html[data-theme='light'] .toggle-switch-thumb {
   background: #ffffff;
 }
+
+/* ── Settings: select inside a toggle-row (e.g. hibernation) ── */
+.settings-select {
+  flex: 0 0 auto;
+  width: 88px;
+  max-width: 88px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  appearance: auto;
+}
+.settings-select:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+}
+.settings-select:focus-visible {
+  border-color: var(--green);
+}
+html[data-theme='light'] .settings-select {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: var(--text);
+}
+/* Belt-and-suspenders: a tall select inside a toggle-row was making the
+   sibling text shrink to a 1-word column on macOS. Anchor a sane minimum
+   width on the text block so flex shrinking can't squeeze it into a
+   typographic disaster. */
+.toggle-row > .toggle-row-text {
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+/* ── Update toast — compact bottom-right notification ─────────── */
+.update-toast {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 280px;
+  max-width: 360px;
+  padding: 12px 14px;
+  background: rgba(28, 32, 42, 0.92);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  backdrop-filter: saturate(140%) blur(10px);
+  -webkit-backdrop-filter: saturate(140%) blur(10px);
+  color: var(--text);
+  font-family: inherit;
+  animation: update-toast-slide-in 0.25s ease-out;
+}
+.update-toast.hidden {
+  display: none;
+}
+@keyframes update-toast-slide-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.update-toast-icon {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(34, 197, 94, 0.16);
+  color: #22c55e;
+}
+.update-toast-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.update-toast-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text);
+}
+.update-toast-sub {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.update-toast-progress {
+  margin-top: 6px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.update-toast-progress.hidden {
+  display: none;
+}
+.update-toast-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #22c55e, #16a34a);
+  transition: width 0.25s ease;
+}
+.update-toast-action {
+  flex: 0 0 auto;
+  background: #22c55e;
+  color: #0b1018;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.05s ease;
+}
+.update-toast-action.hidden {
+  display: none;
+}
+.update-toast-action:hover {
+  background: #16a34a;
+}
+.update-toast-action:active {
+  transform: translateY(1px);
+}
+.update-toast-action.is-busy {
+  opacity: 0.6;
+  cursor: progress;
+}
+.update-toast-close {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.update-toast-close:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+html[data-theme='light'] .update-toast {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(34, 197, 94, 0.45);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.04) inset;
+}
+html[data-theme='light'] .update-toast-progress {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+/* ── Account card: hibernated state (Z indicator, dimmed) ── */
+.account-item.is-hibernated {
+  opacity: 0.55;
+  filter: saturate(0.6);
+}
+.account-item.is-hibernated::after {
+  content: '💤';
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  font-size: 10px;
+  line-height: 1;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+}
+
 /* ============================================================
    Redesign overrides — Phase 1 (toolbar visuals)
    ============================================================ */

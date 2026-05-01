@@ -1,6 +1,6 @@
 {
   "name": "wa-deck",
-  "version": "0.7.7",
+  "version": "0.7.8",
   "description": "WA Deck: multi-account WhatsApp manager",
   "main": "src/main.js",
   "scripts": {
@@ -20,7 +20,7 @@
     "electron-updater": "^6.3.9"
   },
   "devDependencies": {
-    "electron": "^41.2.2",
+    "electron": "^41.3.0",
     "electron-builder": "^26.8.1"
   },
   "build": {
@@ -78,8 +78,17 @@
       "allowElevation": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
+      "shortcutName": "WA Deck",
+      "uninstallDisplayName": "WA Deck ${version}",
       "installerIcon": "assets/icon/icon.ico",
-      "uninstallerIcon": "assets/icon/icon.ico"
+      "uninstallerIcon": "assets/icon/icon.ico",
+      "menuCategory": false,
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "displayLanguageSelector": true,
+      "multiLanguageInstaller": true,
+      "installerLanguages": ["ru_RU", "en_US"],
+      "language": "1049"
     },
     "portable": {
       "artifactName": "WA-Deck-${version}-portable-${arch}.${ext}"

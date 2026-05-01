@@ -176,20 +176,22 @@
     }
     if (status === 'available') {
       setStatus(`Обновление: доступна версия ${version || 'новая'}`);
-      showUpdateModal(version);
+      // Compact toast (bottom-right) instead of a blocking modal — the user
+      // keeps working in chats while the download happens in the background.
+      showUpdateToast(version, 'available');
       return;
     }
     if (status === 'downloading') {
       setStatus(`Обновление: загрузка ${Math.max(0, Math.min(100, percent))}%`);
-      updateDownloadProgress(percent);
+      updateToastProgress(percent);
       return;
     }
     if (status === 'downloaded') {
       setStatus(`Обновление ${version || ''} загружено`);
-      showUpdateReady(version);
+      showUpdateToast(version, 'ready');
       if (version && RELEASE_NOTES[version]) {
-        els.releaseNotesTitle.textContent = 'Что нового в обновлении';
-        els.releaseNotesVersion.textContent = `Версия ${version}`;
+        if (els.releaseNotesTitle) els.releaseNotesTitle.textContent = 'Что нового в обновлении';
+        if (els.releaseNotesVersion) els.releaseNotesVersion.textContent = `Версия ${version}`;
         renderReleaseNotes([version]);
       }
       return;
@@ -200,8 +202,64 @@
     }
     if (status === 'error') {
       setStatus(`Обновление: ${message}`);
-      updateError(message);
+      hideUpdateToast();
     }
+  }
+
+  /* ── Update Toast (compact bottom-right notification) ── */
+
+  function showUpdateToast(version, mode) {
+    if (!els.updateToast) return;
+    const versionLabel = version ? `Версия ${version}` : 'Новая версия';
+    if (els.updateToastTitle) {
+      els.updateToastTitle.textContent = mode === 'ready' ? versionLabel : 'Доступно обновление';
+    }
+    if (els.updateToastSub) {
+      if (mode === 'ready') {
+        els.updateToastSub.textContent = 'Готово к установке';
+      } else if (version) {
+        els.updateToastSub.textContent = `${versionLabel} — загружается…`;
+      } else {
+        els.updateToastSub.textContent = 'Загружается…';
+      }
+    }
+    if (els.updateToastProgress) {
+      els.updateToastProgress.classList.toggle('hidden', mode === 'ready');
+    }
+    if (els.updateToastProgressFill && mode === 'available') {
+      els.updateToastProgressFill.style.width = '0%';
+    }
+    if (els.updateToastAction) {
+      els.updateToastAction.classList.toggle('hidden', mode !== 'ready');
+      els.updateToastAction.classList.remove('is-busy');
+      els.updateToastAction.disabled = false;
+    }
+    els.updateToast.classList.remove('hidden');
+  }
+
+  function updateToastProgress(percent) {
+    const safePct = Math.max(0, Math.min(100, Number(percent) || 0));
+    if (els.updateToastProgressFill) {
+      els.updateToastProgressFill.style.width = `${safePct}%`;
+    }
+    if (els.updateToastSub) {
+      els.updateToastSub.textContent = `Загрузка: ${Math.round(safePct)}%`;
+    }
+    // Make sure the toast is visible even if 'available' was missed (fast
+    // pipeline goes straight to 'downloading' on some networks).
+    if (els.updateToast && els.updateToast.classList.contains('hidden')) {
+      els.updateToast.classList.remove('hidden');
+      if (els.updateToastTitle) els.updateToastTitle.textContent = 'Доступно обновление';
+      if (els.updateToastProgress) els.updateToastProgress.classList.remove('hidden');
+    }
+  }
+
+  function hideUpdateToast() {
+    if (els.updateToast) els.updateToast.classList.add('hidden');
+  }
+
+  function closeUpdateToast() {
+    hideUpdateToast();
   }
 
   /* ── Update Available Popup ── */
@@ -277,17 +335,12 @@
       setStatus('Установка обновления недоступна');
       return;
     }
-    if (els.updateInstallBtn) {
-      els.updateInstallBtn.classList.add('is-busy');
-      els.updateInstallBtn.disabled = true;
-    }
+    const buttons = [els.updateInstallBtn, els.updateToastAction].filter(Boolean);
+    for (const b of buttons) { b.classList.add('is-busy'); b.disabled = true; }
     const result = await window.waDeck.installDownloadedUpdate().catch(() => null);
     if (!result?.ok) {
       setStatus('Не удалось установить обновление');
-      if (els.updateInstallBtn) {
-        els.updateInstallBtn.classList.remove('is-busy');
-        els.updateInstallBtn.disabled = false;
-      }
+      for (const b of buttons) { b.classList.remove('is-busy'); b.disabled = false; }
     }
   }
 
@@ -403,6 +456,7 @@
     closeReleaseNotesModal,
     requestManualUpdate,
     closeUpdateModal,
+    closeUpdateToast,
     installUpdate,
   };
 })();

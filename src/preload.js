@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('waDeck', {
   checkForUpdates: (payload) => ipcRenderer.invoke('check-for-updates', payload),
   installDownloadedUpdate: () => ipcRenderer.invoke('install-downloaded-update'),
   translateText: (payload) => ipcRenderer.invoke('translate-text', payload),
+  cleanupCache: () => ipcRenderer.invoke('cleanup-cache'),
   onAutoUpdateStatus: (callback) => {
     if (typeof callback !== 'function') return () => {};
     const listener = (_event, payload) => callback(payload || {});
@@ -49,5 +50,11 @@ contextBridge.exposeInMainWorld('waDeck', {
     const listener = (_event, payload) => callback(payload || {});
     ipcRenderer.on('webview-crashed', listener);
     return () => ipcRenderer.removeListener('webview-crashed', listener);
+  },
+  onSystemResumed: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, payload) => callback(payload || {});
+    ipcRenderer.on('system-resumed-after-sleep', listener);
+    return () => ipcRenderer.removeListener('system-resumed-after-sleep', listener);
   },
 });
