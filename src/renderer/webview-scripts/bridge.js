@@ -29,7 +29,7 @@ function bridgeScript() {
       if (tag === 'BR') return '\\n';
       if (tag === 'IMG') {
         const alt = normalize(element.getAttribute('alt') || '');
-        const looksLikeEmoji = /[\p{Extended_Pictographic}\u2600-\u27BF]/u.test(alt);
+        const looksLikeEmoji = /[\\p{Extended_Pictographic}\\u2600-\\u27BF]/u.test(alt);
         const hasLetters = /[A-Za-z\u0410-\u044F\u0430-\u044F]/u.test(alt);
         return looksLikeEmoji || (!hasLetters && alt.length <= 4) ? alt : '';
       }

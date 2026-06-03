@@ -349,7 +349,13 @@
     renderScheduleTarget();
 
     els.scheduleText.value = item.text || '';
-    els.scheduleAt.value = localDateTimeFromISO(item.sendAt);
+    // If the item's time is already in the past (e.g. re-editing a failed item),
+    // default to the next valid slot so the save doesn't bounce with
+    // sendAt_in_past and strand the editing linkage.
+    const itemMs = new Date(item.sendAt).getTime();
+    els.scheduleAt.value = (Number.isFinite(itemMs) && itemMs > Date.now() + 3000)
+      ? localDateTimeFromISO(item.sendAt)
+      : nextSendAtLocal(0);
     state.attachmentsDraft = Array.isArray(item.attachments) ? item.attachments.map((a) => ({ ...a })) : [];
     renderAttachmentsDraft();
 
@@ -366,6 +372,7 @@
 
   async function createScheduledMessage() {
     if (!state.scheduleTarget.accountId || !state.scheduleTarget.chatName) {
+      state._editingScheduleId = null;
       setStatus('Выберите WhatsApp и чат для отправки');
       return;
     }
@@ -373,6 +380,7 @@
     const sendAtRaw = String(els.scheduleAt.value || '');
     const parsedSendAt = sendAtRaw ? new Date(sendAtRaw) : null;
     if (!parsedSendAt || Number.isNaN(parsedSendAt.getTime())) {
+      state._editingScheduleId = null;
       setStatus('Отложенная отправка: неверная дата/время');
       return;
     }
@@ -395,6 +403,9 @@
         invalid_sendAt: 'Неверная дата/время',
         sendAt_in_past: 'Время отправки должно быть в будущем',
       };
+      // Clear the editing linkage on failure so it can't later cancel an
+      // unrelated scheduled item on the next, non-edit schedule.
+      state._editingScheduleId = null;
       setStatus(`Отложенная отправка: ${map[response?.error] || response?.error || 'ошибка'}`);
       return;
     }

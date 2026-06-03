@@ -1743,7 +1743,11 @@ function cleanupWebview(webview) {
 }
 
 function ensureWebview(account) {
-  if (account?.frozen) return;
+  // Bail if the account no longer exists (e.g. removed during the staggered
+  // startup loop) — otherwise we'd create an orphan webview with a live
+  // WhatsApp session that renderAccounts() never shows.
+  if (!account || !accountById(account.id)) return;
+  if (account.frozen) return;
   if (state.webviews.has(account.id)) return;
 
   const isWhatsApp = account.type !== 'telegram';
@@ -1927,7 +1931,7 @@ function ensureWebview(account) {
             const script = ok
               ? `if (window.${cbName}) window.${cbName}({ ok: true, translated: '${escaped}' });`
               : `if (window.${cbName}) window.${cbName}({ ok: false });`;
-            webview.executeJavaScript(script, true).catch(() => {});
+            safeExecuteInWebview(webview, script);
           };
           window.waDeck.translateText({
             text: String(payload.text || ''),
@@ -1946,10 +1950,10 @@ function ensureWebview(account) {
                 .replace(/\\/g, '\\\\')
                 .replace(/'/g, "\\'")
                 .replace(/\n/g, '\\n');
-              webview.executeJavaScript(
-                `window.__waDeckInsertTranslation('${escaped}');`,
-                true
-              ).catch(() => {});
+              safeExecuteInWebview(
+                webview,
+                `window.__waDeckInsertTranslation('${escaped}');`
+              );
             }
           }).catch(() => {});
         } catch { /* ignore parse errors */ }
@@ -3406,12 +3410,10 @@ async function sendAudioAsVoiceMessage() {
     no_voice_state: 'Внутренняя ошибка состояния.',
   };
 
+  const stillReady = () => isWebviewReady(webview);
   try {
     /* ── Phase 1: Setup — decode audio, override getUserMedia, find PTT button ── */
-    const setup = await webview.executeJavaScript(
-      voiceMessageSetupScript(picked.dataBase64, picked.mime),
-      true
-    );
+    const setup = await safeExecuteInWebview(webview, voiceMessageSetupScript(picked.dataBase64, picked.mime));
     if (!setup?.ok) {
       const key = setup?.error || 'unknown';
       showToast(errMessages[key] || `Ошибка: ${key}`, 'error', 5000);
@@ -3419,36 +3421,39 @@ async function sendAudioAsVoiceMessage() {
     }
 
     /* ── Phase 2: Trusted mouseDown via sendInputEvent (isTrusted: true) ── */
+    // Re-check readiness before every sendInputEvent: the account could have
+    // been frozen/hibernated/switched during the awaits above, and
+    // sendInputEvent on a detached webview throws synchronously.
+    if (!stillReady()) { showToast('WhatsApp перезагрузился, попробуйте снова', 'warn'); return; }
     webview.sendInputEvent({ type: 'mouseDown', x: setup.x, y: setup.y, button: 'left', clickCount: 1 });
     await _delay(80);
 
     /* ── Phase 3: Wait for getUserMedia + audio duration ── */
-    const waitResult = await webview.executeJavaScript(voiceMessageWaitScript(), true);
+    const waitResult = await safeExecuteInWebview(webview, voiceMessageWaitScript());
 
     if (!waitResult?.ok) {
-      /* getUserMedia not called — release and cleanup */
-      webview.sendInputEvent({ type: 'mouseUp', x: setup.x, y: setup.y, button: 'left' });
-      await webview.executeJavaScript(voiceMessageCleanupScript(), true).catch(() => {});
+      /* getUserMedia not called — release (cleanup runs in finally) */
+      if (stillReady()) webview.sendInputEvent({ type: 'mouseUp', x: setup.x, y: setup.y, button: 'left' });
       const key = waitResult?.error || 'unknown';
       showToast(errMessages[key] || `Ошибка: ${key}`, 'error', 5000);
       return;
     }
 
     /* ── Phase 4: Trusted mouseUp — WhatsApp finalizes & sends the voice message ── */
+    if (!stillReady()) { showToast('WhatsApp перезагрузился, попробуйте снова', 'warn'); return; }
     webview.sendInputEvent({ type: 'mouseUp', x: setup.x, y: setup.y, button: 'left' });
     await _delay(600);
-
-    /* ── Phase 5: Cleanup ── */
-    await webview.executeJavaScript(voiceMessageCleanupScript(), true).catch(() => {});
 
     const dur = waitResult.duration ? ` (${Math.round(waitResult.duration)}с)` : '';
     showToast(`Голосовое сообщение отправлено${dur}`, 'success');
   } catch (error) {
     console.error('[voice-msg]', error);
-    /* Emergency cleanup */
-    webview.executeJavaScript(voiceMessageCleanupScript(), true).catch(() => {});
     showToast('Ошибка отправки голосового сообщения', 'error', 5000);
   } finally {
+    /* Always restore getUserMedia / close the fake stream, even on early
+       return or throw. safeExecuteInWebview no-ops if the webview is gone
+       (the in-page 15s safety timer is the last-resort backstop). */
+    safeExecuteInWebview(webview, voiceMessageCleanupScript());
     if (els.sendVoiceMsg) {
       els.sendVoiceMsg.classList.remove('is-recording');
       els.sendVoiceMsg.disabled = false;

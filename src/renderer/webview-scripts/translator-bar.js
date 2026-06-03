@@ -33,17 +33,12 @@ function translatorBarScript() {
     let dropdownOpen = null;
     let currentChatId = '';
     let barHiddenByUser = false;
-    // Map with bounded size (500 entries) — prevents runaway memory on long
-    // sessions while still de-duping translations for active scroll view.
-    const TRANSLATED_CACHE_MAX = 500;
-    let translatedCache = new Map();
-    function rememberTranslated(node, value) {
-      if (translatedCache.size >= TRANSLATED_CACHE_MAX) {
-        const firstKey = translatedCache.keys().next().value;
-        if (firstKey) translatedCache.delete(firstKey);
-      }
-      translatedCache.set(node, value);
-    }
+    // WeakMap keyed by message-row nodes. WhatsApp recycles/detaches rows
+    // aggressively on scroll; a plain Map kept strong refs to those detached
+    // nodes (the old 500-entry cap was dead code — writers used .set directly),
+    // so memory grew unbounded within a chat. A WeakMap lets detached rows be
+    // garbage-collected automatically, no manual cap needed.
+    let translatedCache = new WeakMap();
 
     function getChatId() {
       // Primary: standard WhatsApp chat header
@@ -262,11 +257,11 @@ function translatorBarScript() {
         autoTranslate = !autoTranslate;
         paint();
         if (autoTranslate) {
-          translatedCache = new Map();
+          translatedCache = new WeakMap();
           processAllVisibleIncoming();
         } else {
           clearAllOverlays();
-          translatedCache = new Map();
+          translatedCache = new WeakMap();
         }
       });
 
@@ -703,7 +698,7 @@ function translatorBarScript() {
         currentChatId = next;
         barHiddenByUser = false;
         // Clear translation cache and overlays when switching chats
-        translatedCache = new Map();
+        translatedCache = new WeakMap();
         clearAllOverlays();
       }
 

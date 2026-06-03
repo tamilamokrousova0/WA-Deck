@@ -70,6 +70,17 @@ function voiceMessageSetupScript(audioBase64, mimeType) {
         return _origGUM(constraints);
       };
 
+      /* Safety net: if WhatsApp never calls getUserMedia (aborted send) and the
+         renderer never runs Phase 3 cleanup, auto-restore the real getUserMedia
+         after 15s so a stale override can't poison later real mic capture. */
+      const safetyRestoreTimer = setTimeout(() => {
+        try {
+          if (navigator.mediaDevices.getUserMedia !== _origGUM) {
+            navigator.mediaDevices.getUserMedia = _origGUM;
+          }
+        } catch (_) {}
+      }, 15000);
+
       /* ── 6. Find PTT (mic) button ── */
       const findPttBtn = () => {
         const selectors = [
@@ -116,6 +127,7 @@ function voiceMessageSetupScript(audioBase64, mimeType) {
         duration,
         paddingSec,
         _origGUM,
+        safetyRestoreTimer,
       };
 
       return { ok: true, x: x, y: y, duration: duration };
@@ -165,6 +177,7 @@ function voiceMessageCleanupScript() {
     try {
       const vs = window.__waDeckVoice;
       if (vs) {
+        if (vs.safetyRestoreTimer) { try { clearTimeout(vs.safetyRestoreTimer); } catch (_) {} }
         /* Restore original getUserMedia if override is still in place */
         if (vs._origGUM && navigator.mediaDevices.getUserMedia !== vs._origGUM) {
           navigator.mediaDevices.getUserMedia = vs._origGUM;

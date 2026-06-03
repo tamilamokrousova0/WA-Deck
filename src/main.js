@@ -35,22 +35,36 @@ app.commandLine.appendSwitch('disable-features', 'IntensiveWakeUpThrottling,Calc
  * renderer (XSS) could otherwise schedule a message with `attachments: [{path:
  * '/Users/.../.ssh/id_rsa'}]` and exfiltrate secrets through the WA upload.
  */
-function isAttachmentPathAllowed(filePath) {
+async function isAttachmentPathAllowed(filePath) {
   try {
     const abs = path.resolve(String(filePath || ''));
     if (!abs) return false;
+    // Resolve symlinks BEFORE the prefix/blocklist check. Otherwise a renderer
+    // (post-XSS) could schedule `~/innocent` as a symlink to /etc/... or
+    // ~/.ssh/id_rsa and pass a purely lexical "under home" test. realpath
+    // throws if the target doesn't exist — attachments must exist, so reject.
+    let real;
+    try {
+      real = await fs.realpath(abs);
+    } catch {
+      return false;
+    }
     const home = os.homedir();
     // macOS + Linux are case-sensitive on filenames but Windows is not;
     // normalize both sides for the prefix check.
     const caseInsensitive = process.platform === 'win32' || process.platform === 'darwin';
-    const absCmp = caseInsensitive ? abs.toLowerCase() : abs;
+    const realCmp = caseInsensitive ? real.toLowerCase() : real;
     const homeCmp = caseInsensitive ? home.toLowerCase() : home;
-    if (!absCmp.startsWith(homeCmp + path.sep) && absCmp !== homeCmp) return false;
-    const SENSITIVE = ['.ssh', '.gnupg', '.aws', '.docker', 'Library/Keychains'];
+    if (!realCmp.startsWith(homeCmp + path.sep) && realCmp !== homeCmp) return false;
+    const SENSITIVE = [
+      '.ssh', '.gnupg', '.aws', '.docker', '.kube', '.config', '.netrc',
+      '.npmrc', '.gem', '.cargo', 'Library/Keychains',
+    ];
     for (const s of SENSITIVE) {
       const marker = (path.sep + s).toLowerCase();
-      const needle = caseInsensitive ? absCmp : abs;
-      if (needle.includes(marker + path.sep) || needle.endsWith(marker)) return false;
+      const needle = caseInsensitive ? realCmp : real;
+      const needleMarker = caseInsensitive ? marker : (path.sep + s);
+      if (needle.includes(needleMarker + path.sep) || needle.endsWith(needleMarker)) return false;
     }
     return true;
   } catch {
@@ -138,6 +152,23 @@ let mainWindow;
 let lastUpdateProgressPercent = -1;
 let autoUpdaterConfigured = false;
 let macDeveloperIdSignatureCache = null;
+
+// Sessions that already have a permission handler installed (avoid re-setting
+// on every web-contents-created for the same partition session).
+const _permissionConfiguredSessions = new WeakSet();
+// Permissions WhatsApp/Telegram Web legitimately need (voice/video calls,
+// voice messages, desktop notifications, copy). Everything else (geolocation,
+// midi, display-capture, clipboard-read, openExternal, ...) is denied so a
+// hijacked remote page can't silently grab it — Electron's default for
+// non-default sessions is to GRANT most requests.
+const ALLOWED_WEBVIEW_PERMISSIONS = new Set([
+  'media',
+  'notifications',
+  'fullscreen',
+  'pointerLock',
+  'clipboard-sanitized-write',
+  'speaker-selection',
+]);
 
 function setDockBadge(count) {
   const safeCount = Math.max(0, Number(count) || 0);
@@ -357,6 +388,7 @@ function sanitizeStore(raw) {
       status: ['pending', 'processing', 'sent', 'failed', 'canceled'].includes(String(item?.status || ''))
         ? String(item.status)
         : 'pending',
+      claimedAt: String(item?.claimedAt || ''),
       createdAt: String(item?.createdAt || new Date().toISOString()),
       updatedAt: String(item?.updatedAt || new Date().toISOString()),
       errorText: String(item?.errorText || ''),
@@ -443,20 +475,42 @@ async function loadStore() {
   }
 }
 
-/* Recover scheduled messages stuck in 'processing' (e.g. after crash) */
-function recoverStaleProcessingItems() {
+// A scheduled item is flipped to 'processing' the moment it's claimed for
+// sending. If the renderer reloads/crashes between claim and complete, the
+// boot-time recovery used to be the ONLY thing that reset it — so a renderer
+// reload (Cmd+R, no main-process restart) left the message stuck forever. We
+// now also sweep at runtime: any 'processing' item older than this is returned
+// to 'pending' and retried. Since the renderer only reports success AFTER the
+// WA send, a still-'processing' item almost always means the send never
+// happened, so retrying is safe; the rare double-send window is app death in
+// the few ms between WA send and the persisted 'sent' status.
+const STALE_PROCESSING_MS = 5 * 60 * 1000; // 5 minutes
+
+/* Recover scheduled messages stuck in 'processing'.
+ * maxAgeMs = 0  → reset ALL processing items (use at boot: a restart means
+ *                 nothing is genuinely in-flight).
+ * maxAgeMs > 0  → reset only items claimed longer than maxAgeMs ago
+ *                 (runtime sweep; leaves freshly-claimed sends alone). */
+function recoverStaleProcessingItems(maxAgeMs = 0) {
   let recovered = 0;
+  const now = Date.now();
   for (const item of state.store.scheduled) {
-    if (item.status === 'processing') {
-      item.status = 'pending';
-      item.updatedAt = new Date().toISOString();
-      recovered += 1;
+    if (item.status !== 'processing') continue;
+    if (maxAgeMs > 0) {
+      const claimedMs = item.claimedAt ? new Date(item.claimedAt).getTime() : 0;
+      // A valid, recent claim is left alone; missing/old claimedAt = stale.
+      if (claimedMs && (now - claimedMs) < maxAgeMs) continue;
     }
+    item.status = 'pending';
+    item.claimedAt = '';
+    item.updatedAt = new Date().toISOString();
+    recovered += 1;
   }
   if (recovered > 0) {
-    console.log(`[scheduled] recovered ${recovered} stuck item(s) back to pending`);
+    console.log(`[scheduled] recovered ${recovered} stuck processing item(s) back to pending`);
     saveStore().catch(() => {});
   }
+  return recovered;
 }
 
 /* Write queue prevents concurrent fs.writeFile calls that can corrupt the store */
@@ -470,20 +524,28 @@ async function saveStore() {
     const backupPath = primary + '.backup';
 
     // Atomic write sequence:
-    //   1. Write new content to .tmp
-    //   2. If primary exists, copy it to .backup (keep previous good version)
-    //   3. Rename .tmp → primary (atomic on POSIX; close-enough on NTFS)
-    // If any step between 2 and 3 fails, .backup still holds the previous
-    // valid state and loadStore() will recover from it.
-    await fs.writeFile(tmpPath, payload, 'utf8');
-    if (fsSync.existsSync(primary)) {
-      try {
-        await fs.copyFile(primary, backupPath);
-      } catch (err) {
-        console.warn('[saveStore] backup copy failed (proceeding):', err?.message || err);
-      }
+    //   1. Write new content to .tmp and fsync it to disk
+    //   2. Rename .tmp → primary (atomic on POSIX; close-enough on NTFS)
+    //   3. Refresh .backup from the SAME in-memory payload
+    // We deliberately do NOT copy the on-disk primary into .backup: if the
+    // primary was ever corrupt (and we recovered from .backup at load time),
+    // copying it would clobber the only good backup. Writing .backup from the
+    // known-good payload after the primary is safely in place keeps the
+    // invariant "at least one of {primary, backup} is valid" at every crash
+    // point.
+    const tmpHandle = await fs.open(tmpPath, 'w');
+    try {
+      await tmpHandle.writeFile(payload, 'utf8');
+      try { await tmpHandle.sync(); } catch { /* fsync best-effort */ }
+    } finally {
+      await tmpHandle.close();
     }
     await fs.rename(tmpPath, primary);
+    try {
+      await fs.writeFile(backupPath, payload, 'utf8');
+    } catch (err) {
+      console.warn('[saveStore] backup refresh failed (non-fatal):', err?.message || err);
+    }
   }).catch((err) => {
     console.error('[saveStore] write failed:', err);
   });
@@ -1095,6 +1157,11 @@ async function loadAttachmentPayload(filePath) {
 }
 
 async function claimDueScheduled(limit = 5) {
+  // Runtime sweep: return any item stuck in 'processing' (renderer reload/crash
+  // between claim and complete) back to 'pending' so it gets retried instead of
+  // being lost until the next app restart.
+  recoverStaleProcessingItems(STALE_PROCESSING_MS);
+
   const now = Date.now();
   const due = state.store.scheduled
     .filter((item) => item.status === 'pending' && new Date(item.sendAt).getTime() <= now)
@@ -1103,9 +1170,11 @@ async function claimDueScheduled(limit = 5) {
 
   if (!due.length) return [];
 
+  const claimedAt = new Date().toISOString();
   for (const item of due) {
     item.status = 'processing';
-    item.updatedAt = new Date().toISOString();
+    item.claimedAt = claimedAt;
+    item.updatedAt = claimedAt;
   }
   await saveStore();
 
@@ -1139,6 +1208,7 @@ async function markScheduledResult(payload = {}) {
 
   const ok = Boolean(payload.ok);
   item.status = ok ? 'sent' : 'failed';
+  item.claimedAt = '';
   item.errorText = ok ? '' : String(payload.errorText || 'send_failed');
   item.updatedAt = new Date().toISOString();
   await saveStore();
@@ -1227,6 +1297,16 @@ function createWindow() {
 function setupWebviewGuards() {
   app.on('web-contents-created', (_event, contents) => {
     if (contents.getType() !== 'webview') return;
+
+    // Lock down permission requests on this webview's session (once per session).
+    const ses = contents.session;
+    if (ses && !_permissionConfiguredSessions.has(ses)) {
+      _permissionConfiguredSessions.add(ses);
+      ses.setPermissionRequestHandler((_wc, permission, callback) => {
+        callback(ALLOWED_WEBVIEW_PERMISSIONS.has(permission));
+      });
+      ses.setPermissionCheckHandler((_wc, permission) => ALLOWED_WEBVIEW_PERMISSIONS.has(permission));
+    }
 
     // Determine webview type from partition (persist:tg_* = Telegram, persist:wa_* = WhatsApp)
     const isTelegram = () => {
@@ -1796,7 +1876,7 @@ function registerIpc() {
     // sensitive subtrees (.ssh, Keychains, etc.). Defeats XSS-driven
     // file exfiltration via the scheduled-send path.
     for (const att of attachments) {
-      if (!isAttachmentPathAllowed(att.path)) {
+      if (!(await isAttachmentPathAllowed(att.path))) {
         return { ok: false, error: 'attachment_path_not_allowed' };
       }
     }
@@ -1877,7 +1957,7 @@ function registerIpc() {
 
     // Verify every file actually exists on disk before attaching
     for (const filePath of files) {
-      if (!isAttachmentPathAllowed(filePath)) {
+      if (!(await isAttachmentPathAllowed(filePath))) {
         return { ok: false, error: `path_not_allowed:${path.basename(filePath)}` };
       }
       try {
@@ -1890,6 +1970,17 @@ function registerIpc() {
     const contents = webContents.fromId(id);
     if (!contents || contents.isDestroyed()) {
       return { ok: false, error: 'webcontents_not_found' };
+    }
+    // Only ever attach the CDP debugger to one of OUR account webviews — never
+    // the main window or any other webContents a compromised renderer might
+    // name. getType()!=='webview' already excludes the host window; the URL
+    // check ensures it's a live WhatsApp/Telegram page.
+    if (contents.getType() !== 'webview') {
+      return { ok: false, error: 'not_a_webview' };
+    }
+    const targetUrl = String(contents.getURL() || '');
+    if (!/^https:\/\/(web\.whatsapp\.com|web\.telegram\.org)\//.test(targetUrl)) {
+      return { ok: false, error: 'untrusted_target' };
     }
 
     const dbg = contents.debugger;
@@ -1982,9 +2073,24 @@ function registerIpc() {
       const https = require('https');
       const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(from)}&tl=${encodeURIComponent(to)}&dt=t&q=${encodeURIComponent(text)}`;
       const result = await new Promise((resolve, reject) => {
-        https.get(url, (res) => {
+        const req = https.get(url, (res) => {
+          if (res.statusCode !== 200) {
+            res.resume(); // drain so the socket can be freed
+            reject(new Error(`http_${res.statusCode}`));
+            return;
+          }
           let data = '';
-          res.on('data', (chunk) => { data += chunk; });
+          let bytes = 0;
+          res.on('data', (chunk) => {
+            bytes += chunk.length;
+            // Cap the buffered body so a hostile/hung endpoint can't grow
+            // main-process memory without bound.
+            if (bytes > 5 * 1024 * 1024) {
+              req.destroy(new Error('response_too_large'));
+              return;
+            }
+            data += chunk;
+          });
           res.on('end', () => {
             try {
               const parsed = JSON.parse(data);
@@ -1994,7 +2100,11 @@ function registerIpc() {
               reject(new Error('parse_failed'));
             }
           });
-        }).on('error', reject);
+        });
+        // Without a timeout a stalled response leaves this IPC invoke pending
+        // forever (the renderer await never resolves).
+        req.setTimeout(10000, () => { req.destroy(new Error('timeout')); });
+        req.on('error', reject);
       });
       return { ok: true, translated: result };
     } catch (e) {
