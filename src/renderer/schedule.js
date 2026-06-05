@@ -252,6 +252,13 @@
       const meta = document.createElement('div');
       meta.className = 'scheduled-meta';
       meta.textContent = `Отправка: ${formatDateTime(item.sendAt)} | файлов: ${item.attachments?.length || 0}`;
+      if (item.status === 'pending') {
+        const cd = document.createElement('span');
+        cd.className = 'scheduled-countdown';
+        cd.dataset.sendAt = item.sendAt;
+        cd.textContent = ' · ' + formatCountdown(item.sendAt);
+        meta.appendChild(cd);
+      }
 
       const text = document.createElement('div');
       text.textContent = item.text || '(без текста)';
@@ -264,11 +271,32 @@
         btnRow.style.gap = '6px';
 
         if (item.status === 'pending' || item.status === 'failed') {
+          const sendNow = document.createElement('button');
+          sendNow.className = 'btn';
+          sendNow.textContent = 'Отправить сейчас';
+          sendNow.addEventListener('click', async () => {
+            const confirmed = typeof showConfirm === 'function'
+              ? await showConfirm('Отправить сейчас', `Отправить «${item.chatName}» немедленно?`, 'Отправить')
+              : true;
+            if (!confirmed) return;
+            const res = await window.waDeck.sendScheduledNow(item.id);
+            if (!res?.ok) {
+              setStatus(`Не удалось отправить: ${res?.error || 'error'}`);
+              return;
+            }
+            setStatus(`Отправляю сейчас: ${item.chatName}`);
+            await renderScheduled();
+            // Kick the runner immediately instead of waiting for the 15s tick.
+            processDueSchedules().catch((e) => console.warn('[schedule]', e));
+          });
+          btnRow.appendChild(sendNow);
+
           const edit = document.createElement('button');
           edit.className = 'btn';
           edit.textContent = 'Изменить';
           edit.addEventListener('click', () => editScheduledItem(item));
           btnRow.appendChild(edit);
+
         }
 
         const cancel = document.createElement('button');
@@ -339,6 +367,36 @@
     const pad = (n) => String(n).padStart(2, '0');
     return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
       'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+
+  /* Human-readable relative time until send, e.g. "через 12 мин". */
+  function formatCountdown(sendAtIso) {
+    const ms = new Date(sendAtIso).getTime() - Date.now();
+    if (!Number.isFinite(ms)) return '';
+    if (ms <= 0) return 'сейчас';
+    const totalMin = Math.round(ms / 60000);
+    if (totalMin < 1) return 'меньше минуты';
+    if (totalMin < 60) return `через ${totalMin} мин`;
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    if (h < 24) return m ? `через ${h} ч ${m} мин` : `через ${h} ч`;
+    const days = Math.floor(h / 24);
+    const hr = h % 24;
+    return hr ? `через ${days} д ${hr} ч` : `через ${days} д`;
+  }
+
+  /* Lightweight ticker: refresh only the countdown spans in place (no full
+     re-render, so scroll position and the open card are preserved). */
+  function startCountdownTicker() {
+    if (state._scheduledCountdownTimer) return;
+    state._scheduledCountdownTimer = setInterval(() => {
+      const root = els.scheduledList;
+      if (!root) return;
+      const nodes = root.querySelectorAll('.scheduled-countdown[data-send-at]');
+      nodes.forEach((node) => {
+        node.textContent = ' · ' + formatCountdown(node.dataset.sendAt);
+      });
+    }, 30000);
   }
 
   async function editScheduledItem(item) {
@@ -752,6 +810,42 @@
     await nativeClick(clipRect.x, clipRect.y);
     await delay(350);
 
+    /* A2. Click the menu item for this kind.
+       Since mid-2026 WhatsApp Web no longer mounts the file inputs when the
+       attach menu merely opens — the hidden <input type="file"> is created only
+       after clicking a specific menu item ("Фото и видео" / "Документ"). That
+       click also makes WhatsApp synchronously call input.click(), which would
+       pop the OS file picker during an unattended scheduled send, so we no-op
+       that one call (CDP sets the files directly instead). An 8s backstop timer
+       restores the original click if a later step throws before we restore it. */
+    const menuClick = await query(`(() => {
+      const want = ${JSON.stringify(kind)};
+      const txt = (m) => (m.getAttribute('aria-label') || m.textContent || '').trim();
+      const items = [...document.querySelectorAll('[role="menuitem"], li[role], [role="button"]')];
+      const re = want === 'media'
+        ? /Фото и видео|Photos?\\s*(and|&)\\s*videos?|Fotos?\\s*und\\s*Videos?|Foto/i
+        : /Документ|Document|Dokument/i;
+      const item = items.find((m) => re.test(txt(m)));
+      if (!item) return { found: false };
+      if (!window.__waDeckOrigInputClick) window.__waDeckOrigInputClick = HTMLInputElement.prototype.click;
+      HTMLInputElement.prototype.click = function () {};
+      clearTimeout(window.__waDeckClickRestoreTimer);
+      window.__waDeckClickRestoreTimer = setTimeout(() => {
+        if (window.__waDeckOrigInputClick) {
+          HTMLInputElement.prototype.click = window.__waDeckOrigInputClick;
+          window.__waDeckOrigInputClick = null;
+        }
+      }, 8000);
+      item.click();
+      return { found: true };
+    })()`);
+
+    if (!menuClick?.found) {
+      await nativeKey('Escape');
+      return { ok: false, error: 'attach_menu_item_not_found' };
+    }
+    await delay(250);
+
     /* B. Wait for the hidden <input type="file"> for this kind to appear. */
     let inputReady = false;
     for (let i = 0; i < 30; i++) {
@@ -778,6 +872,18 @@
       await nativeKey('Escape');
       return { ok: false, error: `cdp_${cdp?.error || 'failed'}` };
     }
+
+    /* C2. Files are delivered — restore the suppressed input.click now that the
+       OS dialog can no longer fire. The 8s backstop above also handles error
+       paths, but restoring eagerly keeps the override window minimal. */
+    await query(`(() => {
+      clearTimeout(window.__waDeckClickRestoreTimer);
+      if (window.__waDeckOrigInputClick) {
+        HTMLInputElement.prototype.click = window.__waDeckOrigInputClick;
+        window.__waDeckOrigInputClick = null;
+      }
+      return true;
+    })()`);
 
     /* D. Wait for the preview modal. WhatsApp shows a lightbox with a
        Send button; we detect it by a data-icon="send" that lives OUTSIDE
@@ -929,6 +1035,7 @@
   }
 
   function startScheduleRunner() {
+    startCountdownTicker();
     if (state.scheduleRunnerTimer) {
       clearInterval(state.scheduleRunnerTimer);
       state.scheduleRunnerTimer = null;

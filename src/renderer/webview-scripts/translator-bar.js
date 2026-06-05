@@ -56,8 +56,15 @@ function translatorBarScript() {
         const val = String(el.getAttribute('title') || el.textContent || '').trim();
         if (val && val.length > 1 && !/^(online|last seen|typing|в сети|печатает|был)/i.test(val)) return val;
       }
-      // Fallback: if #main exists, chat is open even if we can't read the name
-      if (document.querySelector('#main footer')) return '__unknown_chat__';
+      // Fallback: a chat is open (even if we cannot read its name) when #main
+      // holds a composer or message rows. Kept broad so header-class renames in
+      // a new WhatsApp bundle never make tick() bail before the incoming sweep.
+      const main = document.querySelector('#main');
+      if (main && (
+        main.querySelector('footer') ||
+        main.querySelector('div[contenteditable="true"]') ||
+        main.querySelector('[role="row"]')
+      )) return '__unknown_chat__';
       return '';
     }
 
@@ -336,7 +343,7 @@ function translatorBarScript() {
         item.addEventListener('click', (e) => {
           e.stopPropagation();
           if (isFrom) outgoingFrom = lang.code;
-          else outgoingTo = lang.code;
+          else { outgoingTo = lang.code; saveContactLang(currentChatId, lang.code); }
           btn.textContent = lang.label;
           closeDropdowns();
           // Outgoing dropdowns do NOT affect incoming overlays — they are
@@ -421,28 +428,87 @@ function translatorBarScript() {
 
     // ========== Incoming auto-translate ==========
 
-    function getIncomingBubbles(node) {
-      const bubbles = [];
-      if (!node || node.nodeType !== 1) return bubbles;
-      if (node.matches && node.matches('.message-in')) bubbles.push(node);
-      if (node.querySelectorAll) {
-        const inner = node.querySelectorAll('.message-in');
-        for (let i = 0; i < inner.length; i++) {
-          if (bubbles.indexOf(inner[i]) === -1) bubbles.push(inner[i]);
-        }
-      }
-      return bubbles;
+    // Detecting incoming vs outgoing messages.
+    //
+    // As of mid-2026 WhatsApp Web ships fully obfuscated stylex class names
+    // (x1n2onr6, _akbu, ...) that are regenerated on every build, and dropped
+    // ALL the stable hooks we used to rely on: .message-in / .message-out are
+    // gone, the data-id no longer carries the false_/true_ (fromMe) prefix, and
+    // span.selectable-text is gone too. The only signals that survive a bundle
+    // bump are semantic/structural, so we lean on those:
+    //   * a real text message row is a [role="row"] containing a
+    //     [data-pre-plain-text] wrapper (which is the .copyable-text element);
+    //   * direction is read from horizontal ALIGNMENT — WhatsApp always lays
+    //     incoming bubbles left of centre and outgoing right of centre. This is
+    //     a layout invariant, not a cosmetic class, so it does not break when
+    //     Meta rehashes its CSS.
+
+    function chatMidX() {
+      const main = document.querySelector('#main');
+      const r = main ? main.getBoundingClientRect() : null;
+      if (r && r.width > 0) return r.left + r.width / 2;
+      return (window.innerWidth || 1000) / 2;
     }
 
+    // The .copyable-text wrapper carrying data-pre-plain-text is the message
+    // text container; we overlay it and read text from it. A row can hold
+    // several .copyable-text nodes (quoted replies, link previews), so prefer
+    // the data-pre-plain-text one — that is always the main message body.
     function getBubbleContainer(row) {
       if (!row) return null;
-      return row.querySelector('.copyable-text') || row;
+      return row.querySelector('[data-pre-plain-text]')
+        || row.querySelector('.copyable-text')
+        || row;
     }
 
-    function getMessageText(bubble) {
+    function isMessageRow(row) {
+      return !!(row && row.querySelector && row.querySelector('[data-pre-plain-text]'));
+    }
+
+    // Returns true only when we can confidently measure the bubble as
+    // left-of-centre. If layout is not ready yet (width 0) we return false and
+    // let the next sweep retry, rather than risk mislabelling an outgoing one.
+    function isIncomingRow(row) {
+      const bubble = getBubbleContainer(row);
+      if (!bubble || bubble === row) return false;
+      const br = bubble.getBoundingClientRect();
+      if (!br || br.width === 0) return false;
+      return (br.left + br.width / 2) < chatMidX();
+    }
+
+    // Collect candidate message rows under root (the full chat on a sweep, or a
+    // single mutation subtree from the observer). Direction is filtered later
+    // in processIncomingBubble so the observer and sweep share one code path.
+    function collectMessageRows(root) {
+      const out = new Set();
+      if (!root || (root.nodeType !== 1 && root.nodeType !== 9)) return out;
+      try {
+        if (root.matches && root.matches('[role="row"]') && isMessageRow(root)) out.add(root);
+      } catch {}
+      if (root.querySelectorAll) {
+        const rows = root.querySelectorAll('[role="row"]');
+        for (let i = 0; i < rows.length; i++) {
+          if (isMessageRow(rows[i])) out.add(rows[i]);
+        }
+        // Mutation subtrees sometimes hand us a node INSIDE a row rather than
+        // the row itself; climb to the enclosing row so we still catch it.
+        if (root.closest) {
+          const own = root.closest('[role="row"]');
+          if (own && isMessageRow(own)) out.add(own);
+        }
+      }
+      return out;
+    }
+
+    function getIncomingBubbles(node) {
+      if (!node || node.nodeType !== 1) return [];
+      return Array.from(collectMessageRows(node));
+    }
+
+    function getMessageText(row) {
+      const bubble = getBubbleContainer(row);
       if (!bubble) return '';
-      const span = bubble.querySelector('span.selectable-text');
-      const text = (span && span.innerText) ? span.innerText : (bubble.innerText || bubble.textContent || '');
+      const text = bubble.innerText || bubble.textContent || '';
       return String(text || '').trim();
     }
 
@@ -590,6 +656,34 @@ function translatorBarScript() {
       console.log('__WADECK_TRANSLATE_MSG__' + payload);
     }
 
+    function applyOutgoingTo(code) {
+      if (!code || !TARGET_LANGS.some((l) => l.code === code)) return;
+      outgoingTo = code;
+      const btn = bar && bar.querySelector('[data-translator-dropdown="to"]');
+      if (btn) btn.textContent = getLangLabel(code);
+    }
+
+    // Per-contact default outgoing language: ask the host for the stored lang
+    // when a chat opens, and persist the user's choice. chatId is the contact's
+    // display name (see getChatId); the host scopes it by account.
+    function loadContactLangFor(chatId) {
+      if (!chatId || chatId === '__unknown_chat__') return;
+      const reqId = Math.random().toString(36).slice(2) + '_' + Date.now().toString(36);
+      const cbName = '__waDeckLangCb_' + reqId;
+      const timer = setTimeout(() => { try { delete window[cbName]; } catch {} }, 5000);
+      window[cbName] = function (lang) {
+        clearTimeout(timer);
+        try { applyOutgoingTo(String(lang || '')); } catch {}
+        try { delete window[cbName]; } catch {}
+      };
+      console.log('__WADECK_GET_LANG__' + JSON.stringify({ reqId: reqId, chatId: chatId }));
+    }
+
+    function saveContactLang(chatId, lang) {
+      if (!chatId || chatId === '__unknown_chat__') return;
+      console.log('__WADECK_SET_LANG__' + JSON.stringify({ chatId: chatId, lang: lang }));
+    }
+
     function hasOverlay(row) {
       const target = getBubbleContainer(row);
       return Boolean(target && target.querySelector(':scope > .__wadeck-tr-overlay'));
@@ -607,6 +701,11 @@ function translatorBarScript() {
         if (!hasOverlay(row)) renderOverlay(row, entry.translated);
         return;
       }
+      // Direction filter: sweep and observer hand us ALL message rows; only
+      // translate incoming (left-aligned) ones. Outgoing rows are skipped WITHOUT
+      // caching a verdict, so a row that is briefly unmeasurable (width 0 during
+      // layout) is retried on the next sweep instead of being stuck.
+      if (!isIncomingRow(row)) return;
       const text = getMessageText(row);
       if (!text) return;
       translatedCache.set(row, { state: 'pending' });
@@ -622,8 +721,9 @@ function translatorBarScript() {
     }
 
     function processAllVisibleIncoming() {
-      const rows = document.querySelectorAll('.message-in');
-      for (let i = 0; i < rows.length; i++) processIncomingBubble(rows[i]);
+      const main = document.querySelector('#main') || document;
+      const rows = collectMessageRows(main);
+      rows.forEach((row) => processIncomingBubble(row));
     }
 
     // ========== Observer for chat messages ==========
@@ -700,6 +800,8 @@ function translatorBarScript() {
         // Clear translation cache and overlays when switching chats
         translatedCache = new WeakMap();
         clearAllOverlays();
+        // Restore this contact's saved outgoing language (if any).
+        loadContactLangFor(next);
       }
 
       if (!next) {

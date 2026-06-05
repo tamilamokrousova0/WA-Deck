@@ -320,6 +320,7 @@
             <div class="settings-about-status"><span class="settings-status-dot"></span><span>Готово к работе</span></div>
           </div>
           <button type="button" id="manual-update" class="btn settings-check-update">Проверить обновление</button>
+          <button type="button" id="open-data-dir" class="btn settings-check-update">Папка данных</button>
         </div>
 
         <!-- === Settings DETAIL (section content) === -->
@@ -429,6 +430,12 @@
             Время отправки
             <input id="schedule-at" type="datetime-local" step="1" />
           </label>
+          <div id="schedule-quick-row" class="schedule-quick-row">
+            <button type="button" class="btn btn-quick-min" data-quick-min="5">+5 мин</button>
+            <button type="button" class="btn btn-quick-min" data-quick-min="10">+10 мин</button>
+            <button type="button" class="btn btn-quick-min" data-quick-min="15">+15 мин</button>
+            <button type="button" class="btn btn-quick-min" data-quick-min="20">+20 мин</button>
+          </div>
           <div class="row">
             <button type="button" id="pick-attachments" class="btn">Добавить вложения</button>
             <button type="button" id="clear-attachments" class="btn">Очистить вложения</button>

@@ -145,6 +145,9 @@ const state = {
     settings: { ...DEFAULT_SETTINGS },
     templates: [],
     scheduled: [],
+    // Per-contact default outgoing translation language.
+    // Key: `${accountId}\u0000${chatName}` → lang code (e.g. "de").
+    contactLangs: {},
   },
 };
 
@@ -394,6 +397,14 @@ function sanitizeStore(raw) {
       errorText: String(item?.errorText || ''),
     }))
     .filter((item) => item.id && item.accountId && item.chatName && item.sendAt);
+
+  clean.contactLangs = {};
+  const rawLangs = (raw?.contactLangs && typeof raw.contactLangs === 'object' && !Array.isArray(raw.contactLangs))
+    ? raw.contactLangs : {};
+  for (const [k, v] of Object.entries(rawLangs)) {
+    const code = String(v || '').trim();
+    if (k && /^[a-z-]{2,10}$/i.test(code)) clean.contactLangs[String(k)] = code;
+  }
 
   return clean;
 }
@@ -1942,6 +1953,71 @@ function registerIpc() {
 
   ipcMain.handle('cancel-scheduled', async (_event, id) => {
     return cancelScheduled(String(id || ''));
+  });
+
+  /* Make a pending/failed item due right now so the renderer's runner sends it
+     on the next (immediately-kicked) tick. */
+  ipcMain.handle('send-scheduled-now', async (_event, id) => {
+    const item = state.store.scheduled.find((row) => row.id === String(id || ''));
+    if (!item) return { ok: false, error: 'not_found' };
+    if (!['pending', 'failed'].includes(item.status)) return { ok: false, error: 'invalid_status' };
+    const nowIso = new Date().toISOString();
+    item.status = 'pending';
+    item.claimedAt = '';
+    item.errorText = '';
+    item.sendAt = nowIso; // due immediately
+    item.updatedAt = nowIso;
+    await saveStore();
+    return { ok: true };
+  });
+
+  /* Postpone a pending/failed item by N minutes from max(now, its time). */
+  ipcMain.handle('snooze-scheduled', async (_event, payload) => {
+    const id = String(payload?.id || '');
+    let minutes = Math.round(Number(payload?.minutes) || 0);
+    if (!Number.isFinite(minutes) || minutes < 1) return { ok: false, error: 'bad_minutes' };
+    minutes = Math.min(minutes, 1440);
+    const item = state.store.scheduled.find((row) => row.id === id);
+    if (!item) return { ok: false, error: 'not_found' };
+    if (!['pending', 'failed'].includes(item.status)) return { ok: false, error: 'invalid_status' };
+    const base = Math.max(Date.now(), new Date(item.sendAt).getTime() || 0);
+    const nowIso = new Date().toISOString();
+    item.status = 'pending';
+    item.claimedAt = '';
+    item.errorText = '';
+    item.sendAt = new Date(base + minutes * 60000).toISOString();
+    item.updatedAt = nowIso;
+    await saveStore();
+    return { ok: true, sendAt: item.sendAt };
+  });
+
+  /* Per-contact default outgoing translation language (used by translator bar). */
+  function contactLangKey(accountId, chatName) {
+    return `${accountId}\u0000${chatName}`;
+  }
+  ipcMain.handle('get-contact-lang', async (_event, payload) => {
+    const accountId = String(payload?.accountId || '');
+    const chatName = String(payload?.chatName || '').trim();
+    if (!accountId || !chatName) return { ok: false, lang: '' };
+    const lang = state.store.contactLangs?.[contactLangKey(accountId, chatName)] || '';
+    return { ok: true, lang };
+  });
+  ipcMain.handle('set-contact-lang', async (_event, payload) => {
+    const accountId = String(payload?.accountId || '');
+    const chatName = clampString(String(payload?.chatName || '').trim(), LIMITS.CHAT_NAME);
+    const lang = String(payload?.lang || '').trim().slice(0, 10);
+    if (!accountId || !chatName) return { ok: false };
+    if (!state.store.contactLangs || typeof state.store.contactLangs !== 'object') {
+      state.store.contactLangs = {};
+    }
+    const key = contactLangKey(accountId, chatName);
+    if (lang && /^[a-z-]{2,10}$/i.test(lang)) {
+      state.store.contactLangs[key] = lang;
+    } else {
+      delete state.store.contactLangs[key];
+    }
+    await saveStore();
+    return { ok: true };
   });
 
   /**

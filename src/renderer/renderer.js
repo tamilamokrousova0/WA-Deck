@@ -89,6 +89,7 @@ const els = {
   panel: document.getElementById('panel'),
   closePanel: document.getElementById('close-panel'),
   manualUpdate: document.getElementById('manual-update'),
+  openDataDir: document.getElementById('open-data-dir'),
   themeToggle: document.getElementById('theme-toggle'),
   settingsBack: document.getElementById('settings-back'),
   settingsViewMenu: document.getElementById('settings-view-menu'),
@@ -1911,6 +1912,29 @@ function ensureWebview(account) {
         try {
           const payload = JSON.parse(message.slice('__WADECK_CRM_HOVER__'.length));
           handleCrmHover(account, webview, payload);
+        } catch { /* ignore parse errors */ }
+        return;
+      }
+      if (message.startsWith('__WADECK_GET_LANG__')) {
+        try {
+          const payload = JSON.parse(message.slice('__WADECK_GET_LANG__'.length));
+          const reqId = String(payload.reqId || '').replace(/[^a-zA-Z0-9_]/g, '');
+          const chatName = String(payload.chatId || '');
+          if (!reqId || !chatName) return;
+          window.waDeck.getContactLang({ accountId: account.id, chatName }).then((res) => {
+            const lang = (res && res.ok && res.lang) ? String(res.lang).replace(/[^a-z-]/gi, '').slice(0, 10) : '';
+            safeExecuteInWebview(webview, `if (window.__waDeckLangCb_${reqId}) window.__waDeckLangCb_${reqId}('${lang}');`);
+          }).catch(() => {});
+        } catch { /* ignore parse errors */ }
+        return;
+      }
+      if (message.startsWith('__WADECK_SET_LANG__')) {
+        try {
+          const payload = JSON.parse(message.slice('__WADECK_SET_LANG__'.length));
+          const chatName = String(payload.chatId || '');
+          const lang = String(payload.lang || '');
+          if (!chatName) return;
+          window.waDeck.setContactLang({ accountId: account.id, chatName, lang }).catch(() => {});
         } catch { /* ignore parse errors */ }
         return;
       }
@@ -3742,6 +3766,11 @@ function bindActions() {
   });
 
   els.manualUpdate?.addEventListener('click', () => WaDeckAutoUpdateModule.requestManualUpdate().catch(console.error));
+  els.openDataDir?.addEventListener('click', () => {
+    window.waDeck.openDataDir()
+      .then(() => setStatus('Открыта папка данных'))
+      .catch((e) => { console.error(e); setStatus('Не удалось открыть папку данных'); });
+  });
   els.brandHub?.addEventListener('click', () => {
     playBrandClickAnimation();
     openHubMode();
@@ -3891,6 +3920,14 @@ function bindActions() {
   els.pickAttachments?.addEventListener('click', () => WaDeckScheduleModule.pickAttachments().catch(console.error));
   els.clearAttachments?.addEventListener('click', WaDeckScheduleModule.clearAttachments);
   els.openChatPicker?.addEventListener('click', () => WaDeckScheduleModule.openChatPicker().catch(console.error));
+
+  /* Quick-time buttons under "Время отправки": set send time to now + N min. */
+  document.getElementById('schedule-quick-row')?.addEventListener('click', (event) => {
+    const btn = event.target.closest('[data-quick-min]');
+    if (!btn || !els.scheduleAt) return;
+    const minutes = Number(btn.dataset.quickMin) || 0;
+    els.scheduleAt.value = nextSendAtLocal(minutes);
+  });
 
   /* ── Schedule: toolbar "Отложенные" opens the settings → Schedule drawer,
      consistent with Templates. The old floating popover was removed. ── */
