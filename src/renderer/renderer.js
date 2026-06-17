@@ -2,6 +2,11 @@
 window.addEventListener('error', (e) => console.error('[renderer] error:', e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => console.error('[renderer] unhandled rejection:', e.reason));
 
+/* Per-session token shared with injected webview scripts. Console-message
+   markers are only trusted when prefixed with this token, so page JS inside
+   WhatsApp Web cannot spoof bridge messages to the host. */
+const WADECK_WV_TOKEN = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+
 /* Encode UTF-8 string to base64 — used by webview inject scripts (insert-text) */
 function encodeBase64Utf8(str) {
   const bytes = new TextEncoder().encode(String(str || ''));
@@ -52,7 +57,7 @@ const state = {
   unreadPollBusy: false,
   zoomByAccount: new Map(),
   _hubClockTimer: null,
-  hubFilter: 'all', // 'all' | 'unread' | 'online'
+  hubFilter: 'all', // 'all' | 'unread' | 'favorites' | 'important'
   hubPendingCount: 0,
 };
 
@@ -108,11 +113,6 @@ const els = {
   settingCrmHoverEnabled: document.getElementById('setting-crm-hover-enabled'),
   settingHibernateMinutes: document.getElementById('setting-hibernate-minutes'),
   templateSelect: document.getElementById('template-select'),
-  templateSearch: document.getElementById('template-search'),
-  templateSearchRow: document.getElementById('template-search-row'),
-  templateSearchInput: document.getElementById('template-search-input'),
-  templateSearchResultsRow: document.getElementById('template-search-results-row'),
-  templateSearchResults: document.getElementById('template-search-results'),
   templateTitle: document.getElementById('template-title'),
   templateCategory: document.getElementById('template-category'),
   templateCategoryList: document.getElementById('template-category-list'),
@@ -205,25 +205,17 @@ const els = {
 
   toolbarClock: document.getElementById('toolbar-clock'),
   toolbarClockTime: document.getElementById('toolbar-clock-time'),
-  toolbarClockZones: document.getElementById('toolbar-clock-zones'),
-  toolbarClockPopover: document.getElementById('toolbar-clock-popover'),
 
   openTemplateQuick: document.getElementById('open-template-quick'),
   openScheduleToolbar: document.getElementById('open-schedule-toolbar'),
-  schedulePopover: document.getElementById('schedule-popover'),
-  schedulePopoverClose: document.getElementById('schedule-popover-close'),
-  spCreateDetails: document.getElementById('sp-create-details'),
-  spAccount: document.getElementById('sp-account'),
-  spChat: document.getElementById('sp-chat'),
-  spText: document.getElementById('sp-text'),
-  spAt: document.getElementById('sp-at'),
-  spPickAttachments: document.getElementById('sp-pick-attachments'),
-  spClearAttachments: document.getElementById('sp-clear-attachments'),
-  spAttachmentsList: document.getElementById('sp-attachments-list'),
-  spCreate: document.getElementById('sp-create'),
-  spList: document.getElementById('sp-list'),
-  spListSummary: document.getElementById('sp-list-summary'),
   sendVoiceMsg: document.getElementById('send-voice-msg'),
+
+  favStrip: document.getElementById('fav-strip'),
+  hubFav: document.getElementById('hub-fav'),
+  crmFavToggle: document.getElementById('crm-fav-toggle'),
+  impStrip: document.getElementById('imp-strip'),
+  hubImp: document.getElementById('hub-imp'),
+  crmImpToggle: document.getElementById('crm-imp-toggle'),
 };
 
 let templateController = null;
@@ -268,26 +260,38 @@ function resetPasswordFieldVisibility(inputEl, toggleBtn) {
 }
 
 let _statusClearTimer = null;
-function setStatus(text) {
+/* Notification routing: final RESULTS (saved/deleted/errors) go to a toast
+   only; transient PROCESS messages ("loading...") go to the status zone only.
+   Previously both fired for results, producing duplicate notifications. */
+function setStatusZone(text) {
   const safeText = String(text || '');
   if (els.status) {
     els.status.textContent = safeText;
     els.status.title = safeText;
     els.status.classList.toggle('hidden', !safeText);
   }
-  const lower = safeText.toLowerCase();
-  const isError = lower.includes('ошибка') || lower.includes('не удалось') || lower.includes('неверн');
-  if (lower.includes('сохранен') || lower.includes('скопирован') || lower.includes('удален') || lower.includes('разморожен')) {
-    showToast(text, 'success');
-  } else if (isError) {
-    showToast(text, 'error', 5000);
-  }
   if (_statusClearTimer) { clearTimeout(_statusClearTimer); _statusClearTimer = null; }
-  if (safeText && !isError) {
+  if (safeText) {
     _statusClearTimer = setTimeout(() => {
       if (els.status) { els.status.textContent = ''; els.status.classList.add('hidden'); }
     }, 3000);
   }
+}
+
+function setStatus(text) {
+  const safeText = String(text || '');
+  const lower = safeText.toLowerCase();
+  const isError = lower.includes('ошибка') || lower.includes('не удалось') || lower.includes('неверн');
+  if (isError) {
+    showToast(safeText, 'error', 5000);
+    return;
+  }
+  const isResult = /сохранен|сохранён|скопирован|удален|удалён|разморожен|запланирован|отменен|отменён|вставлен|отправлено|обновлен|обновлён|сброшен|закреплён|откреплён/.test(lower);
+  if (isResult) {
+    showToast(safeText, 'success');
+    return;
+  }
+  setStatusZone(safeText);
 }
 
 function showToast(text, type, duration) {
@@ -321,7 +325,10 @@ function closeModalAnimated(modalEl) {
 
 // ── Confirm модал ──
 let _confirmResolve = null;
-function showConfirm(title, message, okText) {
+function showConfirm(title, message, okText, options = {}) {
+  // `danger: true` keeps the red destructive button (deletions); the default
+  // is a neutral primary button for non-destructive confirmations.
+  const danger = Boolean(options.danger);
   // Resolve any pending confirm as false to prevent promise leaks
   if (_confirmResolve) {
     _confirmResolve(false);
@@ -331,7 +338,11 @@ function showConfirm(title, message, okText) {
     _confirmResolve = resolve;
     if (els.confirmTitle) els.confirmTitle.textContent = title || 'Подтверждение';
     if (els.confirmMessage) els.confirmMessage.textContent = message || '';
-    if (els.confirmOk) els.confirmOk.textContent = okText || 'OK';
+    if (els.confirmOk) {
+      els.confirmOk.textContent = okText || 'OK';
+      els.confirmOk.classList.toggle('btn-danger', danger);
+      els.confirmOk.classList.toggle('btn-primary', !danger);
+    }
     if (els.confirmModal) {
       els.confirmModal.classList.remove('hidden');
       els.confirmModal.setAttribute('role', 'dialog');
@@ -1006,8 +1017,11 @@ function renderAccounts() {
       }
     });
 
-    // Lovable-style: whole card is colored, icon/initials inside
+    // Lovable-style: whole card is colored, icon/initials inside.
+    // --tile carries the raw user color so the opt-in "calm tiles" CSS
+    // (html[data-tile-normalize]) can re-blend it without losing the hue.
     card.style.background = account.color;
+    card.style.setProperty('--tile', account.color || '#8a93a6');
     if (account.iconUrl) {
       card.style.backgroundImage = `url(${account.iconUrl})`;
       card.style.backgroundSize = 'cover';
@@ -1055,7 +1069,7 @@ function renderAccounts() {
       const pinTag = document.createElement('div');
       pinTag.className = 'account-pin-tag';
       pinTag.title = 'Закреплён в хабе';
-      pinTag.textContent = '★';
+      pinTag.innerHTML = '<svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>';
       card.appendChild(pinTag);
     }
 
@@ -1115,6 +1129,9 @@ function renderAccounts() {
   els.accountsList.appendChild(fragment);
   updateActiveAccountDisplay();
   updateSidebarScrollControls();
+  // Repaint the favorites toolbar strip (account colors/names may have changed).
+  if (window.WaDeckFavoritesModule) window.WaDeckFavoritesModule.renderFavStrip();
+  if (window.WaDeckImportantModule) window.WaDeckImportantModule.renderImpStrip();
 }
 
 function updateSidebarScrollControls() {
@@ -1143,8 +1160,9 @@ function scrollAccountsList(direction) {
 // existing lucide-style iconography.
 const CM_ICON = {
   refresh: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>',
-  star: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
-  starFilled: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
+  // Pin (not star): the star glyph is reserved for favourites/important.
+  pin: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>',
+  pinFilled: '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>',
   snowflake: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M6.2 6.2l11.6 11.6M17.8 6.2L6.2 17.8M2 12h20M5 9l3 3-3 3M19 9l-3 3 3 3M9 5l3 3 3-3M9 19l3-3 3 3"/></svg>',
   settings: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
   trash: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
@@ -1171,7 +1189,7 @@ function showAccountContextMenu(event, accountOrId) {
     { label: 'Обновить', icon: CM_ICON.refresh, action: () => { setActiveAccount(account.id); requestAnimationFrame(() => refreshActiveWebview()); } },
     {
       label: account.pinned ? 'Открепить' : 'Закрепить',
-      icon: account.pinned ? CM_ICON.starFilled : CM_ICON.star,
+      icon: account.pinned ? CM_ICON.pinFilled : CM_ICON.pin,
       iconClass: account.pinned ? 'is-on' : '',
       action: () => { setAccountPinnedState(account.id, !account.pinned).catch(console.error); },
     },
@@ -1240,7 +1258,9 @@ function showAccountContextMenu(event, accountOrId) {
     if (!menu.contains(e.target)) closeAccountContextMenu();
   };
   const closeOnEsc = (e) => {
-    if (e.key === 'Escape') closeAccountContextMenu();
+    // preventDefault so the global Escape handler treats this press as
+    // consumed and does not also close the next UI layer underneath.
+    if (e.key === 'Escape') { e.preventDefault(); closeAccountContextMenu(); }
   };
   document.addEventListener('click', closeOnClick, { capture: true });
   document.addEventListener('keydown', closeOnEsc);
@@ -1259,19 +1279,13 @@ function closeAccountContextMenu() {
 }
 
 // ── Toolbar Clock tooltip ──
-// We build a fresh tooltip element in document.body from scratch (and
-// discard the legacy #toolbar-clock-popover) because:
-//   1. Electron's <webview> paints on a compositor layer above normal DOM,
-//      so a popover nested in the toolbar gets hidden by the chat view.
-//   2. The legacy element inherited `right: 0` plus other rules that made
-//      it stretch to full viewport width when we promoted it to fixed
-//      positioning. Rebuilding guarantees a clean slate.
+// We build a fresh tooltip element in document.body from scratch because
+// Electron's <webview> paints on a compositor layer above normal DOM,
+// so a popover nested in the toolbar gets hidden by the chat view.
 // The tooltip uses fully inline styles so no cascading rule can widen it.
 (function setupClockTooltip() {
   const clock = document.getElementById('toolbar-clock');
   if (!clock) return;
-  const legacy = document.getElementById('toolbar-clock-popover');
-  if (legacy) legacy.remove();
 
   const tooltip = document.createElement('div');
   tooltip.id = 'clock-tooltip';
@@ -1447,6 +1461,9 @@ const HUB_MOTIVATION_PHRASES = [
   'Усталость — цена, деньги — награда 🎁',
 ];
 
+// Hour-bucket cache for the motivational hub title (see updateHubGreeting).
+let _hubMotivationCache = { bucket: '', phrase: '' };
+
 function updateHubGreeting() {
   const el = document.getElementById('hub-greeting');
   if (!el) return;
@@ -1472,65 +1489,25 @@ function updateHubGreeting() {
   el.append(iconSpan, textSpan, dateSpan);
 
   // Motivational hub-title swap — active 23:00–08:59, plain "WA Deck" otherwise.
+  // The phrase is cached per hour bucket: updateHubDashboard() runs every few
+  // seconds, and re-rolling the phrase each time made the title flicker.
   const titleEl = document.getElementById('hub-title');
   if (titleEl) {
     const offHours = h < 9 || h >= 23;
     if (offHours) {
-      const phrase = HUB_MOTIVATION_PHRASES[Math.floor(Math.random() * HUB_MOTIVATION_PHRASES.length)];
-      titleEl.textContent = phrase;
+      const bucket = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${h}`;
+      if (_hubMotivationCache.bucket !== bucket || !_hubMotivationCache.phrase) {
+        _hubMotivationCache = {
+          bucket,
+          phrase: HUB_MOTIVATION_PHRASES[Math.floor(Math.random() * HUB_MOTIVATION_PHRASES.length)],
+        };
+      }
+      titleEl.textContent = _hubMotivationCache.phrase;
       titleEl.classList.add('hub-title--motivation');
     } else {
       titleEl.textContent = 'WA Deck';
       titleEl.classList.remove('hub-title--motivation');
     }
-  }
-}
-
-function updateHubMetrics() {
-  // Metrics row was removed from the hub per UX feedback (it hogged space
-  // without adding signal). Keep the function as a no-op so callers don't
-  // need to branch. If the element is still present in some shell build,
-  // clear it so nothing stale lingers.
-  const el = document.getElementById('hub-metrics');
-  if (el) el.innerHTML = '';
-  return;
-  // eslint-disable-next-line no-unreachable
-  if (!el) return;
-  let totalUnread = 0;
-  for (const n of state.unreadByAccount.values()) totalUnread += Number(n || 0);
-  const accounts = state.accounts || [];
-  const online = accounts.filter((a) => {
-    if (a.frozen) return false;
-    const wv = state.webviews.get(a.id);
-    return wv && wv.dataset && wv.dataset.waReady === '1';
-  }).length;
-  const total = accounts.length;
-  const withUnread = accounts.filter((a) => Number(state.unreadByAccount.get(a.id) || 0) > 0).length;
-  const pending = state.hubPendingCount || 0;
-
-  const metrics = [
-    { label: 'Непрочитанных', val: String(totalUnread), sub: totalUnread > 0 ? (withUnread + ' чат.') : 'нет новых', c: 'rose' },
-    { label: 'Чаты с непрочитанными', val: String(withUnread), sub: total ? (withUnread + '/' + total) : '—', c: 'warn' },
-    { label: 'Отложено', val: String(pending), sub: pending > 0 ? 'в очереди' : 'пусто', c: 'accent' },
-    { label: 'Активных аккаунтов', val: online + '/' + total, sub: online === total && total > 0 ? 'все онлайн' : (online > 0 ? 'онлайн' : '—'), c: 'blue' },
-  ];
-  el.innerHTML = '';
-  for (const m of metrics) {
-    const card = document.createElement('div');
-    card.className = 'hub-metric hub-metric-' + m.c;
-    const bar = document.createElement('span');
-    bar.className = 'hub-metric-bar';
-    const label = document.createElement('div');
-    label.className = 'hub-metric-label';
-    label.textContent = m.label;
-    const val = document.createElement('div');
-    val.className = 'hub-metric-val';
-    val.textContent = m.val;
-    const sub = document.createElement('div');
-    sub.className = 'hub-metric-sub';
-    sub.textContent = m.sub;
-    card.append(bar, label, val, sub);
-    el.appendChild(card);
   }
 }
 
@@ -1540,7 +1517,8 @@ function updateHubFilters() {
   const filters = [
     { id: 'all', label: 'Все', hint: 'Все аккаунты' },
     { id: 'unread', label: 'Непрочитанные', hint: 'Только аккаунты с новыми сообщениями' },
-    { id: 'online', label: 'Онлайн', hint: 'Только подключённые (не замороженные) аккаунты' },
+    { id: 'favorites', label: 'Избранные', hint: 'Только аккаунты с избранными контактами' },
+    { id: 'important', label: 'Важные', hint: 'Только аккаунты с важными контактами' },
   ];
   el.innerHTML = '';
   for (const f of filters) {
@@ -1563,12 +1541,17 @@ function filteredHubAccounts() {
   if (state.hubFilter === 'unread') {
     return all.filter((a) => Number(state.unreadByAccount.get(a.id) || 0) > 0);
   }
-  if (state.hubFilter === 'online') {
-    return all.filter((a) => {
-      if (a.frozen) return false;
-      const wv = state.webviews.get(a.id);
-      return wv && wv.dataset && wv.dataset.waReady === '1';
-    });
+  if (state.hubFilter === 'favorites') {
+    const favIds = window.WaDeckFavoritesModule
+      ? window.WaDeckFavoritesModule.favoriteAccountIds()
+      : new Set();
+    return all.filter((a) => favIds.has(a.id));
+  }
+  if (state.hubFilter === 'important') {
+    const impIds = window.WaDeckImportantModule
+      ? window.WaDeckImportantModule.importantAccountIds()
+      : new Set();
+    return all.filter((a) => impIds.has(a.id));
   }
   return all;
 }
@@ -1579,15 +1562,16 @@ async function updateHubDashboard() {
   updateHubClocks();
   updateHubGreeting();
 
-  // pending scheduled count (used by metrics)
+  // pending scheduled count (kept in state for the toolbar indicator)
   try {
     const res = await window.waDeck.listScheduled({ limit: 50 });
     const pending = Array.isArray(res?.items) ? res.items.filter((i) => i.status === 'pending') : [];
     state.hubPendingCount = pending.length;
   } catch { /* ignore */ }
 
-  updateHubMetrics();
   updateHubFilters();
+  if (window.WaDeckFavoritesModule) window.WaDeckFavoritesModule.renderHubFav();
+  if (window.WaDeckImportantModule) window.WaDeckImportantModule.renderHubImp();
 
   const countEl = document.getElementById('hub-accts-count');
   if (countEl) countEl.textContent = state.accounts.length ? String(state.accounts.length) : '';
@@ -1618,6 +1602,7 @@ async function updateHubDashboard() {
     const avWrap = document.createElement('div');
     avWrap.className = 'hub-acct-av';
     avWrap.style.background = account.color || 'var(--bg-3)';
+    avWrap.style.setProperty('--tile', account.color || '#8a93a6');
     const labelText = (account.name || '').split(' ')[0].slice(0, 2).toUpperCase() || (account.type === 'telegram' ? 'TG' : 'WA');
     avWrap.textContent = labelText;
     if (account.frozen) {
@@ -1661,11 +1646,11 @@ async function updateHubDashboard() {
     }
 
     if (isPinned) {
-      const star = document.createElement('span');
-      star.className = 'hub-acct-pin-star';
-      star.textContent = '★';
-      star.title = 'Закреплён';
-      card.appendChild(star);
+      const pin = document.createElement('span');
+      pin.className = 'hub-acct-pin-star';
+      pin.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>';
+      pin.title = 'Закреплён';
+      card.appendChild(pin);
     }
 
     info.append(row1, preview, row3);
@@ -1722,6 +1707,7 @@ async function updateHubDashboard() {
 
   actions.append(addWaBtn, addTgBtn, settingsBtn);
   actionsHost.appendChild(actions);
+
 }
 
 function cleanupWebview(webview) {
@@ -1803,7 +1789,7 @@ function ensureWebview(account) {
     // IIFE on top of an already-alive one (when WhatsApp does an internal reload
     // that preserves context), duplicating the bar.
     if (isWhatsApp && isTranslatorEnabled() && typeof translatorBarScript === 'function') {
-      webview.executeJavaScript(translatorBarScript(), true)
+      webview.executeJavaScript(translatorBarScript(WADECK_WV_TOKEN), true)
         .catch((e) => console.warn('[translator-reload]', e));
     }
   };
@@ -1853,14 +1839,14 @@ function ensureWebview(account) {
       }
 
       webview
-        .executeJavaScript(bridgeScript(), true)
+        .executeJavaScript(bridgeScript(WADECK_WV_TOKEN), true)
         .catch((e) => console.warn('[bridge]', e));
 
       if (isCrmHoverEnabled() && typeof crmHoverBridgeScript === 'function') {
-        webview.executeJavaScript(crmHoverBridgeScript(), true).catch((e) => console.warn('[crm-hover]', e));
+        webview.executeJavaScript(crmHoverBridgeScript(WADECK_WV_TOKEN), true).catch((e) => console.warn('[crm-hover]', e));
       }
       if (isTranslatorEnabled() && typeof translatorBarScript === 'function') {
-        webview.executeJavaScript(translatorBarScript(), true).catch((e) => console.warn('[translator]', e));
+        webview.executeJavaScript(translatorBarScript(WADECK_WV_TOKEN), true).catch((e) => console.warn('[translator]', e));
       }
     }
 
@@ -1885,14 +1871,14 @@ function ensureWebview(account) {
     }
 
     webview
-      .executeJavaScript(bridgeScript(), true)
+      .executeJavaScript(bridgeScript(WADECK_WV_TOKEN), true)
       .catch((e) => console.warn('[bridge]', e));
 
     if (isCrmHoverEnabled() && typeof crmHoverBridgeScript === 'function') {
-      webview.executeJavaScript(crmHoverBridgeScript(), true).catch((e) => console.warn('[crm-hover]', e));
+      webview.executeJavaScript(crmHoverBridgeScript(WADECK_WV_TOKEN), true).catch((e) => console.warn('[crm-hover]', e));
     }
     if (isTranslatorEnabled() && typeof translatorBarScript === 'function') {
-      webview.executeJavaScript(translatorBarScript(), true).catch((e) => console.warn('[translator]', e));
+      webview.executeJavaScript(translatorBarScript(WADECK_WV_TOKEN), true).catch((e) => console.warn('[translator]', e));
     }
 
     // Debounced status update — prevents excessive re-renders on SPA navigation
@@ -1906,52 +1892,58 @@ function ensureWebview(account) {
 
   let onConsoleMessage = null;
   if (isWhatsApp) {
+    // Marker format: __WADECK_X__<token>:<json>. Messages with a missing or
+    // foreign token (incl. the legacy token-less format) are silently ignored.
+    const P_CRM_HOVER = '__WADECK_CRM_HOVER__' + WADECK_WV_TOKEN + ':';
+    const P_GET_LANG = '__WADECK_GET_LANG__' + WADECK_WV_TOKEN + ':';
+    const P_SET_LANG = '__WADECK_SET_LANG__' + WADECK_WV_TOKEN + ':';
+    const P_TRANSLATE_MSG = '__WADECK_TRANSLATE_MSG__' + WADECK_WV_TOKEN + ':';
+    const P_TRANSLATE = '__WADECK_TRANSLATE__' + WADECK_WV_TOKEN + ':';
+    const P_HEALTH = '__WADECK_HEALTH__' + WADECK_WV_TOKEN + ':';
     onConsoleMessage = (event) => {
       const message = String(event?.message || '');
-      if (message.startsWith('__WADECK_CRM_HOVER__')) {
+      // Always resolve the FRESH account object: the closure-captured one goes
+      // stale after rename (old name would leak into CRM lookups/saves).
+      const acc = currentAccount();
+      if (message.startsWith(P_CRM_HOVER)) {
         try {
-          const payload = JSON.parse(message.slice('__WADECK_CRM_HOVER__'.length));
-          handleCrmHover(account, webview, payload);
+          const payload = JSON.parse(message.slice(P_CRM_HOVER.length));
+          handleCrmHover(acc, webview, payload);
         } catch { /* ignore parse errors */ }
         return;
       }
-      if (message.startsWith('__WADECK_GET_LANG__')) {
+      if (message.startsWith(P_GET_LANG)) {
         try {
-          const payload = JSON.parse(message.slice('__WADECK_GET_LANG__'.length));
+          const payload = JSON.parse(message.slice(P_GET_LANG.length));
           const reqId = String(payload.reqId || '').replace(/[^a-zA-Z0-9_]/g, '');
           const chatName = String(payload.chatId || '');
           if (!reqId || !chatName) return;
-          window.waDeck.getContactLang({ accountId: account.id, chatName }).then((res) => {
+          window.waDeck.getContactLang({ accountId: acc.id, chatName }).then((res) => {
             const lang = (res && res.ok && res.lang) ? String(res.lang).replace(/[^a-z-]/gi, '').slice(0, 10) : '';
             safeExecuteInWebview(webview, `if (window.__waDeckLangCb_${reqId}) window.__waDeckLangCb_${reqId}('${lang}');`);
           }).catch(() => {});
         } catch { /* ignore parse errors */ }
         return;
       }
-      if (message.startsWith('__WADECK_SET_LANG__')) {
+      if (message.startsWith(P_SET_LANG)) {
         try {
-          const payload = JSON.parse(message.slice('__WADECK_SET_LANG__'.length));
+          const payload = JSON.parse(message.slice(P_SET_LANG.length));
           const chatName = String(payload.chatId || '');
           const lang = String(payload.lang || '');
           if (!chatName) return;
-          window.waDeck.setContactLang({ accountId: account.id, chatName, lang }).catch(() => {});
+          window.waDeck.setContactLang({ accountId: acc.id, chatName, lang }).catch(() => {});
         } catch { /* ignore parse errors */ }
         return;
       }
-      if (message.startsWith('__WADECK_TRANSLATE_MSG__')) {
+      if (message.startsWith(P_TRANSLATE_MSG)) {
         try {
-          const payload = JSON.parse(message.slice('__WADECK_TRANSLATE_MSG__'.length));
+          const payload = JSON.parse(message.slice(P_TRANSLATE_MSG.length));
           const reqId = String(payload.reqId || '').replace(/[^a-zA-Z0-9_]/g, '');
           if (!reqId) return;
           const cbName = '__waDeckTrCb_' + reqId;
           const finish = (result) => {
             const ok = Boolean(result?.ok && result.translated);
-            const translated = ok ? String(result.translated) : '';
-            const escaped = translated
-              .replace(/\\/g, '\\\\')
-              .replace(/'/g, "\\'")
-              .replace(/\n/g, '\\n')
-              .replace(/\r/g, '');
+            const escaped = ok ? escapeForJsSingleQuoted(result.translated) : '';
             const script = ok
               ? `if (window.${cbName}) window.${cbName}({ ok: true, translated: '${escaped}' });`
               : `if (window.${cbName}) window.${cbName}({ ok: false });`;
@@ -1965,21 +1957,25 @@ function ensureWebview(account) {
         } catch { /* ignore parse errors */ }
         return;
       }
-      if (message.startsWith('__WADECK_TRANSLATE__')) {
+      if (message.startsWith(P_TRANSLATE)) {
         try {
-          const payload = JSON.parse(message.slice('__WADECK_TRANSLATE__'.length));
+          const payload = JSON.parse(message.slice(P_TRANSLATE.length));
           window.waDeck.translateText(payload).then((result) => {
             if (result?.ok && result.translated) {
-              const escaped = result.translated
-                .replace(/\\/g, '\\\\')
-                .replace(/'/g, "\\'")
-                .replace(/\n/g, '\\n');
+              const escaped = escapeForJsSingleQuoted(result.translated);
               safeExecuteInWebview(
                 webview,
                 `window.__waDeckInsertTranslation('${escaped}');`
               );
             }
           }).catch(() => {});
+        } catch { /* ignore parse errors */ }
+        return;
+      }
+      if (message.startsWith(P_HEALTH)) {
+        try {
+          const payload = JSON.parse(message.slice(P_HEALTH.length));
+          console.warn('[wadeck-health]', acc.id, payload);
         } catch { /* ignore parse errors */ }
         return;
       }
@@ -2001,6 +1997,20 @@ function ensureWebview(account) {
 
 function isWebviewReady(webview) {
   return Boolean(webview && webview.isConnected && webview.dataset?.waReady === '1');
+}
+
+/* Escape arbitrary text for interpolation inside a single-quoted JS string
+   passed to executeJavaScript. Besides backslash/quote/newline, CR and the
+   U+2028/U+2029 line separators must be escaped — a raw one inside a string
+   literal is a SyntaxError, which silently killed translation callbacks. */
+function escapeForJsSingleQuoted(text) {
+  return String(text || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
 }
 
 function safeExecuteInWebview(webview, script, userGesture = true) {
@@ -2176,26 +2186,64 @@ function openHubMode() {
 }
 
 function handleEscapeUiReset() {
-  // Close floating Tweaks popover first if open — it's the most shallow UI
+  // Escape closes ONLY the topmost UI layer per press (stack order below).
+  const isOpen = (el) => Boolean(el && !el.classList.contains('hidden') && !el.classList.contains('is-closing'));
+
+  // 1. Floating Tweaks popover — the most shallow UI
   const tweaksPanel = document.getElementById('tweaks-panel');
-  if (tweaksPanel && !tweaksPanel.classList.contains('hidden')) {
+  if (isOpen(tweaksPanel)) {
     toggleTweaksPopover(false);
     return;
   }
-  WaDeckWeatherModule.closeWeatherPopover();
-  WaDeckScheduleModule.closeChatPicker();
-  // If a settings section is open, Escape goes back to the menu first.
-  // Only a second Escape closes the whole panel.
+  // 2. Open context menus (account / refresh)
+  if (document.getElementById('account-context-menu')) {
+    closeAccountContextMenu();
+    return;
+  }
+  // 3. Confirm modal — cancels the pending action
+  if (isOpen(els.confirmModal)) {
+    closeConfirm(false);
+    return;
+  }
+  // 4. Chat picker
+  if (isOpen(els.chatPickerModal)) {
+    WaDeckScheduleModule.closeChatPicker();
+    return;
+  }
+  // 5. Account management modal
+  if (isOpen(els.accountMenuModal)) {
+    closeAccountMenu();
+    return;
+  }
+  // 6. Release notes / update modals
+  if (isOpen(els.releaseNotesModal)) {
+    WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(console.error);
+    return;
+  }
+  if (isOpen(els.updateAvailableModal)) {
+    WaDeckAutoUpdateModule.closeUpdateModal();
+    return;
+  }
+  // 7. Inline template edit form (lives inside the settings panel)
+  const tmplEditWrap = document.getElementById('tmpl-edit-wrap');
+  if (!state.panelHidden && isOpen(tmplEditWrap)) {
+    if (typeof window._hideTemplateEditForm === 'function') window._hideTemplateEditForm();
+    return;
+  }
+  // 8. CRM modal
+  if (isOpen(els.crmModal)) {
+    WaDeckCrmModule.closeCrmModal();
+    return;
+  }
+  // 9. Settings: open section goes back to the menu first…
   if (!state.panelHidden && state._openSettingsSection) {
     showSettingsMenu();
-  } else {
+    return;
+  }
+  // 10. …and only then the panel itself closes
+  if (!state.panelHidden) {
     closeSettingsPanel();
   }
-  if (els.releaseNotesModal && !els.releaseNotesModal.classList.contains('hidden')) {
-    WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(console.error);
-  }
-  WaDeckCrmModule.closeCrmModal();
-  closeAccountMenu();
 }
 
 let _switchingAccount = false;
@@ -2294,9 +2342,11 @@ function getHibernateMinutes() {
 function applySettingsToForm(options = {}) {
   const { renderWeather = false } = options;
   state.settings.uiTheme = normalizeTheme(state.settings.uiTheme);
+  state.settings.uiTiles = normalizeTileMode(state.settings.uiTiles);
   state.settings.weatherCity = WaDeckWeatherModule.normalizeWeatherCity(state.settings.weatherCity);
   state.settings.weatherUnit = WaDeckWeatherModule.normalizeWeatherUnit(state.settings.weatherUnit);
   applyTheme(state.settings.uiTheme);
+  applyTileMode(state.settings.uiTiles);
   if (els.weatherCityInput) {
     els.weatherCityInput.value = state.settings.weatherCity;
   }
@@ -2325,9 +2375,6 @@ function applySettingsToForm(options = {}) {
   if (typeof refreshSettingsMenuSubtitles === 'function') {
     refreshSettingsMenuSubtitles();
   }
-  // Apply Tweaks (scene/density) to <html> so CSS can react
-  applyScene(state.settings.uiScene);
-  applyDensity(state.settings.uiDensity);
   refreshTweakPills();
 }
 
@@ -2350,7 +2397,7 @@ function applyTranslatorToggleToAllWebviews(enabled) {
           true,
         ).catch(() => {});
         if (typeof translatorBarScript === 'function') {
-          wv.executeJavaScript(translatorBarScript(), true).catch(() => {});
+          wv.executeJavaScript(translatorBarScript(WADECK_WV_TOKEN), true).catch(() => {});
         }
       } else {
         wv.executeJavaScript(
@@ -2401,6 +2448,8 @@ function openSettingsPanel() {
 
 function closeSettingsPanel() {
   state.panelHidden = true;
+  // Closing the panel always leaves schedule edit mode (if any)
+  WaDeckScheduleModule.cancelScheduleEditMode?.();
   updatePanelVisibility();
   els.togglePanel?.classList.remove('is-active');
   refreshTweaksFabVisibility();
@@ -2435,34 +2484,40 @@ const SETTINGS_SECTION_TITLES = {
   weather: 'Погода',
 };
 
-/* ── Tweaks (theme / scene / density pills) ─────────────────── */
-
-const VALID_SCENES = ['night', 'day', 'rain', 'space', 'minimal'];
-const VALID_DENSITY = ['compact', 'cozy', 'spacious'];
-
-function applyScene(scene) {
-  const s = VALID_SCENES.includes(String(scene)) ? scene : 'night';
-  document.documentElement.setAttribute('data-scene', s);
-}
-function applyDensity(density) {
-  const d = VALID_DENSITY.includes(String(density)) ? density : 'compact';
-  document.documentElement.setAttribute('data-density', d);
-}
+/* ── Tweaks (theme pills) ─────────────────────────────────────
+   Scene/density pickers were removed from the Tweaks UI (theme only now).
+   Stored uiScene/uiDensity values are still applied once at startup (see
+   init) so existing installs keep their exact look; there is no UI to
+   change them anymore. */
 
 function refreshTweakPills() {
   const theme = normalizeTheme(state.settings?.uiTheme || 'dark');
-  const scene = VALID_SCENES.includes(state.settings?.uiScene) ? state.settings.uiScene : 'night';
-
   document.querySelectorAll('.tweak-pill[data-theme]').forEach((el) => {
     el.classList.toggle('is-active', el.getAttribute('data-theme') === theme);
   });
-  document.querySelectorAll('.tweak-pill[data-scene]').forEach((el) => {
-    el.classList.toggle('is-active', el.getAttribute('data-scene') === scene);
+  const tiles = normalizeTileMode(state.settings?.uiTiles);
+  document.querySelectorAll('.tweak-pill[data-tiles]').forEach((el) => {
+    el.classList.toggle('is-active', el.getAttribute('data-tiles') === tiles);
   });
+}
+
+/* "Calm tiles" — opt-in normalization of user-picked account colors:
+   the hue stays (spatial memory works), luminance is ours (badges and
+   state rings stay readable on any color). Default is raw colors. */
+function normalizeTileMode(value) {
+  return String(value || '').toLowerCase() === 'calm' ? 'calm' : 'raw';
+}
+
+function applyTileMode(mode) {
+  document.documentElement.toggleAttribute('data-tile-normalize', normalizeTileMode(mode) === 'calm');
 }
 
 function showSettingsMenu() {
   if (!els.settingsViewMenu || !els.settingsViewDetail) return;
+  // Leaving the schedule section cancels a pending edit (if any)
+  if (state._openSettingsSection === 'schedule') {
+    WaDeckScheduleModule.cancelScheduleEditMode?.();
+  }
   els.settingsViewDetail.classList.add('hidden');
   els.settingsViewMenu.classList.remove('hidden');
   els.settingsViewMenu.setAttribute('data-dir', 'back');
@@ -2481,6 +2536,10 @@ function showSettingsSection(key) {
   if (!els.settingsViewMenu || !els.settingsViewDetail) return;
   const section = els.settingsViewDetail.querySelector(`.settings-section[data-settings-section="${CSS.escape(key)}"]`);
   if (!section) return;
+  // Switching away from the schedule section cancels a pending edit
+  if (state._openSettingsSection === 'schedule' && key !== 'schedule') {
+    WaDeckScheduleModule.cancelScheduleEditMode?.();
+  }
   els.settingsViewDetail.querySelectorAll('.settings-section').forEach((s) => s.classList.remove('active'));
   section.classList.add('active');
   els.settingsViewMenu.classList.add('hidden');
@@ -2623,6 +2682,7 @@ function renderTemplatesLibrary() {
         'Удаление шаблона',
         `Удалить «${tpl.title || 'Без названия'}»?`,
         'Удалить',
+        { danger: true },
       );
       if (!accepted) return;
       const response = await window.waDeck.deleteTemplate(tpl.id);
@@ -2749,7 +2809,6 @@ function refreshSettingsMenuSubtitles() {
       const c = isCrmHoverEnabled() ? 'CRM hover вкл' : 'CRM hover выкл';
       return `${t} · ${c}`;
     },
-    hotkeys: () => '⌘K · ⌘N · ⌘T · ⌘,',
     notifications: () => 'по аккаунтам',
   };
 
@@ -3174,8 +3233,10 @@ async function saveSettings() {
     worldClocks: state.settings?.worldClocks || [],
     translatorEnabled: state.settings?.translatorEnabled !== false,
     crmHoverEnabled: state.settings?.crmHoverEnabled !== false,
-    uiScene: VALID_SCENES.includes(state.settings?.uiScene) ? state.settings.uiScene : 'night',
-    uiDensity: VALID_DENSITY.includes(state.settings?.uiDensity) ? state.settings.uiDensity : 'compact',
+    uiTiles: normalizeTileMode(state.settings?.uiTiles),
+    // Scene/density UI removed — stored values pass through unchanged.
+    uiScene: String(state.settings?.uiScene || 'night'),
+    uiDensity: String(state.settings?.uiDensity || 'cozy'),
     tweaksCollapsed: !!state.settings?.tweaksCollapsed,
     hibernateAfterMinutes: getHibernateMinutes(),
   };
@@ -3238,7 +3299,10 @@ async function removeAccount(accountId) {
   const account = state.accounts.find((row) => row.id === accountId);
   if (!account) return;
 
-  const accepted = await showConfirm('Удаление аккаунта', `Удалить «${account.name}»?\nВсе данные сессии будут потеряны.`, 'Удалить');
+  const relogin = account.type === 'telegram'
+    ? 'для повторного входа потребуется заново авторизоваться'
+    : 'для повторного входа потребуется заново сканировать QR-код';
+  const accepted = await showConfirm('Удаление аккаунта', `Удалить «${account.name}»?\nСессия будет удалена безвозвратно — ${relogin}.`, 'Удалить', { danger: true });
   if (!accepted) return;
 
   const response = await window.waDeck.removeAccount(accountId);
@@ -3254,6 +3318,9 @@ async function removeAccount(accountId) {
   }
   state.unreadByAccount.delete(accountId);
   WaDeckUnreadModule.scheduleDockBadgeSync();
+  // Favorites of the removed account were pruned in main too.
+  if (window.WaDeckFavoritesModule) window.WaDeckFavoritesModule.onAccountRemoved(accountId);
+  if (window.WaDeckImportantModule) window.WaDeckImportantModule.onAccountRemoved(accountId);
 
   state.accounts = state.accounts.filter((row) => row.id !== accountId);
   if (state.scheduleTarget.accountId === accountId) {
@@ -3344,7 +3411,7 @@ function showRefreshContextMenu(event) {
   menu.style.top = Math.max(0, y) + 'px';
 
   const closeOnClick = (e) => { if (!menu.contains(e.target)) closeAccountContextMenu(); };
-  const closeOnEsc = (e) => { if (e.key === 'Escape') closeAccountContextMenu(); };
+  const closeOnEsc = (e) => { if (e.key === 'Escape') { e.preventDefault(); closeAccountContextMenu(); } };
   document.addEventListener('click', closeOnClick, { capture: true });
   document.addEventListener('keydown', closeOnEsc);
   menu._cleanup = () => {
@@ -3353,8 +3420,34 @@ function showRefreshContextMenu(event) {
   };
 }
 
+/* Template variables — {имя}, {приветствие}, {дата}, {время} (case-insensitive).
+   {имя} resolves to the chat/contact name; when the name is unknown the token
+   is left as-is so the operator notices instead of sending a broken greeting. */
+const TEMPLATE_VAR_RE = /\{(имя|приветствие|дата|время)\}/i;
+
+function templateGreeting(date = new Date()) {
+  const h = date.getHours();
+  if (h >= 5 && h < 12) return 'Доброе утро';
+  if (h >= 12 && h < 18) return 'Добрый день';
+  if (h >= 18 && h < 23) return 'Добрый вечер';
+  return 'Доброй ночи';
+}
+
+function applyTemplateVariables(text, chatName) {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  let out = String(text || '');
+  if (!TEMPLATE_VAR_RE.test(out)) return out;
+  out = out.replace(/\{приветствие\}/gi, templateGreeting(now));
+  out = out.replace(/\{дата\}/gi, `${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()}`);
+  out = out.replace(/\{время\}/gi, `${pad(now.getHours())}:${pad(now.getMinutes())}`);
+  const name = String(chatName || '').trim();
+  if (name) out = out.replace(/\{имя\}/gi, name);
+  return out;
+}
+
 async function insertTextIntoActiveChat(text) {
-  const safeText = String(text || '').trim();
+  let safeText = String(text || '').trim();
   if (!safeText) {
     return { ok: false, error: 'text_required' };
   }
@@ -3371,6 +3464,16 @@ async function insertTextIntoActiveChat(text) {
     return { ok: false, error: 'no_active_chat' };
   }
 
+  if (TEMPLATE_VAR_RE.test(safeText)) {
+    let chatName = '';
+    if (isWebviewReady(webview) && typeof activeChatContactScript === 'function') {
+      try {
+        chatName = String(await webview.executeJavaScript(activeChatContactScript(), true) || '').trim();
+      } catch { /* name stays empty — {имя} is left untouched */ }
+    }
+    safeText = applyTemplateVariables(safeText, chatName);
+  }
+
   try {
     const result = await webview.executeJavaScript(insertTextScript(safeText), true);
     if (!result?.ok) return { ok: false, error: String(result?.error || 'insert_failed') };
@@ -3378,6 +3481,30 @@ async function insertTextIntoActiveChat(text) {
   } catch (error) {
     return { ok: false, error: String(error?.message || error || 'insert_failed') };
   }
+}
+
+/* Prefill the schedule target with the chat currently open in the active
+   WhatsApp webview — lets the user schedule a message in ~2 clicks without
+   walking through the picker. No open chat → previous behaviour (empty). */
+async function prefillScheduleTargetFromActiveChat() {
+  if (state._editingScheduleId) return; // never clobber an in-progress edit
+  const account = activeAccount();
+  if (!account || account.frozen || account.type === 'telegram') return;
+  const webview = selectedWebview();
+  if (!isWebviewReady(webview) || typeof activeChatContactScript !== 'function') return;
+  let chatName = '';
+  try {
+    chatName = String(await webview.executeJavaScript(activeChatContactScript(), true) || '').trim();
+  } catch {
+    return;
+  }
+  if (!chatName) return;
+  state.scheduleTarget = {
+    accountId: account.id,
+    accountName: account.name,
+    chatName,
+  };
+  WaDeckScheduleModule.renderScheduleTarget();
 }
 
 async function sendAudioAsVoiceMessage() {
@@ -3566,22 +3693,12 @@ function bindActions() {
       try { await saveSettings(); } catch {}
     });
   });
-
-  document.querySelectorAll('.tweak-pill[data-scene]').forEach((btn) => {
+  document.querySelectorAll('.tweak-pill[data-tiles]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const next = btn.getAttribute('data-scene') || 'night';
-      state.settings = { ...(state.settings || {}), uiScene: next };
-      applyScene(next);
-      refreshTweakPills();
-      try { await saveSettings(); } catch {}
-    });
-  });
-
-  document.querySelectorAll('.tweak-pill[data-density]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const next = btn.getAttribute('data-density') || 'cozy';
-      state.settings = { ...(state.settings || {}), uiDensity: next };
-      applyDensity(next);
+      const next = normalizeTileMode(btn.getAttribute('data-tiles'));
+      if (normalizeTileMode(state.settings?.uiTiles) === next) return;
+      state.settings = { ...(state.settings || {}), uiTiles: next };
+      applyTileMode(next);
       refreshTweakPills();
       try { await saveSettings(); } catch {}
     });
@@ -3660,11 +3777,7 @@ function bindActions() {
     const closeTemplateEdit = () => tmplEditWrap.classList.add('hidden');
 
     tmplEditCloseBtn?.addEventListener('click', closeTemplateEdit);
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !tmplEditWrap.classList.contains('hidden')) {
-        closeTemplateEdit();
-      }
-    });
+    // Escape-close is handled by the central handleEscapeUiReset() stack.
 
     // Update header title based on whether this is a new or existing template
     const updateTmplEditTitle = () => {
@@ -3775,8 +3888,11 @@ function bindActions() {
     playBrandClickAnimation();
     openHubMode();
   });
-  // Weather widget is a read-only indicator now — configuration lives in
-  // the settings panel, so the popover stays hidden and clicks are no-ops.
+  // Weather widget click → open the weather settings section directly.
+  els.weatherToggle?.addEventListener('click', () => {
+    if (state.panelHidden) openSettingsPanel();
+    showSettingsSection('weather');
+  });
   els.weatherClose?.addEventListener('click', () => WaDeckWeatherModule.closeWeatherPopover());
   els.weatherRefresh?.addEventListener('click', () => WaDeckWeatherModule.refreshWeather().catch(console.error));
   els.weatherSave?.addEventListener('click', () => WaDeckWeatherModule.saveWeatherSettings().catch(console.error));
@@ -3934,13 +4050,16 @@ function bindActions() {
   function openScheduleSection() {
     if (state.panelHidden) openSettingsPanel();
     showSettingsSection('schedule');
-    // Always prefill "send at" with the current system time on every open —
-    // even if the card was already expanded from a previous visit. Otherwise
-    // the field keeps a stale value (often a few minutes old), which was the
-    // source of the "time is slightly off" bug.
+    // Always prefill "send at" on every open — even if the card was already
+    // expanded from a previous visit. Otherwise the field keeps a stale value
+    // (often a few minutes old). +1 min: main rejects sendAt earlier than
+    // now+3s, so prefilling with "now" guaranteed an error.
     if (els.scheduleAt) {
-      els.scheduleAt.value = nextSendAtLocal(0);
+      els.scheduleAt.value = nextSendAtLocal(1);
     }
+    // Two-click scheduling: if a chat is open in the active webview, use it
+    // as the target right away. The user can still change it via the picker.
+    prefillScheduleTargetFromActiveChat().catch(() => {});
   }
 
   if (els.openScheduleToolbar) {
@@ -3960,7 +4079,8 @@ function bindActions() {
     btn.addEventListener('click', () => {
       // showSettingsSection already fired by the generic handler — just refresh time.
       setTimeout(() => {
-        if (els.scheduleAt) els.scheduleAt.value = nextSendAtLocal(0);
+        if (els.scheduleAt) els.scheduleAt.value = nextSendAtLocal(1);
+        prefillScheduleTargetFromActiveChat().catch(() => {});
       }, 0);
     });
   });
@@ -3970,272 +4090,22 @@ function bindActions() {
   if (scheduleCard) {
     scheduleCard.addEventListener('toggle', () => {
       if (scheduleCard.open) {
-        els.scheduleAt.value = nextSendAtLocal(0);
+        els.scheduleAt.value = nextSendAtLocal(1);
       }
     });
   }
 
-  /* ── Schedule Popover Form Handlers ── */
-  let spAttachments = [];
-
-  /* Populate account select with WhatsApp accounts */
-  function populateSpAccounts() {
-    if (!els.spAccount) return;
-    els.spAccount.innerHTML = '';
-    const defaultOpt = document.createElement('option');
-    defaultOpt.value = '';
-    defaultOpt.textContent = '— Выберите аккаунт —';
-    els.spAccount.appendChild(defaultOpt);
-    for (const account of state.accounts) {
-      if (account.type === 'telegram') continue;
-      const opt = document.createElement('option');
-      opt.value = account.id;
-      opt.textContent = account.frozen ? `${account.name} (заморожен)` : account.name;
-      els.spAccount.appendChild(opt);
-    }
-    const active = activeAccount();
-    if (active && active.type !== 'telegram') {
-      els.spAccount.value = active.id;
-    }
-  }
-
-  async function populateSpChats(accountId) {
-    if (!els.spChat) return;
-    els.spChat.innerHTML = '';
-    if (!accountId) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = '— Сначала выберите аккаунт —';
-      els.spChat.appendChild(opt);
-      return;
-    }
-    const loadOpt = document.createElement('option');
-    loadOpt.value = '';
-    loadOpt.textContent = 'Загрузка чатов...';
-    els.spChat.appendChild(loadOpt);
-
-    const chats = await WaDeckScheduleModule.fetchChatsForAccount(accountId);
-    els.spChat.innerHTML = '';
-    if (!chats.length) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = 'Чаты не найдены';
-      els.spChat.appendChild(opt);
-      return;
-    }
-    for (const chat of chats) {
-      const opt = document.createElement('option');
-      opt.value = chat;
-      opt.textContent = chat;
-      els.spChat.appendChild(opt);
-    }
-  }
-
-  els.spAccount?.addEventListener('change', () => {
-    populateSpChats(els.spAccount.value);
-  });
-
-  els.spPickAttachments?.addEventListener('click', async () => {
-    const files = await window.waDeck.pickAttachments();
-    if (!files || !Array.isArray(files) || !files.length) return;
-    spAttachments.push(...files);
-    renderSpAttachments();
-  });
-
-  els.spClearAttachments?.addEventListener('click', () => {
-    spAttachments = [];
-    renderSpAttachments();
-  });
-
-  function renderSpAttachments() {
-    if (!els.spAttachmentsList) return;
-    els.spAttachmentsList.innerHTML = '';
-    for (const f of spAttachments) {
-      const div = document.createElement('div');
-      div.className = 'attachment-item';
-      div.textContent = f.name || 'file';
-      els.spAttachmentsList.appendChild(div);
-    }
-  }
-
-  els.spCreate?.addEventListener('click', async () => {
-    const text = String(els.spText?.value || '').trim();
-    const sendAt = String(els.spAt?.value || '');
-    const accountId = String(els.spAccount?.value || '').trim();
-    const chatName = String(els.spChat?.value || '').trim();
-
-    if (!accountId || !chatName) {
-      showToast('Выберите аккаунт и чат', 'warn');
-      return;
-    }
-    if (!text && !spAttachments.length) {
-      showToast('Введите текст или добавьте вложения', 'warn');
-      return;
-    }
-    if (!sendAt) {
-      showToast('Укажите время отправки', 'warn');
-      return;
-    }
-    const parsedDate = new Date(sendAt);
-    if (isNaN(parsedDate.getTime())) {
-      showToast('Неверный формат времени', 'warn');
-      return;
-    }
-
-    const payload = {
-      accountId,
-      chatName,
-      text,
-      sendAt: parsedDate.toISOString(),
-      attachments: spAttachments.map((f) => ({ ...f })),
-    };
-
-    const response = await window.waDeck.scheduleMessage(payload);
-    if (!response?.ok) {
-      showToast(response?.error || 'Ошибка планирования', 'error');
-      return;
-    }
-
-    // If this save was an "edit" of an existing entry, retire the original.
-    if (state._scheduleEditingId) {
-      try { await window.waDeck.cancelScheduled(state._scheduleEditingId); } catch { /* ignore */ }
-      state._scheduleEditingId = null;
-      showToast('Отложенное обновлено', 'success');
-    } else {
-      showToast('Сообщение запланировано', 'success');
-    }
-    if (els.spText) els.spText.value = '';
-    spAttachments = [];
-    renderSpAttachments();
-    if (els.spAt) els.spAt.value = nextSendAtLocal(0);
-    await WaDeckScheduleModule.renderScheduled();
-    renderSchedulePopoverList();
-  });
-
-  async function renderSchedulePopoverList() {
-    if (!els.spList) return;
-    els.spList.innerHTML = '';
-
-    let response;
-    try {
-      response = await window.waDeck.listScheduled({ limit: 120 });
-    } catch (err) {
-      const errDiv = document.createElement('div');
-      errDiv.className = 'sp-empty sp-error';
-      errDiv.textContent = 'Ошибка загрузки: ' + (err.message || 'неизвестная ошибка');
-      els.spList.appendChild(errDiv);
-      return;
-    }
-
-    const items = Array.isArray(response?.items) ? response.items : [];
-
-    if (els.spListSummary) {
-      els.spListSummary.textContent = `Запланированные (${items.length})`;
-    }
-
-    if (!items.length) {
-      const emptyDiv = document.createElement('div');
-      emptyDiv.className = 'sp-empty';
-      emptyDiv.textContent = 'Нет запланированных сообщений';
-      els.spList.appendChild(emptyDiv);
-      return;
-    }
-
-    for (const item of items) {
-      const row = document.createElement('div');
-      row.className = 'sp-item';
-
-      const statusClass = item.status === 'failed' ? 'badge-failed' : item.status === 'sent' ? 'badge-sent' : 'badge-pending';
-      const statusLabel = item.status === 'failed' ? 'ошибка' : item.status === 'sent' ? 'отправлено' : item.status === 'processing' ? 'отправка...' : 'ожидает';
-
-      const sendAtStr = new Date(item.sendAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-      const textPreview = String(item.text || '').slice(0, 40) || '(вложения)';
-
-      const infoDiv = document.createElement('div');
-      infoDiv.className = 'sp-item-info';
-
-      const badgeSpan = document.createElement('span');
-      badgeSpan.className = 'sp-badge ' + statusClass;
-      badgeSpan.textContent = statusLabel;
-      infoDiv.appendChild(badgeSpan);
-
-      const timeSpan = document.createElement('span');
-      timeSpan.className = 'sp-item-time';
-      timeSpan.textContent = sendAtStr;
-      infoDiv.appendChild(timeSpan);
-
-      const textDiv = document.createElement('div');
-      textDiv.className = 'sp-item-text';
-      textDiv.textContent = textPreview;
-
-      const actionsDiv = document.createElement('div');
-      actionsDiv.className = 'sp-item-actions';
-
-      // Edit — copy the entry back into the form for adjustment
-      const editBtn = document.createElement('button');
-      editBtn.className = 'btn btn-small sp-edit';
-      editBtn.dataset.id = String(item.id);
-      editBtn.title = 'Редактировать (будет пересоздано)';
-      editBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
-      actionsDiv.appendChild(editBtn);
-
-      const cancelBtn = document.createElement('button');
-      cancelBtn.className = 'btn btn-small sp-cancel';
-      cancelBtn.dataset.id = String(item.id);
-      cancelBtn.title = 'Отменить';
-      cancelBtn.textContent = '\u2715';
-      actionsDiv.appendChild(cancelBtn);
-
-      row.appendChild(infoDiv);
-      row.appendChild(textDiv);
-      row.appendChild(actionsDiv);
-
-      // Disable edit/cancel for items that already went out.
-      if (item.status === 'sent') {
-        editBtn.disabled = true;
-        cancelBtn.style.display = 'none';
-      }
-
-      editBtn.addEventListener('click', () => {
-        // Pull the item into the Create form. The original row stays
-        // pending; on "Запланировать" it is replaced with a fresh entry
-        // and the original is cancelled, so effectively it's an edit.
-        const createDetails = document.getElementById('sp-create-details');
-        if (createDetails) createDetails.open = true;
-        if (els.spAccount && item.accountId) els.spAccount.value = item.accountId;
-        if (els.spAccount && item.accountId) populateSpChats(item.accountId);
-        setTimeout(() => {
-          if (els.spChat && item.chatName) els.spChat.value = item.chatName;
-        }, 30);
-        if (els.spText) els.spText.value = String(item.text || '');
-        if (els.spAt && item.sendAt) {
-          const d = new Date(item.sendAt);
-          if (!isNaN(d.getTime())) {
-            const pad = (n) => String(n).padStart(2, '0');
-            els.spAt.value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-          }
-        }
-        // Mark the original for replacement on next "Запланировать"
-        state._scheduleEditingId = item.id;
-        setStatus('Отложенное отредактируется — сохраните, старое будет отменено');
-      });
-
-      cancelBtn.addEventListener('click', async () => {
-        await window.waDeck.cancelScheduled(item.id);
-        await WaDeckScheduleModule.renderScheduled();
-        renderSchedulePopoverList();
-      });
-
-      els.spList.appendChild(row);
-    }
-  }
-
-  document.addEventListener('schedule-list-updated', () => {
-    renderSchedulePopoverList();
-  });
   els.pickerAccount?.addEventListener('change', () => WaDeckScheduleModule.refreshPickerChats(true).catch(console.error));
   els.pickerRefresh?.addEventListener('click', () => WaDeckScheduleModule.refreshPickerChats(true).catch(console.error));
   els.closeChatPicker?.addEventListener('click', WaDeckScheduleModule.closeChatPicker);
+  // Backdrop click closes the chat picker and the account menu (CRM modal
+  // intentionally keeps its pass-through backdrop).
+  els.chatPickerModal?.addEventListener('click', (e) => {
+    if (e.target === els.chatPickerModal) WaDeckScheduleModule.closeChatPicker();
+  });
+  els.accountMenuModal?.addEventListener('click', (e) => {
+    if (e.target === els.accountMenuModal) closeAccountMenu();
+  });
   els.accountMenuSave?.addEventListener('click', () => saveAccountFromMenu().catch(console.error));
   els.accountMenuReset?.addEventListener('click', () => resetAccountFromMenu().catch(console.error));
   els.accountMenuIcon?.addEventListener('click', () => changeAccountIconFromMenu().catch(console.error));
@@ -4288,6 +4158,12 @@ function bindActions() {
     if (!chatName) {
       setStatus('Выберите чат');
       return;
+    }
+    // Changing the target while editing a scheduled item drops edit mode —
+    // the new selection describes a different message, not the original.
+    if (state._editingScheduleId
+        && (state.scheduleTarget.accountId !== accountId || state.scheduleTarget.chatName !== chatName)) {
+      WaDeckScheduleModule.cancelScheduleEditMode?.();
     }
     state.scheduleTarget = {
       accountId,
@@ -4381,7 +4257,9 @@ async function init() {
   WaDeckAutoUpdateModule.init(moduleCtx);
   WaDeckUnreadModule.init({ ...moduleCtx, renderAccounts, isWebviewReady, safeExecuteInWebview, updateHubDashboard });
   WaDeckCrmModule.init({ ...moduleCtx, activeAccount, selectedWebview });
-  WaDeckScheduleModule.init({ ...moduleCtx, trimMapSize, runWithBusyButton, accountById, ensureWebview, isWebviewReady, sendWebviewInput, delay, formatDateTime, nextSendAtLocal, showConfirm });
+  WaDeckFavoritesModule.init({ ...moduleCtx, setActiveAccount, isWebviewReady, safeExecuteInWebview });
+  WaDeckImportantModule.init({ ...moduleCtx, setActiveAccount, isWebviewReady, safeExecuteInWebview });
+  WaDeckScheduleModule.init({ ...moduleCtx, trimMapSize, runWithBusyButton, accountById, ensureWebview, isWebviewReady, sendWebviewInput, delay, formatDateTime, nextSendAtLocal, showConfirm, applyTemplateVariables });
   if (typeof window.waDeck.onAutoUpdateStatus === 'function' && !state.autoUpdateUnsubscribe) {
     state.autoUpdateUnsubscribe = window.waDeck.onAutoUpdateStatus((payload) => {
       WaDeckAutoUpdateModule.handleAutoUpdateStatus(payload);
@@ -4447,8 +4325,8 @@ async function init() {
     lastSeenReleaseNotesVersion: String(boot.settings?.lastSeenReleaseNotesVersion || ''),
     translatorEnabled: boot.settings?.translatorEnabled !== false,
     crmHoverEnabled: boot.settings?.crmHoverEnabled !== false,
-    uiScene: VALID_SCENES.includes(boot.settings?.uiScene) ? boot.settings.uiScene : 'night',
-    uiDensity: VALID_DENSITY.includes(boot.settings?.uiDensity) ? boot.settings.uiDensity : 'cozy',
+    uiScene: String(boot.settings?.uiScene || 'night'),
+    uiDensity: String(boot.settings?.uiDensity || 'cozy'),
     tweaksCollapsed: !!boot.settings?.tweaksCollapsed,
     worldClocks: Array.isArray(boot.settings?.worldClocks) ? boot.settings.worldClocks : [
       { label: 'Москва', tz: 'Europe/Moscow' },
@@ -4457,8 +4335,15 @@ async function init() {
     ],
   };
   state.templates = Array.isArray(boot.templates) ? boot.templates.map((tpl) => ({ ...tpl })) : [];
+  state.favorites = Array.isArray(boot.favorites) ? boot.favorites.map((f) => ({ ...f })) : [];
+  state.important = Array.isArray(boot.important) ? boot.important.map((f) => ({ ...f })) : [];
   state.runtime = boot.runtime || {};
   state.runtime.appVersion = String(boot.appVersion || state.runtime.appVersion || '').trim();
+
+  // One-time application of the legacy scene/density attributes (the picker
+  // UI was removed) so CSS that still targets them keeps the current look.
+  document.documentElement.setAttribute('data-scene', state.settings.uiScene || 'night');
+  document.documentElement.setAttribute('data-density', state.settings.uiDensity || 'cozy');
 
   // Render sidebar immediately so accounts are visible right away
   renderAccounts();
@@ -4519,7 +4404,7 @@ async function init() {
     await templateController.init(state.templates);
   }
 
-  els.scheduleAt.value = nextSendAtLocal(0);
+  els.scheduleAt.value = nextSendAtLocal(1);
   /* renderScheduled() already called via setActiveAccount → _setActiveAccountInner */
 
   bindActions();
@@ -4528,6 +4413,8 @@ async function init() {
   WaDeckScheduleModule.startScheduleRunner();
   WaDeckUnreadModule.startUnreadPolling();
   WaDeckUnreadModule.scheduleDockBadgeSync();
+  WaDeckFavoritesModule.startFavoritePolling();
+  WaDeckImportantModule.startImportantPolling();
   // Idle-suspend disabled: destroying inactive webviews after 15 min forced
   // users to re-click every account to reload WhatsApp Web, which in turn
   // missed incoming messages while suspended. Keeping all webviews alive for
@@ -4555,9 +4442,9 @@ async function init() {
   setStatus('');
 }
 
-/* ── Toolbar "Шаблоны" button and Ctrl+T → open the settings drawer on
-   the Templates section. The old full-screen tq-overlay palette has been
-   removed in favour of the unified right-drawer UX. ── */
+/* ── Toolbar "Шаблоны" button → open the settings drawer on the Templates
+   section. The old full-screen tq-overlay palette has been removed in
+   favour of the unified right-drawer UX. ── */
 (function setupTemplatesShortcut() {
   function openTemplatesDrawer() {
     if (state.panelHidden) openSettingsPanel();

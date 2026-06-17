@@ -1,7 +1,14 @@
-function crmHoverBridgeScript() {
+function crmHoverBridgeScript(token) {
+  const tokenJs = JSON.stringify(typeof token === 'string' ? token : '');
   return `(() => {
     if (window.__waDeckCrmHoverBound) return true;
     window.__waDeckCrmHoverBound = true;
+
+    /* Host-issued token kept in the closure (never on window) */
+    const __WADECK_TOKEN = ${tokenJs};
+    const sendHover = (payload) => {
+      console.log('__WADECK_CRM_HOVER__' + __WADECK_TOKEN + ':' + JSON.stringify(payload));
+    };
 
     const normalize = (value) =>
       String(value || '')
@@ -35,18 +42,24 @@ function crmHoverBridgeScript() {
     let lastSentName = '';
     let hideTimer = null;
 
-    const paneSelector = '#pane-side';
+    /* Cached #pane-side lookup; re-query only when the node got detached */
+    let paneCache = null;
+    const getPane = () => {
+      if (paneCache && paneCache.isConnected) return paneCache;
+      paneCache = document.querySelector('#pane-side');
+      return paneCache;
+    };
 
     function sendHide() {
       if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
       if (lastSentName) {
         lastSentName = '';
-        console.log('__WADECK_CRM_HOVER__' + JSON.stringify({ type: 'hide' }));
+        sendHover({ type: 'hide' });
       }
     }
 
     document.addEventListener('mouseover', (event) => {
-      const pane = document.querySelector(paneSelector);
+      const pane = getPane();
       if (!pane || !pane.contains(event.target)) {
         if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
         if (hideTimer) clearTimeout(hideTimer);
@@ -56,8 +69,12 @@ function crmHoverBridgeScript() {
 
       if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
 
-      const item = event.target.closest('[role="listitem"], [data-testid="cell-frame-container"], [tabindex]');
-      if (!item || !pane.contains(item)) {
+      // No [tabindex] here: it matched filter buttons (e.g. "Unread") and
+      // produced CRM cards for non-contacts. A real contact row must also
+      // carry a titled span or an avatar image.
+      const item = event.target.closest('[role="listitem"], [data-testid="cell-frame-container"]');
+      const looksLikeContact = !!(item && (item.querySelector('span[title]') || item.querySelector('img')));
+      if (!item || !looksLikeContact || !pane.contains(item)) {
         // Inside pane but not on a contact row — start hide
         if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
         if (hideTimer) clearTimeout(hideTimer);
@@ -70,21 +87,26 @@ function crmHoverBridgeScript() {
 
       if (hoverTimer) clearTimeout(hoverTimer);
       hoverTimer = setTimeout(() => {
+        // The virtualized list recycles row nodes: re-read the name and bail
+        // if this row now shows a different contact than when hover started.
+        if (!item.isConnected) return;
+        const currentName = getContactName(item);
+        if (currentName !== contactName) return;
         lastSentName = contactName;
         const rect = item.getBoundingClientRect();
-        console.log('__WADECK_CRM_HOVER__' + JSON.stringify({
+        sendHover({
           type: 'show',
           contactName,
           top: Math.round(rect.top),
           bottom: Math.round(rect.bottom),
           left: Math.round(rect.left),
           right: Math.round(rect.right),
-        }));
+        });
       }, 350);
     }, true);
 
     document.addEventListener('mouseout', (event) => {
-      const pane = document.querySelector(paneSelector);
+      const pane = getPane();
       if (!pane) return;
       // If mouse left the pane entirely, hide immediately
       const related = event.relatedTarget;

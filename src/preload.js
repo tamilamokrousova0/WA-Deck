@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('waDeck', {
   snoozeScheduled: (payload) => ipcRenderer.invoke('snooze-scheduled', payload),
   getContactLang: (payload) => ipcRenderer.invoke('get-contact-lang', payload),
   setContactLang: (payload) => ipcRenderer.invoke('set-contact-lang', payload),
+  favoritesToggle: (payload) => ipcRenderer.invoke('favorites-toggle', payload),
+  importantToggle: (payload) => ipcRenderer.invoke('important-toggle', payload),
   sendAttachmentsViaCDP: (payload) => ipcRenderer.invoke('send-attachments-via-cdp', payload),
   openDataDir: () => ipcRenderer.invoke('open-data-dir'),
   getClipboardText: () => ipcRenderer.invoke('get-clipboard-text'),
@@ -35,6 +37,7 @@ contextBridge.exposeInMainWorld('waDeck', {
   setDockBadge: (payload) => ipcRenderer.invoke('set-dock-badge', payload),
   checkForUpdates: (payload) => ipcRenderer.invoke('check-for-updates', payload),
   installDownloadedUpdate: () => ipcRenderer.invoke('install-downloaded-update'),
+  openReleasesPage: () => ipcRenderer.invoke('open-releases-page'),
   translateText: (payload) => ipcRenderer.invoke('translate-text', payload),
   cleanupCache: () => ipcRenderer.invoke('cleanup-cache'),
   onAutoUpdateStatus: (callback) => {

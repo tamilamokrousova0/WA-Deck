@@ -143,6 +143,8 @@
     els.crmMyInfo.value = nextRecord.myInfo;
     els.crmMeta.textContent = `Файл: ${filePath || '—'}`;
     setCrmEditable(true);
+    if (window.WaDeckFavoritesModule) window.WaDeckFavoritesModule.syncCrmToggle();
+    if (window.WaDeckImportantModule) window.WaDeckImportantModule.syncCrmToggle();
     await updateCrmModalPosition();
     els.crmModal.classList.remove('hidden');
     requestAnimationFrame(() => {

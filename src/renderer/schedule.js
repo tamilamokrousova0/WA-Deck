@@ -1,7 +1,7 @@
 (function setupScheduleModule() {
   let state, els, setStatus, trimMapSize, runWithBusyButton;
   let accountById, ensureWebview, isWebviewReady, sendWebviewInput, delay;
-  let formatDateTime, nextSendAtLocal, showConfirm;
+  let formatDateTime, nextSendAtLocal, showConfirm, applyTemplateVariables;
 
   function init(ctx) {
     state = ctx.state;
@@ -17,6 +17,29 @@
     formatDateTime = ctx.formatDateTime;
     nextSendAtLocal = ctx.nextSendAtLocal;
     showConfirm = ctx.showConfirm;
+    applyTemplateVariables = ctx.applyTemplateVariables;
+
+    // Edit-mode banner: the ✕ button cancels editing without saving.
+    document.getElementById('schedule-edit-cancel')?.addEventListener('click', () => {
+      cancelScheduleEditMode();
+      setStatus('Редактирование отменено');
+    });
+  }
+
+  /* ── Schedule edit mode ──
+     state._editingScheduleId links the form to an existing scheduled item.
+     The banner makes the mode visible; cancelScheduleEditMode() drops the
+     linkage (called on save, explicit cancel, section/panel close and
+     target change). */
+  function setScheduleEditBannerVisible(visible) {
+    const banner = document.getElementById('schedule-edit-banner');
+    if (banner) banner.classList.toggle('hidden', !visible);
+  }
+
+  function cancelScheduleEditMode() {
+    if (!state) return;
+    state._editingScheduleId = null;
+    setScheduleEditBannerVisible(false);
   }
 
   function renderScheduleTarget() {
@@ -46,7 +69,8 @@
 
     let chats = [];
     try {
-      chats = await webview.executeJavaScript(collectChatsFromSidebarScript(), true);
+      const wvToken = typeof WADECK_WV_TOKEN !== 'undefined' ? WADECK_WV_TOKEN : '';
+      chats = await webview.executeJavaScript(collectChatsFromSidebarScript(wvToken), true);
     } catch {
       chats = [];
     }
@@ -59,9 +83,14 @@
     return normalized;
   }
 
+  // Generation token: a quick account switch must not let a late response
+  // for the OLD account overwrite the freshly populated list of the NEW one.
+  let _pickerChatsGen = 0;
+
   async function refreshPickerChats(force = false) {
     const accountId = String(els.pickerAccount.value || '').trim();
     const account = accountById(accountId);
+    const gen = ++_pickerChatsGen;
     if (account?.frozen) {
       els.pickerChat.innerHTML = '';
       const option = document.createElement('option');
@@ -78,6 +107,7 @@
     els.pickerChat.appendChild(loadingOpt);
 
     const chats = await fetchChatsForAccount(accountId, force);
+    if (gen !== _pickerChatsGen) return; // superseded by a newer request
 
     els.pickerChat.innerHTML = '';
     if (!chats.length) {
@@ -198,17 +228,6 @@
       schedBtn.title = items.length > 0 ? `Отложенная отправка (${items.length})` : 'Отложенная отправка';
     }
 
-    /* Update popover list if open */
-    const spListSummary = document.getElementById('sp-list-summary');
-    if (spListSummary) {
-      spListSummary.textContent = `Запланированные (${items.length})`;
-    }
-    const spList = document.getElementById('sp-list');
-    if (spList && !document.getElementById('schedule-popover')?.classList.contains('hidden')) {
-      /* Trigger popover list re-render via custom event */
-      document.dispatchEvent(new CustomEvent('schedule-list-updated'));
-    }
-
     /* Update scheduled-list-card summary with count */
     const listCard = document.getElementById('scheduled-list-card');
     if (listCard) {
@@ -304,7 +323,7 @@
         cancel.textContent = 'Отменить';
         cancel.addEventListener('click', async () => {
           const confirmed = typeof showConfirm === 'function'
-            ? await showConfirm('Отмена сообщения', `Отменить отправку для «${item.chatName}»?`, 'Отменить')
+            ? await showConfirm('Отмена сообщения', `Отменить отправку для «${item.chatName}»?`, 'Отменить', { danger: true })
             : true;
           if (!confirmed) return;
           const res = await window.waDeck.cancelScheduled(item.id);
@@ -413,12 +432,13 @@
     const itemMs = new Date(item.sendAt).getTime();
     els.scheduleAt.value = (Number.isFinite(itemMs) && itemMs > Date.now() + 3000)
       ? localDateTimeFromISO(item.sendAt)
-      : nextSendAtLocal(0);
+      : nextSendAtLocal(1);
     state.attachmentsDraft = Array.isArray(item.attachments) ? item.attachments.map((a) => ({ ...a })) : [];
     renderAttachmentsDraft();
 
     /* Store old item id — will be cancelled ONLY after new one is saved */
     state._editingScheduleId = item.id;
+    setScheduleEditBannerVisible(true);
 
     const detailsCard = document.getElementById('schedule-settings-card');
     if (detailsCard && !detailsCard.open) {
@@ -430,7 +450,7 @@
 
   async function createScheduledMessage() {
     if (!state.scheduleTarget.accountId || !state.scheduleTarget.chatName) {
-      state._editingScheduleId = null;
+      cancelScheduleEditMode();
       setStatus('Выберите WhatsApp и чат для отправки');
       return;
     }
@@ -438,7 +458,7 @@
     const sendAtRaw = String(els.scheduleAt.value || '');
     const parsedSendAt = sendAtRaw ? new Date(sendAtRaw) : null;
     if (!parsedSendAt || Number.isNaN(parsedSendAt.getTime())) {
-      state._editingScheduleId = null;
+      cancelScheduleEditMode();
       setStatus('Отложенная отправка: неверная дата/время');
       return;
     }
@@ -463,19 +483,33 @@
       };
       // Clear the editing linkage on failure so it can't later cancel an
       // unrelated scheduled item on the next, non-edit schedule.
-      state._editingScheduleId = null;
+      cancelScheduleEditMode();
       setStatus(`Отложенная отправка: ${map[response?.error] || response?.error || 'ошибка'}`);
       return;
     }
 
-    /* If editing — cancel old item now that new one is saved */
+    /* If editing — retire the original now that the new one is saved, but
+       only if it is still cancellable. The runner may have already sent it
+       while the user was editing; cancelling then would be a silent no-op
+       at best and confusing at worst. */
     if (state._editingScheduleId) {
-      await window.waDeck.cancelScheduled(state._editingScheduleId).catch(() => {});
-      state._editingScheduleId = null;
+      const editingId = state._editingScheduleId;
+      cancelScheduleEditMode();
+      let original = null;
+      try {
+        const list = await window.waDeck.listScheduled({ limit: 2000 });
+        original = (Array.isArray(list?.items) ? list.items : [])
+          .find((row) => String(row.id) === String(editingId)) || null;
+      } catch { /* treat as unknown — do not cancel blindly */ }
+      if (original && (original.status === 'pending' || original.status === 'snoozed')) {
+        await window.waDeck.cancelScheduled(editingId).catch(() => {});
+      } else if (typeof showToast === 'function') {
+        showToast('Оригинал уже отправлен — сохранено как новое задание', 'warn');
+      }
     }
 
     els.scheduleText.value = '';
-    els.scheduleAt.value = nextSendAtLocal(0);
+    els.scheduleAt.value = nextSendAtLocal(1);
     clearAttachments();
     await renderScheduled();
     setStatus('Сообщение запланировано');
@@ -493,15 +527,9 @@
     return Boolean(isWebviewReady(webview));
   }
 
-  async function runScheduledSend(webview, item) {
-    const chatName = String(item.chatName || '').trim();
-    const text = String(item.text || '');
-
-    if (!chatName) return { ok: false, error: 'no_chat_name' };
-
-    const ready = await waitForWebviewReady(webview, 15000);
-    if (!ready) return { ok: false, error: 'webview_not_ready' };
-
+  /* Low-level webview drivers shared by the scheduled-send runner and
+     openChatInWebview(). Pure functions of the webview — no send-flow state. */
+  function makeWebviewDrivers(webview) {
     const query = async (script) => {
       try {
         return await webview.executeJavaScript(script, true);
@@ -530,6 +558,25 @@
       await sendWebviewInput(webview, { type: 'keyUp', keyCode });
       await delay(50);
     };
+
+    return { query, nativeClick, nativeType, nativeKey };
+  }
+
+  /**
+   * Open a WhatsApp Web chat by contact name inside the given webview:
+   * search → type name → click best match → wait for composer.
+   * Extracted from runScheduledSend (STEPs 1–5) so other surfaces — e.g. the
+   * inbox rows — can jump straight into a chat. Returns { ok } or
+   * { ok: false, error }.
+   */
+  async function openChatInWebview(webview, chatNameRaw) {
+    const chatName = String(chatNameRaw || '').trim();
+    if (!chatName) return { ok: false, error: 'no_chat_name' };
+
+    const ready = await waitForWebviewReady(webview, 15000);
+    if (!ready) return { ok: false, error: 'webview_not_ready' };
+
+    const { query, nativeClick, nativeType, nativeKey } = makeWebviewDrivers(webview);
 
     /* STEP 1: Find search input and click it (with wake-up retry) */
     const findSearchInput = () => query(`(() => {
@@ -626,6 +673,92 @@
       await delay(100);
       return { ok: false, error: 'chat_not_confirmed_after_click', clickTarget: matchResult };
     }
+
+    return { ok: true };
+  }
+
+  /**
+   * Open a chat by directly clicking its row in the rendered chat list
+   * (#pane-side) — WITHOUT touching the search box. Used by the favorites
+   * strip: a favorite only surfaces while it has unread messages, and unread
+   * chats bubble to the TOP of WhatsApp's list, so a no-scroll scan of the
+   * already-rendered rows reliably finds them. This avoids the search →
+   * type → pick flow, which is slower, mutates the search box, and can match
+   * the wrong contact. Returns { ok } or { ok: false, error } so callers can
+   * fall back to openChatInWebview() (search-based) when the row isn't visible.
+   */
+  async function openChatByListClick(webview, chatNameRaw) {
+    const chatName = String(chatNameRaw || '').trim();
+    if (!chatName) return { ok: false, error: 'no_chat_name' };
+
+    const ready = await waitForWebviewReady(webview, 15000);
+    if (!ready) return { ok: false, error: 'webview_not_ready' };
+
+    const { query, nativeClick, nativeKey } = makeWebviewDrivers(webview);
+
+    /* Find a matching row among the rendered chat-list items (no search). */
+    const matchResult = await query(`(() => {
+      const normalize = (v) => String(v || '').replace(/\\u200e|\\u200f/g, '').replace(/\\u00a0/g, ' ').replace(/\\s+/g, ' ').trim();
+      const query = normalize(${JSON.stringify(chatName)}).toLowerCase();
+      const items = Array.from(document.querySelectorAll('#pane-side [role="row"]'));
+      let exact = null;
+      let partial = null;
+      for (const item of items) {
+        const titleEl = item.querySelector('span[title], div[title], [data-testid="cell-frame-title"]');
+        const title = normalize(titleEl?.getAttribute('title') || titleEl?.textContent || '');
+        if (!title) continue;
+        const lower = title.toLowerCase();
+        const r = item.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) continue;       // not actually visible
+        if (lower === query && !exact) {
+          exact = { x: r.left + r.width/2, y: r.top + r.height/2, title };
+        } else if (lower.includes(query) && !partial) {
+          partial = { x: r.left + r.width/2, y: r.top + r.height/2, title };
+        }
+        if (exact) break;
+      }
+      return exact || partial || { found: false, itemCount: items.length };
+    })()`);
+
+    if (!matchResult?.x) return { ok: false, error: 'chat_not_in_list', debug: matchResult };
+
+    await nativeClick(matchResult.x, matchResult.y);
+    await delay(400);
+
+    /* Verify the chat actually opened (composer present). */
+    let composerReady = false;
+    for (let i = 0; i < 25; i++) {
+      const check = await query(`(() => {
+        const c = document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
+                  document.querySelector('footer div[contenteditable="true"]');
+        return { hasComposer: Boolean(c) };
+      })()`);
+      if (check?.hasComposer) { composerReady = true; break; }
+      await delay(150);
+    }
+
+    if (!composerReady) {
+      await nativeKey('Escape');
+      return { ok: false, error: 'chat_not_confirmed_after_click', clickTarget: matchResult };
+    }
+
+    return { ok: true };
+  }
+
+  async function runScheduledSend(webview, item) {
+    const chatName = String(item.chatName || '').trim();
+    // Variables resolve at SEND time so {время}/{приветствие}/{дата} reflect
+    // the actual delivery moment, and {имя} is always the target chat.
+    const text = typeof applyTemplateVariables === 'function'
+      ? applyTemplateVariables(String(item.text || ''), chatName)
+      : String(item.text || '');
+
+    if (!chatName) return { ok: false, error: 'no_chat_name' };
+
+    const opened = await openChatInWebview(webview, chatName);
+    if (!opened.ok) return opened;
+
+    const { query, nativeClick, nativeType, nativeKey } = makeWebviewDrivers(webview);
 
     /* STEP 6: Attachments-first flow.
        If the message has attachments, we deliver them via WhatsApp Web's own
@@ -1054,6 +1187,7 @@
 
   window.WaDeckScheduleModule = {
     init,
+    cancelScheduleEditMode,
     renderScheduleTarget,
     refreshPickerChats,
     fetchChatsForAccount,
@@ -1066,5 +1200,7 @@
     clearAttachments,
     createScheduledMessage,
     startScheduleRunner,
+    openChatInWebview,
+    openChatByListClick,
   };
 })();

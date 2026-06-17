@@ -27,6 +27,9 @@ function activeChatContactScript() {
       if (/^(online|в сети|typing|печатает|recording audio|записывает аудио|tap here|нажмите сюда)/i.test(text)) return true;
       if (/^(last seen|seen |был|была|был\\(-а\\)|был\\(а\\)|сегодня в|вчера в)/i.test(text)) return true;
       if (/^\\d{1,2}:\\d{2}$/.test(text)) return true;
+      // Language-independent heuristic: short lines containing a time pattern
+      // are presence/status lines ("last seen ... 12:34") in any locale.
+      if (/\\d{1,2}:\\d{2}/.test(text) && text.length <= 60) return true;
       return false;
     };
 
@@ -73,6 +76,25 @@ function activeChatContactScript() {
         )
       );
       if (strictTitle) return strictTitle;
+
+      // Language-independent heuristic: when the header holds several
+      // [dir="auto"] lines, WA renders the contact NAME first and status
+      // line(s) after it. Trust the order instead of locale word lists, so a
+      // status in an unknown language can never be mistaken for the name.
+      const dirAutoEls = Array.from(header.querySelectorAll('span[dir="auto"], div[dir="auto"]')).filter((el) => {
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+      if (dirAutoEls.length >= 2) {
+        const first = normalize(dirAutoEls[0].getAttribute('title') || dirAutoEls[0].textContent || '');
+        if (
+          first &&
+          first.length < 80 &&
+          !blockedTitles.has(first.toLowerCase()) &&
+          !/(сведени.*профил|информац.*профил|profile\\s*info|contact\\s*info|информац.*контакт|данные\\s*контакта)/i.test(first) &&
+          !/^\\d{1,2}:\\d{2}$/.test(first)
+        ) return first;
+      }
 
       // Try obvious name-bearing nodes inside the header.
       const headerTitle = pickFromNodes(

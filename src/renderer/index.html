@@ -26,13 +26,13 @@
             <circle class="brand-pulse" cx="40" cy="40" r="10" fill="none" stroke="#5ba8ff" stroke-width="1.5"/>
           </svg>
         </div>
-        <button type="button" id="accounts-scroll-up" class="btn btn-icon sidebar-scroll-btn hidden" title="Прокрутить вверх">
+        <button type="button" id="accounts-scroll-up" class="btn btn-icon sidebar-scroll-btn hidden" title="Прокрутить вверх" aria-label="Прокрутить список аккаунтов вверх">
           <svg class="icon icon-chevron" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M6 14l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
         <div id="accounts-list" class="accounts-list"></div>
-        <button type="button" id="accounts-scroll-down" class="btn btn-icon sidebar-scroll-btn hidden" title="Прокрутить вниз">
+        <button type="button" id="accounts-scroll-down" class="btn btn-icon sidebar-scroll-btn hidden" title="Прокрутить вниз" aria-label="Прокрутить список аккаунтов вниз">
           <svg class="icon icon-chevron" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M6 10l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
@@ -60,7 +60,7 @@
         <header class="toolbar">
           <div class="toolbar-left">
             <div class="toolbar-group">
-            <button type="button" id="refresh-active" class="btn btn-icon btn-toolbar-icon btn-toolbar-expand btn-refresh" title="Обновить вкладку (F5)">
+            <button type="button" id="refresh-active" class="btn btn-icon btn-toolbar-icon btn-toolbar-expand btn-refresh" title="Обновить вкладку">
               <svg class="icon icon-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/>
                 <path d="M21 3v5h-5"/>
@@ -119,6 +119,8 @@
             </button>
             </div>
           </div>
+          <div id="fav-strip" class="fav-strip hidden" title="Избранные контакты — клик открывает чат"></div>
+          <div id="imp-strip" class="imp-strip hidden" title="Важные контакты — клик открывает чат"></div>
           <div id="weather-widget" class="weather-widget">
             <div id="weather-toggle" class="weather-toggle weather-display" title="Погода">
               <span id="weather-icon" class="weather-icon">🌙</span>
@@ -132,17 +134,17 @@
               <path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             <span id="toolbar-clock-time" class="toolbar-clock-time">--:--</span>
-            <div id="toolbar-clock-popover" class="toolbar-clock-popover hidden">
-              <div class="toolbar-clock-popover-title">Часовые пояса</div>
-              <div id="toolbar-clock-zones" class="toolbar-clock-zones"></div>
-            </div>
           </div>
           <div class="toolbar-right">
             <div id="active-account-display" class="active-account-display" title="Активный WhatsApp">Нет активного WhatsApp</div>
             <div class="zoom-control">
-              <button type="button" id="zoom-out" class="btn btn-icon btn-toolbar-icon btn-zoom" title="Уменьшить масштаб">−</button>
+              <button type="button" id="zoom-out" class="btn btn-icon btn-toolbar-icon btn-zoom" title="Уменьшить масштаб" aria-label="Уменьшить масштаб">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
+              </button>
               <input id="zoom-slider" type="range" min="50" max="150" value="100" step="5" class="zoom-slider" title="Масштаб" />
-              <button type="button" id="zoom-in" class="btn btn-icon btn-toolbar-icon btn-zoom" title="Увеличить масштаб">+</button>
+              <button type="button" id="zoom-in" class="btn btn-icon btn-toolbar-icon btn-zoom" title="Увеличить масштаб" aria-label="Увеличить масштаб">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
               <span id="zoom-value" class="zoom-value">100%</span>
             </div>
             <div id="active-unread" class="unread-indicator hidden" title="Непрочитанные сообщения">
@@ -150,7 +152,7 @@
               <span id="active-unread-count">0</span>
             </div>
             <div id="status" class="status">Инициализация...</div>
-            <button type="button" id="toggle-panel" class="btn btn-icon btn-toolbar-icon btn-settings" title="Настройки">
+            <button type="button" id="toggle-panel" class="btn btn-icon btn-toolbar-icon btn-settings" title="Настройки" aria-label="Открыть настройки">
               <svg class="icon icon-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="3"/>
                 <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
@@ -180,6 +182,8 @@
               <div id="hub-greeting" class="hub-greeting"></div>
               <div id="hub-title" class="hub-title">WA Deck</div>
               <div id="hub-clocks" class="hub-clocks"></div>
+              <div id="hub-fav" class="hub-fav hidden"></div>
+              <div id="hub-imp" class="hub-imp hidden"></div>
               <div class="hub-section-head">
                 <h2 class="hub-section-title">Аккаунты <span id="hub-accts-count" class="hub-section-count"></span></h2>
                 <div id="hub-filters" class="hub-filters"></div>
@@ -244,8 +248,8 @@
             <button type="button" class="settings-menu-item" data-open="schedule">
               <span class="settings-menu-ico">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M22 2 11 13"/>
-                  <path d="M22 2l-7 20-4-9-9-4 20-7z"/>
+                  <circle cx="12" cy="12" r="9"/>
+                  <path d="M12 7v5l3.5 2"/>
                 </svg>
               </span>
               <span class="settings-menu-text">
@@ -374,6 +378,7 @@
               <button type="button" id="tmpl-lib-new" class="tmpl-lib-action">+ Новый шаблон</button>
             </div>
             <div id="tmpl-lib-list" class="tmpl-lib-list"></div>
+            <div class="tmpl-vars-hint">Переменные: {имя} · {приветствие} · {дата} · {время} — подставляются при вставке и отправке</div>
           </div>
           <div id="tmpl-edit-wrap" class="tmpl-edit-wrap hidden">
             <div class="tmpl-edit-head">
@@ -404,12 +409,8 @@
               <button type="button" id="template-to-chat" class="btn">Вставить в чат</button>
               <button type="button" id="template-delete" class="btn btn-ghost-danger" title="Удалить шаблон">Удалить</button>
             </div>
-            <!-- Legacy no-op buttons, kept as hidden to preserve event-listener bindings -->
+            <!-- Hidden "new template" trigger — clicked programmatically by the library header button -->
             <button type="button" id="template-new" hidden></button>
-            <button type="button" id="template-search" hidden></button>
-            <input type="text" id="template-search-input" hidden />
-            <div id="template-search-row" class="hidden"></div>
-            <div id="template-search-results-row" class="hidden"><select id="template-search-results" hidden></select></div>
           </div>
         </details>
         </section>
@@ -417,6 +418,12 @@
         <section class="settings-section" data-settings-section="schedule">
         <details class="card card-collapsible" id="schedule-settings-card" open>
           <summary>Создать отложенное сообщение</summary>
+          <div id="schedule-edit-banner" class="schedule-edit-banner hidden">
+            <span class="schedule-edit-banner-text">Редактирование задания</span>
+            <button type="button" id="schedule-edit-cancel" class="schedule-edit-banner-close modal-close-x" title="Отменить редактирование" aria-label="Отменить редактирование">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
           <label>
             Цель отправки
             <input id="schedule-target" type="text" placeholder="Выберите WhatsApp и чат" readonly />
@@ -514,7 +521,9 @@
       <div class="modal-card">
         <div class="modal-head">
           <h3>Выбор чата</h3>
-          <button type="button" id="close-chat-picker" class="btn btn-icon modal-close-btn" title="Закрыть">✕</button>
+          <button type="button" id="close-chat-picker" class="btn btn-icon modal-close-btn modal-close-x" title="Закрыть" aria-label="Закрыть">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
         </div>
         <div class="picker-account-display" id="picker-account-display">Активный аккаунт не выбран</div>
         <!-- Hidden select retained for backward-compat with existing handlers;
@@ -571,7 +580,7 @@
           <div class="account-menu-toggles">
             <button type="button" id="account-menu-pin" class="toggle-btn" title="Закрепить в хабе">
               <span class="toggle-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
               </span>
               <span class="toggle-text">Закрепить</span>
             </button>
@@ -676,6 +685,12 @@
             <h3>CRM</h3>
             <span class="crm-badge">контакт</span>
           </div>
+          <button type="button" id="crm-fav-toggle" class="crm-fav-toggle" title="Добавить в избранное" aria-pressed="false">
+            <span class="crm-fav-star">★</span>
+          </button>
+          <button type="button" id="crm-imp-toggle" class="crm-imp-toggle" title="Добавить в Важные" aria-pressed="false">
+            <span class="crm-imp-diamond">◆</span>
+          </button>
           <button type="button" id="crm-close" class="crm-close-btn" title="Закрыть">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
           </button>
@@ -731,6 +746,7 @@
     <script src="webview-scripts/bridge.js"></script>
     <script src="webview-scripts/collect-chats.js"></script>
     <script src="webview-scripts/unread-count.js"></script>
+    <script src="webview-scripts/collect-unread-chats.js"></script>
     <script src="webview-scripts/active-chat-contact.js"></script>
     <script src="webview-scripts/crm-chat-boundary.js"></script>
     <script src="webview-scripts/crm-hover-bridge.js"></script>
@@ -741,6 +757,8 @@
     <script src="auto-update.js"></script>
     <script src="unread.js"></script>
     <script src="crm.js"></script>
+    <script src="favorites.js"></script>
+    <script src="important.js"></script>
 
     <!-- Floating Tweaks widget (theme + scene), bottom-right corner -->
     <button type="button" id="tweaks-fab" class="tweaks-fab" title="Оформление">
@@ -782,6 +800,19 @@
             <button type="button" class="tweak-pill" data-theme="light">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
               <span>Светлая</span>
+            </button>
+          </div>
+        </div>
+        <div class="tweaks-group">
+          <div class="tweaks-label">ПЛИТКИ</div>
+          <div class="tweaks-pills" data-group="tiles">
+            <button type="button" class="tweak-pill" data-tiles="raw">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+              <span>Яркие</span>
+            </button>
+            <button type="button" class="tweak-pill" data-tiles="calm">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 12h18M12 3v18"/></svg>
+              <span>Спокойные</span>
             </button>
           </div>
         </div>

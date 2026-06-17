@@ -1,8 +1,23 @@
-function bridgeScript() {
+function bridgeScript(token) {
+  const tokenJs = JSON.stringify(typeof token === 'string' ? token : '');
   return `(() => {
     if (window.__waDeckBridgeBound) return true;
     window.__waDeckBridgeBound = true;
     window.__waDeckLastClickedText = '';
+
+    /* Host-issued token kept in the closure (never on window) */
+    const __WADECK_TOKEN = ${tokenJs};
+
+    /* Health marker, throttled to at most one per minute */
+    let healthLastSent = 0;
+    const emitHealth = (detail) => {
+      const now = Date.now();
+      if (now - healthLastSent < 60000) return;
+      healthLastSent = now;
+      try {
+        console.log('__WADECK_HEALTH__' + __WADECK_TOKEN + ':' + JSON.stringify({ script: 'bridge', ok: false, detail: detail }));
+      } catch {}
+    };
 
     const normalize = (value) =>
       String(value || '')
@@ -30,7 +45,7 @@ function bridgeScript() {
       if (tag === 'IMG') {
         const alt = normalize(element.getAttribute('alt') || '');
         const looksLikeEmoji = /[\\p{Extended_Pictographic}\\u2600-\\u27BF]/u.test(alt);
-        const hasLetters = /[A-Za-z\u0410-\u044F\u0430-\u044F]/u.test(alt);
+        const hasLetters = /[A-Za-zА-яа-я]/u.test(alt);
         return looksLikeEmoji || (!hasLetters && alt.length <= 4) ? alt : '';
       }
       if (tag === 'SPAN' && element.getAttribute('data-icon') === 'reaction') {
@@ -48,6 +63,9 @@ function bridgeScript() {
       if (!node) return '';
       const selection = window.getSelection();
       if (!selection) return '';
+      // Never clobber an active user selection — bail out and let the
+      // caller's other fallbacks handle this row instead.
+      if (selection.rangeCount > 0 && !selection.isCollapsed) return '';
       const saved = [];
       for (let i = 0; i < selection.rangeCount; i += 1) {
         saved.push(selection.getRangeAt(i).cloneRange());
@@ -79,11 +97,14 @@ function bridgeScript() {
       const stripWhatsappPrefix = (line) =>
         String(line || '')
           .replace(/^\\[\\d{1,2}:\\d{2}(?:,\\s*[^\\]]+)?\\]\\s*[^:]{1,80}:\\s*/u, '')
-          .replace(/^\\d{1,2}:\\d{2}\\s*[-\u2013\u2014]\\s*[^:]{1,80}:\\s*/u, '');
+          .replace(/^\\d{1,2}:\\d{2}\\s*[-–—]\\s*[^:]{1,80}:\\s*/u, '');
+      // Locale-independent trailing-meta cleanup: tick glyphs and HH:MM(:SS)
+      // (optionally with AM/PM) instead of EN/RU-only word lists.
       const stripTrailingMeta = (line) =>
         String(line || '')
-          .replace(/[ \\t]+(?:\\d{1,2}:\\d{2}(?::\\d{2})?)$/u, '')
-          .replace(/[ \\t]+(?:\u0432\u0447\u0435\u0440\u0430|\u0441\u0435\u0433\u043e\u0434\u043d\u044f)$/iu, '')
+          .replace(/[\\u2713\\u2714]+/gu, '')
+          .replace(/[ \\t]+\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s*[APap]\\.?[Mm]\\.?)?$/u, '')
+          .replace(/[ \\t]+(?:вчера|сегодня)$/iu, '')
           .trim();
       const dedupeLines = (lines) => {
         const seen = new Set();
@@ -131,87 +152,40 @@ function bridgeScript() {
           .filter((line) => !/^\\d{1,2}[./]\\d{1,2}[./]\\d{2,4}$/.test(line));
         return collapseRepeatedText(lines.join('\\n'));
       };
-      const prefixInfo = (() => {
-        const raw = String(row.getAttribute('data-pre-plain-text') || '').trim();
-        const match = raw.match(/^\\[(.+?)\\]\\s*([^:]+):\\s*$/u);
-        return {
-          raw,
-          timestamp: normalize(match?.[1] || ''),
-          author: normalize(match?.[2] || ''),
-        };
-      })();
 
-      // For image/video messages: prefer caption-only to avoid text duplication
-      const mediaCaptions = Array.from(row.querySelectorAll('[data-testid="media-caption"], [data-testid="caption"]'));
-      if (mediaCaptions.length > 0) {
-        const captionTexts = mediaCaptions
-          .map((el) => cleanupMeta(extractTextFromNode(el)))
-          .filter(Boolean);
-        const uniqueCaptions = [...new Set(captionTexts)];
-        if (uniqueCaptions.length > 0) {
-          return uniqueCaptions[0];
-        }
-      }
-
-      const containerCandidates = Array.from(row.querySelectorAll('[data-testid="msg-text"]'));
-      const candidates = [
-        ...containerCandidates,
-        ...Array.from(
-          row.querySelectorAll(
-            'span.selectable-text.copyable-text, span.selectable-text, div.selectable-text.copyable-text'
-          ),
-        ),
-      ];
-
-      const primaryTexts = [];
-      const uniqueTexts = [];
-      const pushPrimaryText = (value) => {
-        const text = cleanupMeta(value);
-        if (!text) return;
-        if (primaryTexts.includes(text)) return;
-        primaryTexts.push(text);
-      };
-      const pushUniqueText = (value) => {
-        const text = cleanupMeta(value);
-        if (!text) return;
-        if (uniqueTexts.includes(text)) return;
-        uniqueTexts.push(text);
-      };
+      const anchor = (row.matches && row.matches('[data-pre-plain-text]'))
+        ? row
+        : (row.querySelector ? row.querySelector('[data-pre-plain-text]') : null);
+      const prefixRaw = String((anchor || row).getAttribute('data-pre-plain-text') || '').trim();
 
       let best = '';
-      for (const candidate of containerCandidates) {
-        const text = extractTextFromNode(candidate);
-        pushPrimaryText(text);
-        pushUniqueText(text);
-      }
-      for (const candidate of candidates) {
-        pushUniqueText(extractTextFromNode(candidate));
+
+      /* 1. Primary: the [data-pre-plain-text] anchor — the only stable hook
+         that survived the mid-2026 redesign. Its text minus known meta is
+         the message body. */
+      if (anchor) {
+        best = cleanupMeta(extractTextFromNode(anchor));
       }
 
-      if (primaryTexts.length) {
-        primaryTexts.sort((a, b) => a.length - b.length);
-        best = primaryTexts[0];
-      } else if (uniqueTexts.length) {
-        uniqueTexts.sort((a, b) => a.length - b.length);
-        best = uniqueTexts[0];
-      }
-
-      if (!best) {
+      /* 2. Clone fallback with locale-independent meta removal: drop <time>
+         and status-icon spans, then run the regex-based cleanup (times, tick
+         glyphs) — no dependence on EN/RU aria-labels or dead testids. */
+      if (!best && row.cloneNode) {
         const clone = row.cloneNode(true);
-        const metaNodes = clone.querySelectorAll(
-          '[data-testid="msg-meta"], [data-testid="msg-time"], time, [aria-label*="Delivered"], [aria-label*="Read"], [aria-label*="\u041e\u0442\u043f\u0440\u0430\u0432"], [aria-label*="\u041f\u0440\u043e\u0447\u0438\u0442"], [aria-label*="opened"], [aria-label*="\u041f\u0440\u043e\u0441\u043c\u043e\u0442\u0440"], [aria-label*="Open"], [data-testid="media-viewer-caption"]'
-        );
-        metaNodes.forEach((node) => node.remove());
+        clone.querySelectorAll('time, span[data-icon]').forEach((node) => node.remove());
         best = cleanupMeta(extractTextFromNode(clone));
       }
 
+      /* 3. Selection hack (skipped when the user holds a selection). */
       if (!best) {
         best = cleanupMeta(selectNodeText(row));
       }
 
-      if (!best && prefixInfo.raw) {
-        best = cleanupMeta(prefixInfo.raw);
+      if (!best && prefixRaw) {
+        best = cleanupMeta(prefixRaw);
       }
+
+      if (!best) emitHealth('extract_failed_all_branches');
 
       return best;
     };

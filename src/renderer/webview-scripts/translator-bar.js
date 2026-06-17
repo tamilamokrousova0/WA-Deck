@@ -1,7 +1,20 @@
-function translatorBarScript() {
+function translatorBarScript(token) {
+  const tokenJs = JSON.stringify(typeof token === 'string' ? token : '');
   return `(() => {
     if (window.__waDeckTranslatorBound) return true;
     window.__waDeckTranslatorBound = true;
+
+    /* Host-issued token kept in the closure (never on window) */
+    const __WADECK_TOKEN = ${tokenJs};
+
+    /* Health marker, throttled to at most one per minute */
+    let healthLastSent = 0;
+    function emitHealth(payload) {
+      const now = Date.now();
+      if (now - healthLastSent < 60000) return;
+      healthLastSent = now;
+      try { console.log('__WADECK_HEALTH__' + __WADECK_TOKEN + ':' + JSON.stringify(payload)); } catch {}
+    }
 
     // Clean up any stale bar/overlays from a prior init
     try {
@@ -381,23 +394,42 @@ function translatorBarScript() {
       const text = getSelectedText();
       if (!text) return;
       const payload = JSON.stringify({ text: text, from: outgoingFrom, to: outgoingTo });
-      console.log('__WADECK_TRANSLATE__' + payload);
+      console.log('__WADECK_TRANSLATE__' + __WADECK_TOKEN + ':' + payload);
     }
 
     window.__waDeckInsertTranslation = function (translated) {
       if (!translated) return;
       const composer = getComposer();
-      if (!composer) return;
+      if (!composer) {
+        emitHealth({ script: 'translator-bar', ok: false, detail: 'insert_no_composer' });
+        return;
+      }
       composer.focus();
 
-      let inserted = false;
-      try { inserted = document.execCommand('insertText', false, translated); } catch { inserted = false; }
-      if (!inserted) {
+      const normWs = (v) => String(v || '').replace(/\\s+/g, ' ').trim();
+      const wantProbe = normWs(translated).slice(0, 64);
+      const isInserted = () =>
+        !wantProbe || normWs(composer.innerText || composer.textContent || '').indexOf(wantProbe) !== -1;
+
+      let claimed = false;
+      try { claimed = document.execCommand('insertText', false, translated); } catch { claimed = false; }
+      if (!claimed) {
         try {
           const dt = new DataTransfer();
           dt.setData('text/plain', translated);
           composer.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
+          if (isInserted()) claimed = true;
         } catch {}
+      }
+      if (!claimed) {
+        // Lexical (WA composer) listens to beforeinput/insertText
+        try {
+          composer.dispatchEvent(new InputEvent('beforeinput', { inputType: 'insertText', data: translated, bubbles: true, cancelable: true }));
+          if (isInserted()) claimed = true;
+        } catch {}
+      }
+      if (!claimed && !isInserted()) {
+        emitHealth({ script: 'translator-bar', ok: false, detail: 'insert_translation_failed' });
       }
     };
 
@@ -443,37 +475,43 @@ function translatorBarScript() {
     //     a layout invariant, not a cosmetic class, so it does not break when
     //     Meta rehashes its CSS.
 
-    function chatMidX() {
-      const main = document.querySelector('#main');
-      const r = main ? main.getBoundingClientRect() : null;
-      if (r && r.width > 0) return r.left + r.width / 2;
-      return (window.innerWidth || 1000) / 2;
-    }
-
     // The .copyable-text wrapper carrying data-pre-plain-text is the message
     // text container; we overlay it and read text from it. A row can hold
-    // several .copyable-text nodes (quoted replies, link previews), so prefer
-    // the data-pre-plain-text one — that is always the main message body.
+    // several [data-pre-plain-text] nodes (quoted replies render their own
+    // anchor BEFORE the actual body), so take the LAST one — that is always
+    // the main message body.
     function getBubbleContainer(row) {
       if (!row) return null;
-      return row.querySelector('[data-pre-plain-text]')
-        || row.querySelector('.copyable-text')
-        || row;
+      const anchors = row.querySelectorAll ? row.querySelectorAll('[data-pre-plain-text]') : null;
+      if (anchors && anchors.length) return anchors[anchors.length - 1];
+      return (row.querySelector && row.querySelector('.copyable-text')) || row;
     }
 
     function isMessageRow(row) {
       return !!(row && row.querySelector && row.querySelector('[data-pre-plain-text]'));
     }
 
-    // Returns true only when we can confidently measure the bubble as
-    // left-of-centre. If layout is not ready yet (width 0) we return false and
-    // let the next sweep retry, rather than risk mislabelling an outgoing one.
+    // Direction via edge-gap comparison: the bubble hugging an edge belongs
+    // to that side — incoming bubbles hug the start edge (left in LTR),
+    // outgoing hug the end edge. Comparing edge gaps (instead of centres) is
+    // robust for wide bubbles whose centre crosses the midline. RTL layouts
+    // invert the mapping. If layout is not ready yet (width 0) we return
+    // false and let the next sweep retry rather than risk mislabelling.
     function isIncomingRow(row) {
       const bubble = getBubbleContainer(row);
       if (!bubble || bubble === row) return false;
       const br = bubble.getBoundingClientRect();
       if (!br || br.width === 0) return false;
-      return (br.left + br.width / 2) < chatMidX();
+      const main = document.querySelector('#main');
+      const mr = main ? main.getBoundingClientRect() : null;
+      if (!mr || mr.width === 0) return false;
+      const leftGap = br.left - mr.left;
+      const rightGap = mr.right - br.right;
+      let incoming = leftGap < rightGap;
+      try {
+        if (getComputedStyle(document.body).direction === 'rtl') incoming = !incoming;
+      } catch {}
+      return incoming;
     }
 
     // Collect candidate message rows under root (the full chat on a sweep, or a
@@ -508,6 +546,14 @@ function translatorBarScript() {
     function getMessageText(row) {
       const bubble = getBubbleContainer(row);
       if (!bubble) return '';
+      // Prefer the shared extractor from bridge.js — it strips timestamps,
+      // tick glyphs and other meta properly. Fall back to raw innerText.
+      try {
+        if (typeof window.__waDeckExtractMessageFromRow === 'function') {
+          const extracted = window.__waDeckExtractMessageFromRow(bubble);
+          if (extracted) return String(extracted).trim();
+        }
+      } catch {}
       const text = bubble.innerText || bubble.textContent || '';
       return String(text || '').trim();
     }
@@ -648,12 +694,26 @@ function translatorBarScript() {
 
     function requestMessageTranslate(text, from, to, onResult) {
       const reqId = Math.random().toString(36).slice(2) + '_' + Date.now().toString(36);
-      window['__waDeckTrCb_' + reqId] = function (result) {
+      const cbName = '__waDeckTrCb_' + reqId;
+      let settled = false;
+      // A lost host response must not leave the row pending forever nor leak
+      // the callback on window: time out after 20s and report a failure so
+      // the cache entry can be retried by the sweep.
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try { delete window[cbName]; } catch {}
+        try { onResult(null); } catch {}
+      }, 20000);
+      window[cbName] = function (result) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         try { onResult(result); } catch {}
-        try { delete window['__waDeckTrCb_' + reqId]; } catch {}
+        try { delete window[cbName]; } catch {}
       };
       const payload = JSON.stringify({ reqId: reqId, text: text, from: from, to: to });
-      console.log('__WADECK_TRANSLATE_MSG__' + payload);
+      console.log('__WADECK_TRANSLATE_MSG__' + __WADECK_TOKEN + ':' + payload);
     }
 
     function applyOutgoingTo(code) {
@@ -676,12 +736,12 @@ function translatorBarScript() {
         try { applyOutgoingTo(String(lang || '')); } catch {}
         try { delete window[cbName]; } catch {}
       };
-      console.log('__WADECK_GET_LANG__' + JSON.stringify({ reqId: reqId, chatId: chatId }));
+      console.log('__WADECK_GET_LANG__' + __WADECK_TOKEN + ':' + JSON.stringify({ reqId: reqId, chatId: chatId }));
     }
 
     function saveContactLang(chatId, lang) {
       if (!chatId || chatId === '__unknown_chat__') return;
-      console.log('__WADECK_SET_LANG__' + JSON.stringify({ chatId: chatId, lang: lang }));
+      console.log('__WADECK_SET_LANG__' + __WADECK_TOKEN + ':' + JSON.stringify({ chatId: chatId, lang: lang }));
     }
 
     function hasOverlay(row) {
@@ -694,8 +754,13 @@ function translatorBarScript() {
       if (!autoTranslate) return;
       const entry = translatedCache.get(row);
       if (entry && entry.state === 'pending') return;
-      if (entry && entry.state === 'failed') return;
       if (entry && entry.state === 'dismissed') return;
+      if (entry && entry.state === 'failed') {
+        // Retry failed rows on the periodic sweep: 30s backoff between
+        // attempts, at most 3 attempts total, then terminal.
+        if ((entry.attempts || 0) >= 3) return;
+        if (Date.now() - (entry.failedAt || 0) < 30000) return;
+      }
       // Already translated — restore overlay if WhatsApp re-rendered the bubble
       if (entry && entry.state === 'done' && entry.translated) {
         if (!hasOverlay(row)) renderOverlay(row, entry.translated);
@@ -708,11 +773,12 @@ function translatorBarScript() {
       if (!isIncomingRow(row)) return;
       const text = getMessageText(row);
       if (!text) return;
-      translatedCache.set(row, { state: 'pending' });
+      const prevAttempts = entry && entry.state === 'failed' ? (entry.attempts || 0) : 0;
+      translatedCache.set(row, { state: 'pending', attempts: prevAttempts });
       requestMessageTranslate(text, 'auto', INCOMING_TARGET, (result) => {
         if (!row.isConnected) return;
         if (!result || !result.ok || !result.translated) {
-          translatedCache.set(row, { state: 'failed' });
+          translatedCache.set(row, { state: 'failed', failedAt: Date.now(), attempts: prevAttempts + 1 });
           return;
         }
         translatedCache.set(row, { state: 'done', translated: result.translated });
@@ -723,7 +789,18 @@ function translatorBarScript() {
     function processAllVisibleIncoming() {
       const main = document.querySelector('#main') || document;
       const rows = collectMessageRows(main);
-      rows.forEach((row) => processIncomingBubble(row));
+      rows.forEach((row) => {
+        processIncomingBubble(row);
+        // Clear stale inline min-height left behind when an overlay vanished
+        // (WA re-render removed it without our close handler running).
+        try {
+          const target = getBubbleContainer(row);
+          if (target && target.style && target.style.minHeight &&
+              !target.querySelector(':scope > .__wadeck-tr-overlay')) {
+            target.style.minHeight = '';
+          }
+        } catch {}
+      });
     }
 
     // ========== Observer for chat messages ==========
@@ -731,6 +808,7 @@ function translatorBarScript() {
     let chatObserver = null;
     let chatObserverRoot = null;
     let chatObserverPending = false;
+    let chatObserverCleanup = null;
     function bindChatObserver() {
       if (chatObserverPending) return;
       const root = document.querySelector('#main');
@@ -744,6 +822,9 @@ function translatorBarScript() {
       }
       if (chatObserverRoot === root && chatObserver) return;
       if (chatObserver) { try { chatObserver.disconnect(); } catch {} }
+      // Cancel the previous binding's pending flush timer so an orphaned
+      // closure cannot fire against a dead observer's batch.
+      if (chatObserverCleanup) { try { chatObserverCleanup(); } catch {} chatObserverCleanup = null; }
       chatObserverRoot = root;
       // Batch mutations: on heavy scroll / fast-typing WA fires hundreds of
       // mutations per second. Collect them and flush at most every 120ms.
@@ -767,6 +848,10 @@ function translatorBarScript() {
         }
         if (!flushTimer) flushTimer = setTimeout(flush, 120);
       });
+      chatObserverCleanup = () => {
+        if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+        pendingBubbles.clear();
+      };
       chatObserver.observe(root, { childList: true, subtree: true });
     }
 
@@ -786,6 +871,28 @@ function translatorBarScript() {
 
     let chatEmptyTicks = 0;
     let sweepCounter = 0;
+    let chatAnchorEl = null;
+    let noRowsState = false;
+
+    // Health probe: a chat is open and [role="row"] elements exist, but none
+    // qualifies as a message row — our [data-pre-plain-text] anchor likely
+    // died in a WA redesign. Emit once per state change (throttle inside
+    // emitHealth caps it to once a minute anyway).
+    function checkRowsHealth() {
+      const mainEl = document.querySelector('#main');
+      if (!mainEl) return;
+      const roleRows = mainEl.querySelectorAll('[role="row"]');
+      if (roleRows.length === 0) return;
+      const broken = collectMessageRows(mainEl).size === 0;
+      if (broken !== noRowsState) {
+        noRowsState = broken;
+        emitHealth({
+          script: 'translator-bar',
+          ok: !broken,
+          detail: broken ? 'no_message_rows' : 'message_rows_recovered',
+        });
+      }
+    }
 
     function tick() {
       const next = getChatId();
@@ -804,6 +911,17 @@ function translatorBarScript() {
         loadContactLangFor(next);
       }
 
+      // Even when the chat name is unreadable ('__unknown_chat__'), a swap of
+      // the conversation DOM anchor means a different chat was opened — stale
+      // overlays must still be cleared.
+      const anchorEl = document.querySelector('#main header') || document.querySelector('#main');
+      if (!chatChanged && next === '__unknown_chat__' &&
+          anchorEl && chatAnchorEl && anchorEl !== chatAnchorEl) {
+        translatedCache = new WeakMap();
+        clearAllOverlays();
+      }
+      chatAnchorEl = anchorEl;
+
       if (!next) {
         if (chatEmptyTicks >= 5) {
           currentChatId = '';
@@ -820,14 +938,16 @@ function translatorBarScript() {
 
       // Sweep for detached overlays every 3 ticks (3s) instead of every tick
       sweepCounter++;
-      if (autoTranslate && sweepCounter >= 3) {
+      if (sweepCounter >= 3) {
         sweepCounter = 0;
-        processAllVisibleIncoming();
+        if (autoTranslate) processAllVisibleIncoming();
+        checkRowsHealth();
       }
 
       if (chatObserverRoot && !chatObserverRoot.isConnected) {
         chatObserverRoot = null;
         if (chatObserver) { try { chatObserver.disconnect(); } catch {} chatObserver = null; }
+        if (chatObserverCleanup) { try { chatObserverCleanup(); } catch {} chatObserverCleanup = null; }
       }
       if (!chatObserverRoot && !chatObserverPending) {
         bindChatObserver();

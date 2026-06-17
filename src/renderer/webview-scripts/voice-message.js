@@ -11,7 +11,15 @@ function voiceMessageSetupScript(audioBase64, mimeType) {
   const safeMime = String(mimeType || 'audio/ogg');
 
   return `(async () => {
-    const _origGUM = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    /* Re-entrancy guard: a second run while a voice flow is in progress would
+       capture the already-overridden getUserMedia as "original" and later
+       "restore" the fake, killing the real mic until webview reload. */
+    if (window.__waDeckVoice) return { ok: false, error: 'voice_in_progress' };
+    /* Save the NATIVE getUserMedia exactly once, globally. Every restore goes
+       through this reference, so a fake can never be re-saved as "real". */
+    window.__waDeckRealGUM = window.__waDeckRealGUM
+      || navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    const _origGUM = window.__waDeckRealGUM;
     try {
       /* ── 1. Decode base64 → ArrayBuffer ── */
       const b64 = ${JSON.stringify(safeB64)};
@@ -60,8 +68,14 @@ function voiceMessageSetupScript(audioBase64, mimeType) {
       let gumResolve = null;
       const gumPromise = new Promise((r) => { gumResolve = r; });
 
+      /* The fake stream is handed out exactly ONCE: the real getUserMedia is
+         restored synchronously before returning the fake, so anything else
+         calling gUM afterwards (e.g. an incoming WhatsApp call) gets the real
+         microphone, not our fake. */
+      let fakeDelivered = false;
       navigator.mediaDevices.getUserMedia = async (constraints) => {
-        if (constraints?.audio) {
+        if (constraints?.audio && !fakeDelivered) {
+          fakeDelivered = true;
           navigator.mediaDevices.getUserMedia = _origGUM;
           streamSrc.start(0);
           if (gumResolve) gumResolve(true);
@@ -79,6 +93,12 @@ function voiceMessageSetupScript(audioBase64, mimeType) {
             navigator.mediaDevices.getUserMedia = _origGUM;
           }
         } catch (_) {}
+        /* Full cleanup, mirroring Phase 3: close the AudioContext (Chromium
+           caps ~6 live contexts — leaking one per aborted send soon makes
+           every later voice message fail) and drop the state object so the
+           re-entrancy guard does not stay latched forever. */
+        try { streamCtx.close().catch(() => {}); } catch (_) {}
+        try { delete window.__waDeckVoice; } catch (_) {}
       }, 15000);
 
       /* ── 6. Find PTT (mic) button ── */
@@ -99,9 +119,22 @@ function voiceMessageSetupScript(audioBase64, mimeType) {
           const el = document.querySelector(sel);
           if (el) return el;
         }
-        /* Fallback: scan footer for the LAST button (mic is rightmost) */
         const footer = document.querySelector('footer');
         if (footer) {
+          /* data-icon survives WhatsApp redesigns better than testid/aria-label */
+          const icon = footer.querySelector('span[data-icon*="ptt"], span[data-icon*="mic"]');
+          if (icon) {
+            const iconBtn = icon.closest('button') || icon.closest('[role="button"]');
+            if (iconBtn) return iconBtn;
+          }
+          /* Last-button fallback is only safe when the composer is EMPTY:
+             with a draft present the rightmost footer button is Send, and
+             clicking it would send the draft instead of recording. */
+          const composerEl = footer.querySelector('[contenteditable="true"]');
+          const draft = composerEl
+            ? String(composerEl.innerText || composerEl.textContent || '').trim()
+            : '';
+          if (draft) return 'composer_not_empty';
           const buttons = [...footer.querySelectorAll('button')];
           if (buttons.length) return buttons[buttons.length - 1];
         }
@@ -109,10 +142,10 @@ function voiceMessageSetupScript(audioBase64, mimeType) {
       };
 
       const pttBtn = findPttBtn();
-      if (!pttBtn) {
+      if (!pttBtn || typeof pttBtn === 'string') {
         navigator.mediaDevices.getUserMedia = _origGUM;
         streamCtx.close().catch(() => {});
-        return { ok: false, error: 'ptt_button_not_found' };
+        return { ok: false, error: typeof pttBtn === 'string' ? pttBtn : 'ptt_button_not_found' };
       }
 
       /* ── 7. Get button center coordinates for trusted sendInputEvent ── */
@@ -178,9 +211,11 @@ function voiceMessageCleanupScript() {
       const vs = window.__waDeckVoice;
       if (vs) {
         if (vs.safetyRestoreTimer) { try { clearTimeout(vs.safetyRestoreTimer); } catch (_) {} }
-        /* Restore original getUserMedia if override is still in place */
-        if (vs._origGUM && navigator.mediaDevices.getUserMedia !== vs._origGUM) {
-          navigator.mediaDevices.getUserMedia = vs._origGUM;
+        /* Restore original getUserMedia — always from the global native
+           reference so we can never re-install a stale fake. */
+        const realGUM = window.__waDeckRealGUM || vs._origGUM;
+        if (realGUM && navigator.mediaDevices.getUserMedia !== realGUM) {
+          navigator.mediaDevices.getUserMedia = realGUM;
         }
         /* Close audio context */
         if (vs.streamCtx) vs.streamCtx.close().catch(() => {});

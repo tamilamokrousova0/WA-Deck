@@ -130,7 +130,12 @@
     return coords;
   }
 
+  // Generation token: the 10-min interval and a manual city save can race —
+  // a late response from the OLD request must not overwrite the NEW one.
+  let _weatherGen = 0;
+
   async function refreshWeather(forceCity = '') {
+    const gen = ++_weatherGen;
     const city = normalizeWeatherCity(forceCity || state.settings?.weatherCity);
     const unit = normalizeWeatherUnit(state.settings?.weatherUnit);
     renderWeatherSummary({ city, unit, loading: true });
@@ -145,6 +150,7 @@
         '&timezone=auto' +
         `&temperature_unit=${unit}`;
       const payload = await fetchJsonWithTimeout(forecastUrl, 9000);
+      if (gen !== _weatherGen) return; // superseded by a newer refresh
       const current = payload?.current || {};
       const weatherCode = Number(current.weather_code);
       const temperature = Number(current.temperature_2m);
@@ -162,6 +168,7 @@
       const hhmm = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
       setWeatherMeta(`${weatherText} • обновлено ${hhmm}`);
     } catch (error) {
+      if (gen !== _weatherGen) return; // a newer refresh owns the UI now
       renderWeatherSummary({ city, unit, loading: false });
       if (String(error?.message || '').includes('city_not_found')) {
         setWeatherMeta('Город не найден');

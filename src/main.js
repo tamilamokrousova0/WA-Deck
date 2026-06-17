@@ -4,7 +4,8 @@ const path = require('path');
 const fs = require('fs/promises');
 const fsSync = require('fs');
 const crypto = require('crypto');
-const { spawnSync } = require('child_process');
+const { spawnSync, spawn } = require('child_process');
+const https = require('https');
 const { pathToFileURL } = require('url');
 const os = require('os');
 
@@ -82,6 +83,9 @@ let _appIsQuitting = false;
 
 const DEFAULT_SETTINGS = {
   uiTheme: 'dark',
+  // Sidebar/hub tile colors: 'raw' = user color as-is, 'calm' = normalized
+  // blend (hue kept, luminance unified) — opt-in Tweaks toggle.
+  uiTiles: 'raw',
   weatherCity: 'Moscow',
   weatherUnit: 'celsius',
   lastSeenReleaseNotesVersion: '',
@@ -145,6 +149,12 @@ const state = {
     settings: { ...DEFAULT_SETTINGS },
     templates: [],
     scheduled: [],
+    // Favorite contacts: [{ accountId, name }]. Surfaced as toolbar chips +
+    // a hub filter; toggled from the CRM drawer star.
+    favorites: [],
+    // Important contacts: [{ accountId, name }]. Same surfaces in blue;
+    // mutually exclusive with favorites (toggled from the CRM drawer diamond).
+    important: [],
     // Per-contact default outgoing translation language.
     // Key: `${accountId}\u0000${chatName}` → lang code (e.g. "de").
     contactLangs: {},
@@ -155,6 +165,10 @@ let mainWindow;
 let lastUpdateProgressPercent = -1;
 let autoUpdaterConfigured = false;
 let macDeveloperIdSignatureCache = null;
+// True only after an update has actually finished downloading (set by the
+// electron-updater 'update-downloaded' event or by the custom mac flow).
+// install-downloaded-update checks it BEFORE destroying any windows.
+let updateDownloaded = false;
 
 // Sessions that already have a permission handler installed (avoid re-setting
 // on every web-contents-created for the same partition session).
@@ -315,6 +329,7 @@ function sanitizeStore(raw) {
   };
 
   clean.settings.uiTheme = String(clean.settings.uiTheme || 'dark').toLowerCase() === 'light' ? 'light' : 'dark';
+  clean.settings.uiTiles = String(clean.settings.uiTiles || 'raw').toLowerCase() === 'calm' ? 'calm' : 'raw';
   clean.settings.lastSeenReleaseNotesVersion = String(
     clean.settings.lastSeenReleaseNotesVersion || DEFAULT_SETTINGS.lastSeenReleaseNotesVersion,
   ).trim();
@@ -406,10 +421,46 @@ function sanitizeStore(raw) {
     if (k && /^[a-z-]{2,10}$/i.test(code)) clean.contactLangs[String(k)] = code;
   }
 
+  /* Favorite contacts — clamp names, drop orphans (deleted accounts), dedupe
+     by `${accountId}::${lowercased name}` and cap at LIMITS.FAVORITES_PER_USER. */
+  const accountIds = new Set(clean.accounts.map((acc) => acc.id));
+  clean.favorites = [];
+  const seenFav = new Set();
+  const rawFav = Array.isArray(raw?.favorites) ? raw.favorites : [];
+  for (const f of rawFav) {
+    if (clean.favorites.length >= LIMITS.FAVORITES_PER_USER) break;
+    const accountId = String(f?.accountId || '').trim();
+    const name = clampString(String(f?.name || '').trim(), LIMITS.CHAT_NAME);
+    if (!accountId || !name || !accountIds.has(accountId)) continue;
+    const key = accountId + '::' + name.toLowerCase();
+    if (seenFav.has(key)) continue;
+    seenFav.add(key);
+    clean.favorites.push({ accountId, name });
+  }
+
+  /* Important contacts — same clamp/orphan/dedupe/cap rules as favorites. */
+  clean.important = [];
+  const seenImp = new Set();
+  const rawImp = Array.isArray(raw?.important) ? raw.important : [];
+  for (const f of rawImp) {
+    if (clean.important.length >= LIMITS.IMPORTANT_PER_USER) break;
+    const accountId = String(f?.accountId || '').trim();
+    const name = clampString(String(f?.name || '').trim(), LIMITS.CHAT_NAME);
+    if (!accountId || !name || !accountIds.has(accountId)) continue;
+    const key = accountId + '::' + name.toLowerCase();
+    if (seenImp.has(key)) continue;
+    seenImp.add(key);
+    clean.important.push({ accountId, name });
+  }
+
   return clean;
 }
 
-const STORE_MAX_SIZE = 50 * 1024 * 1024; // 50 MB — guards against OOM on corrupt/runaway store.json
+const STORE_MAX_SIZE = 50 * 1024 * 1024; // 50 MB — soft threshold, only logs a warning
+// Hard cap purely as an OOM guard. An oversized store is still user data —
+// we load it anyway and let pruneFinishedScheduled() shrink it back, instead
+// of throwing it away (which used to end with BOTH files overwritten empty).
+const STORE_HARD_MAX_SIZE = 200 * 1024 * 1024; // 200 MB
 
 // Centralized size limits for user-supplied payloads coming from the renderer.
 // These protect main-process memory and disk from XSS or runaway renderer
@@ -429,6 +480,8 @@ const LIMITS = {
   SCHEDULED_PER_USER: 2000,    // total pending+processing items
   TEMPLATES_PER_USER: 5000,
   ATTACHMENTS_PER_MSG: 30,
+  FAVORITES_PER_USER: 200,
+  IMPORTANT_PER_USER: 200,
 };
 
 function clampString(val, maxLen) {
@@ -439,11 +492,30 @@ function clampString(val, maxLen) {
 async function loadStoreFromPath(storePath) {
   const stat = await fs.stat(storePath);
   if (!stat.isFile()) throw new Error('store is not a file');
+  if (stat.size > STORE_HARD_MAX_SIZE) {
+    throw new Error(`store too large: ${stat.size} bytes > ${STORE_HARD_MAX_SIZE}`);
+  }
   if (stat.size > STORE_MAX_SIZE) {
-    throw new Error(`store too large: ${stat.size} bytes > ${STORE_MAX_SIZE}`);
+    console.warn(`[WA-Deck] store is oversized (${stat.size} bytes), loading anyway — prune will shrink it`);
   }
   const content = await fs.readFile(storePath, 'utf8');
   return JSON.parse(content);
+}
+
+/* Move an unreadable/corrupt store file aside (wa-deck-store.json.corrupt-<ts>)
+ * so the data stays recoverable. Without this, the next saveStore() — which
+ * bootstrap calls unconditionally — would overwrite the broken-but-maybe-
+ * repairable file with an empty store. */
+function quarantineCorruptStoreFile(filePath) {
+  try {
+    if (!fsSync.existsSync(filePath)) return;
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const target = `${filePath}.corrupt-${stamp}`;
+    fsSync.renameSync(filePath, target);
+    console.warn(`[WA-Deck] quarantined corrupt store file: ${target}`);
+  } catch (err) {
+    console.warn('[WA-Deck] failed to quarantine corrupt store file:', err?.message || err);
+  }
 }
 
 async function loadStore() {
@@ -461,7 +533,10 @@ async function loadStore() {
           console.warn('[WA-Deck] Primary store missing, recovered from .backup');
           await saveStore(); // re-create primary
           return;
-        } catch { /* fall through to empty */ }
+        } catch {
+          // Keep the broken backup recoverable instead of overwriting it later
+          quarantineCorruptStoreFile(backup);
+        }
       }
       state.store = sanitizeStore(null);
       return;
@@ -471,6 +546,8 @@ async function loadStore() {
     state.store = sanitizeStore(parsed);
   } catch (err) {
     console.warn('[WA-Deck] Primary store load failed:', err?.message || err);
+    // Preserve the unreadable primary before anything can overwrite it
+    quarantineCorruptStoreFile(primary);
     // Primary corrupt or oversized — try the .backup as a lifeline
     if (fsSync.existsSync(backup)) {
       try {
@@ -480,10 +557,44 @@ async function loadStore() {
         return;
       } catch (backupErr) {
         console.warn('[WA-Deck] Backup also unreadable:', backupErr?.message || backupErr);
+        quarantineCorruptStoreFile(backup);
       }
     }
     state.store = sanitizeStore(null);
   }
+}
+
+/* ── Prune finished scheduled items ──────────────────────────────────────
+ * sent/failed/canceled records used to live in store.json forever and bloat
+ * it without bound. Drop finished records older than 14 days, plus a hard
+ * cap: keep at most the newest 1000 finished records. pending/processing
+ * items are never touched. */
+const FINISHED_SCHEDULED_STATUSES = new Set(['sent', 'failed', 'canceled']);
+const FINISHED_SCHEDULED_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+const FINISHED_SCHEDULED_MAX_COUNT = 1000;
+
+function pruneFinishedScheduled() {
+  const items = state.store.scheduled;
+  if (!Array.isArray(items) || !items.length) return 0;
+  const now = Date.now();
+  let kept = items.filter((item) => {
+    if (!FINISHED_SCHEDULED_STATUSES.has(item.status)) return true;
+    const stamp = new Date(item.updatedAt || item.createdAt || 0).getTime() || 0;
+    return (now - stamp) <= FINISHED_SCHEDULED_MAX_AGE_MS;
+  });
+  const finished = kept
+    .filter((item) => FINISHED_SCHEDULED_STATUSES.has(item.status))
+    .sort((a, b) => (new Date(b.updatedAt || 0).getTime() || 0) - (new Date(a.updatedAt || 0).getTime() || 0));
+  if (finished.length > FINISHED_SCHEDULED_MAX_COUNT) {
+    const drop = new Set(finished.slice(FINISHED_SCHEDULED_MAX_COUNT).map((item) => item.id));
+    kept = kept.filter((item) => !drop.has(item.id));
+  }
+  const removed = items.length - kept.length;
+  if (removed > 0) {
+    state.store.scheduled = kept;
+    console.log(`[scheduled] pruned ${removed} finished item(s)`);
+  }
+  return removed;
 }
 
 // A scheduled item is flipped to 'processing' the moment it's claimed for
@@ -527,11 +638,24 @@ function recoverStaleProcessingItems(maxAgeMs = 0) {
 /* Write queue prevents concurrent fs.writeFile calls that can corrupt the store */
 let _saveStoreQueue = Promise.resolve();
 
+/* Atomic file write: tmp file + fsync + rename. Shared by the store and the
+ * CRM contact files so a crash mid-write never leaves a truncated file. */
+async function writeFileAtomic(filePath, data) {
+  const tmpPath = `${filePath}.tmp-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`;
+  const handle = await fs.open(tmpPath, 'w');
+  try {
+    await handle.writeFile(data, 'utf8');
+    try { await handle.sync(); } catch { /* fsync best-effort */ }
+  } finally {
+    await handle.close();
+  }
+  await fs.rename(tmpPath, filePath);
+}
+
 async function saveStore() {
-  _saveStoreQueue = _saveStoreQueue.then(async () => {
+  const run = _saveStoreQueue.then(async () => {
     const payload = JSON.stringify(state.store, null, 2);
     const primary = state.paths.storePath;
-    const tmpPath = primary + '.tmp';
     const backupPath = primary + '.backup';
 
     // Atomic write sequence:
@@ -544,23 +668,19 @@ async function saveStore() {
     // known-good payload after the primary is safely in place keeps the
     // invariant "at least one of {primary, backup} is valid" at every crash
     // point.
-    const tmpHandle = await fs.open(tmpPath, 'w');
-    try {
-      await tmpHandle.writeFile(payload, 'utf8');
-      try { await tmpHandle.sync(); } catch { /* fsync best-effort */ }
-    } finally {
-      await tmpHandle.close();
-    }
-    await fs.rename(tmpPath, primary);
+    await writeFileAtomic(primary, payload);
     try {
       await fs.writeFile(backupPath, payload, 'utf8');
     } catch (err) {
       console.warn('[saveStore] backup refresh failed (non-fatal):', err?.message || err);
     }
-  }).catch((err) => {
+  });
+  // The caller sees the rejection (so IPC handlers don't report ok:true on
+  // ENOSPC), but the queue itself swallows it so the next write still runs.
+  _saveStoreQueue = run.catch((err) => {
     console.error('[saveStore] write failed:', err);
   });
-  return _saveStoreQueue;
+  return run;
 }
 
 function nextWpIndex() {
@@ -792,7 +912,7 @@ async function migrateLegacyCrmContactFile({
   });
 
   const text = formatCrmText(record);
-  await fs.writeFile(targetFilePath, text, 'utf8');
+  await writeFileAtomic(targetFilePath, text);
   try {
     await fs.unlink(best.sourcePath);
   } catch {
@@ -897,7 +1017,7 @@ async function saveCrmContact(payload = {}) {
   };
 
   const text = formatCrmText(record);
-  await fs.writeFile(filePath, text, 'utf8');
+  await writeFileAtomic(filePath, text);
 
   return { ok: true, record, filePath, text };
 }
@@ -1080,6 +1200,22 @@ async function removeAccount(accountId) {
   state.store.accounts.splice(idx, 1);
   normalizeAccountOrder();
   state.store.scheduled = state.store.scheduled.filter((item) => item.accountId !== id);
+  // Drop per-contact language prefs of the removed account. Keys are
+  // `${accountId}\u0000${chatName}` (see contactLangKey), so delete by prefix.
+  if (state.store.contactLangs && typeof state.store.contactLangs === 'object') {
+    const prefix = `${id}\u0000`;
+    for (const key of Object.keys(state.store.contactLangs)) {
+      if (key.startsWith(prefix)) delete state.store.contactLangs[key];
+    }
+  }
+  // Drop favorites of the removed account — they reference it by id.
+  if (Array.isArray(state.store.favorites)) {
+    state.store.favorites = state.store.favorites.filter((f) => f.accountId !== id);
+  }
+  // Drop important contacts of the removed account too.
+  if (Array.isArray(state.store.important)) {
+    state.store.important = state.store.important.filter((f) => f.accountId !== id);
+  }
   await saveStore();
 
   try {
@@ -1114,6 +1250,8 @@ function buildBootstrap() {
     accounts: state.store.accounts.map((acc) => accountToRuntimePayload(acc)),
     settings: { ...state.store.settings },
     templates: state.store.templates.map((tpl) => ({ ...tpl })),
+    favorites: (state.store.favorites || []).map((f) => ({ ...f })),
+    important: (state.store.important || []).map((f) => ({ ...f })),
     appVersion: app.getVersion(),
     runtime: {
       electron: process.versions.electron,
@@ -1222,6 +1360,8 @@ async function markScheduledResult(payload = {}) {
   item.claimedAt = '';
   item.errorText = ok ? '' : String(payload.errorText || 'send_failed');
   item.updatedAt = new Date().toISOString();
+  // Keep the finished-items backlog bounded (14 days / 1000 records)
+  pruneFinishedScheduled();
   await saveStore();
   return { ok: true };
 }
@@ -1252,14 +1392,17 @@ function addSingleInstanceGuard() {
   }
 
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow();
+      return;
     }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
   });
 
   return true;
 }
+
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -1280,6 +1423,23 @@ function createWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  // Harden every <webview> the renderer attaches: strip any preload a
+  // compromised renderer could inject, force isolation flags, and only allow
+  // the two origins we actually host.
+  mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    delete webPreferences.preload;
+    delete webPreferences.preloadURL;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    const src = String(params?.src || '');
+    const allowed = src.startsWith('https://web.whatsapp.com/') || src.startsWith('https://web.telegram.org/');
+    if (!allowed) {
+      console.warn('[will-attach-webview] blocked src:', src);
+      event.preventDefault();
+    }
+  });
+
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (String(input?.type || '').toLowerCase() !== 'keydown') return;
     if (String(input?.key || '') !== 'Escape') return;
@@ -1323,7 +1483,8 @@ function setupWebviewGuards() {
     const isTelegram = () => {
       try {
         const partition = contents.session?.getStoragePath?.() || '';
-        if (partition.includes('/tg_')) return true;
+        // Match both POSIX and Windows path separators
+        if (/[\\/]tg_/.test(partition)) return true;
         // Fallback: check current URL
         const url = contents.getURL() || '';
         return url.includes('web.telegram.org');
@@ -1498,12 +1659,14 @@ async function checkForUpdatesNow(source = 'manual') {
     return { ok: false, error: 'not_packaged', source };
   }
   if (process.platform === 'darwin' && !hasMacDeveloperIdSignature()) {
-    const message = 'Для macOS эта сборка без Developer ID. Обновите вручную через Releases.';
-    sendAutoUpdateStatus({ status: 'error', source, message });
-    if (String(source || '').startsWith('manual')) {
-      safeOpenExternal(RELEASES_LATEST_URL);
-    }
-    return { ok: false, error: 'mac_signature_required', source, message };
+    // Unsigned mac build: electron-updater refuses to install updates without
+    // a Developer ID signature, so we run the custom zip-swap updater instead.
+    // Kick it off in the background — the UI is driven entirely by the same
+    // 'auto-update-status' events the electron-updater flow emits.
+    runMacUpdateCheck(source).catch((error) => {
+      sendAutoUpdateStatus({ status: 'error', source, message: normalizeUpdaterErrorMessage(error) });
+    });
+    return { ok: true, source };
   }
   try {
     lastUpdateProgressPercent = -1;
@@ -1513,6 +1676,340 @@ async function checkForUpdatesNow(source = 'manual') {
     const message = normalizeUpdaterErrorMessage(error);
     sendAutoUpdateStatus({ status: 'error', source, message });
     return { ok: false, source, error: message };
+  }
+}
+
+/* ── Custom macOS in-app updater (unsigned builds) ─────────────────────────
+ *
+ * electron-updater can check/download on macOS but refuses to INSTALL without
+ * a Developer ID signature, so the previous behavior was to send the user to
+ * GitHub Releases. This section replicates the Windows UX manually:
+ *
+ *   1. Fetch latest-mac.yml from GitHub Releases and parse it (version, zip
+ *      asset name, sha512).
+ *   2. Download the zip into app.getPath('temp') with progress reported on the
+ *      same 'auto-update-status' channel the Windows flow uses — the renderer
+ *      chip (auto-update.js) works without changes.
+ *   3. Verify sha512.
+ *   4. On install-downloaded-update: swap the .app bundle via a detached shell
+ *      script (waits for our PID to exit, ditto -xk, mv old → temp, mv new →
+ *      place, strip quarantine, relaunch) and exit the app.
+ *
+ * The Windows flow is untouched.
+ */
+
+const LATEST_MAC_YML_URL = `${RELEASES_LATEST_URL}/download/latest-mac.yml`;
+
+const macUpdate = {
+  inProgress: false,
+  downloaded: false,
+  zipPath: '',
+  version: '',
+};
+
+/* HTTPS GET that follows redirects (GitHub release assets redirect to S3). */
+function httpsGetFollow(url, redirectsLeft = 5) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'WA-Deck-Updater' } }, (res) => {
+      const code = Number(res.statusCode || 0);
+      if (code >= 300 && code < 400 && res.headers.location && redirectsLeft > 0) {
+        res.resume();
+        let nextUrl;
+        try {
+          nextUrl = new URL(res.headers.location, url).href;
+        } catch {
+          reject(new Error('bad_redirect'));
+          return;
+        }
+        resolve(httpsGetFollow(nextUrl, redirectsLeft - 1));
+        return;
+      }
+      if (code !== 200) {
+        res.resume();
+        reject(new Error(`http_${code}`));
+        return;
+      }
+      resolve(res);
+    });
+    req.setTimeout(30000, () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+  });
+}
+
+async function httpsGetText(url, maxBytes = 1024 * 1024) {
+  const res = await httpsGetFollow(url);
+  return new Promise((resolve, reject) => {
+    let data = '';
+    let bytes = 0;
+    res.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        res.destroy(new Error('response_too_large'));
+        return;
+      }
+      data += chunk;
+    });
+    res.on('end', () => resolve(data));
+    res.on('error', reject);
+  });
+}
+
+/* Minimal parser for electron-builder's latest-mac.yml (flat, predictable). */
+function parseLatestMacYml(text) {
+  const result = { version: '', files: [] };
+  let current = null;
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const mVersion = line.match(/^version:\s*['"]?([^'"\s]+)/);
+    if (mVersion) { result.version = mVersion[1]; continue; }
+    const mUrl = line.match(/^\s*-\s*url:\s*['"]?([^'"\s]+)/);
+    if (mUrl) {
+      current = { url: mUrl[1], sha512: '', size: 0 };
+      result.files.push(current);
+      continue;
+    }
+    const mSha = line.match(/^\s+sha512:\s*['"]?([^'"\s]+)/);
+    if (mSha && current) { current.sha512 = mSha[1]; continue; }
+    const mSize = line.match(/^\s+size:\s*(\d+)/);
+    if (mSize && current) { current.size = Number(mSize[1]); continue; }
+    if (/^(path|sha512|releaseDate):/.test(line)) current = null;
+  }
+  return result;
+}
+
+/* Semver-ish compare with prerelease awareness ('0.7.14-beta.1' < '0.7.14'). */
+function compareSemver(a, b) {
+  const parse = (v) => {
+    const s = String(v || '').replace(/^v/i, '').trim();
+    const [core, ...rest] = s.split('-');
+    return {
+      nums: core.split('.').map((part) => Number(part) || 0),
+      prerelease: rest.length > 0,
+    };
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  const len = Math.max(pa.nums.length, pb.nums.length);
+  for (let i = 0; i < len; i += 1) {
+    const diff = (pa.nums[i] || 0) - (pb.nums[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  if (pa.prerelease !== pb.prerelease) return pa.prerelease ? -1 : 1;
+  return 0;
+}
+
+async function downloadMacUpdateZip(asset, version, source) {
+  const zipName = path.basename(String(asset.url || ''));
+  if (!zipName.toLowerCase().endsWith('.zip')) throw new Error('zip_asset_invalid');
+  const zipUrl = `${RELEASES_LATEST_URL}/download/${encodeURIComponent(zipName)}`;
+  const zipPath = path.join(app.getPath('temp'), zipName);
+
+  const res = await httpsGetFollow(zipUrl);
+  const total = Number(res.headers['content-length'] || asset.size || 0);
+  const hash = crypto.createHash('sha512');
+  const out = fsSync.createWriteStream(zipPath);
+
+  await new Promise((resolve, reject) => {
+    let transferred = 0;
+    res.on('data', (chunk) => {
+      hash.update(chunk);
+      transferred += chunk.length;
+      if (total > 0) {
+        const percent = Math.floor((transferred / total) * 100);
+        if (percent !== lastUpdateProgressPercent) {
+          lastUpdateProgressPercent = percent;
+          // Same payload shape as the electron-updater 'download-progress' relay
+          sendAutoUpdateStatus({
+            status: 'downloading',
+            source,
+            percent,
+            transferred,
+            total,
+            message: `Загрузка обновления: ${percent}%`,
+          });
+        }
+      }
+    });
+    res.on('error', (err) => { out.destroy(); reject(err); });
+    out.on('error', reject);
+    out.on('finish', resolve);
+    res.pipe(out);
+  });
+
+  // Integrity check: electron-builder publishes base64 sha512 in the manifest
+  const digest = hash.digest('base64');
+  if (asset.sha512 && digest !== asset.sha512) {
+    await fs.unlink(zipPath).catch(() => {});
+    throw new Error('sha512_mismatch');
+  }
+  return zipPath;
+}
+
+async function runMacUpdateCheck(source = 'manual') {
+  if (macUpdate.inProgress) {
+    return { ok: true, source, already: true };
+  }
+  macUpdate.inProgress = true;
+  try {
+    sendAutoUpdateStatus({ status: 'checking', source, message: 'Проверка обновлений...' });
+    const ymlText = await httpsGetText(LATEST_MAC_YML_URL);
+    const manifest = parseLatestMacYml(ymlText);
+    if (!manifest.version) throw new Error('manifest_parse_failed');
+
+    if (compareSemver(manifest.version, app.getVersion()) <= 0) {
+      sendAutoUpdateStatus({
+        status: 'not-available',
+        source,
+        version: app.getVersion(),
+        message: `Актуальная версия ${app.getVersion()}`,
+      });
+      return { ok: true, source };
+    }
+
+    // Prefer the arm64 zip (macOS builds are arm64-only), fall back to any zip
+    const files = Array.isArray(manifest.files) ? manifest.files : [];
+    const asset =
+      files.find((f) => /arm64/i.test(f.url) && f.url.toLowerCase().endsWith('.zip')) ||
+      files.find((f) => f.url.toLowerCase().endsWith('.zip'));
+    if (!asset) throw new Error('zip file not provided');
+
+    sendAutoUpdateStatus({
+      status: 'available',
+      source,
+      version: manifest.version,
+      message: `Найдена новая версия ${manifest.version}`,
+    });
+
+    // Already downloaded and verified this exact version — skip re-download
+    if (macUpdate.downloaded && macUpdate.version === manifest.version && fsSync.existsSync(macUpdate.zipPath)) {
+      sendAutoUpdateStatus({
+        status: 'downloaded',
+        source,
+        version: manifest.version,
+        message: `Обновление ${manifest.version} загружено`,
+      });
+      return { ok: true, source };
+    }
+
+    lastUpdateProgressPercent = -1;
+    const zipPath = await downloadMacUpdateZip(asset, manifest.version, source);
+    macUpdate.downloaded = true;
+    macUpdate.zipPath = zipPath;
+    macUpdate.version = manifest.version;
+    updateDownloaded = true;
+    lastUpdateProgressPercent = -1;
+    sendAutoUpdateStatus({
+      status: 'downloaded',
+      source,
+      version: manifest.version,
+      message: `Обновление ${manifest.version} загружено`,
+    });
+    return { ok: true, source };
+  } catch (error) {
+    lastUpdateProgressPercent = -1;
+    const message = normalizeUpdaterErrorMessage(error);
+    sendAutoUpdateStatus({ status: 'error', source, message });
+    return { ok: false, source, error: message };
+  } finally {
+    macUpdate.inProgress = false;
+  }
+}
+
+/* Climb from the executable (….app/Contents/MacOS/<bin>) to the .app root. */
+function resolveMacAppBundlePath() {
+  let dir = app.getPath('exe');
+  while (dir && dir !== path.dirname(dir)) {
+    if (dir.endsWith('.app')) return dir;
+    dir = path.dirname(dir);
+  }
+  return '';
+}
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
+async function installMacDownloadedUpdate() {
+  if (!macUpdate.downloaded || !macUpdate.zipPath || !fsSync.existsSync(macUpdate.zipPath)) {
+    return { ok: false, error: 'not_downloaded' };
+  }
+
+  const appPath = resolveMacAppBundlePath();
+  // Guards: the bundle must be swappable in place. Running off a mounted DMG
+  // (/Volumes) or Gatekeeper-translocated copy can't be replaced — tell the
+  // user to run the app from /Applications instead.
+  if (!appPath || !appPath.endsWith('.app')) {
+    return { ok: false, error: 'mac_manual_required' };
+  }
+  if (appPath.startsWith('/Volumes/')) {
+    return { ok: false, error: 'mac_manual_required' };
+  }
+  if (/^\/private\/var\/folders\/[^/]+\/[^/]+\/AppTranslocation\//.test(appPath) || appPath.includes('/AppTranslocation/')) {
+    return { ok: false, error: 'mac_manual_required' };
+  }
+
+  const tempDir = app.getPath('temp');
+  const tag = `wadeck-update-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`;
+  const stagingDir = path.join(tempDir, `${tag}-staging`);
+  const oldDir = path.join(tempDir, `${tag}-old`);
+  const scriptPath = path.join(tempDir, `${tag}.sh`);
+
+  // The script outlives our process: it waits for the app PID to exit, swaps
+  // the bundle, strips quarantine, relaunches, and cleans up after itself.
+  const script = [
+    '#!/bin/bash',
+    '# WA-Deck self-update: swap the .app bundle after the app process exits.',
+    `APP_PID=${process.pid}`,
+    `ZIP_PATH=${shellQuote(macUpdate.zipPath)}`,
+    `APP_PATH=${shellQuote(appPath)}`,
+    `STAGING_DIR=${shellQuote(stagingDir)}`,
+    `OLD_DIR=${shellQuote(oldDir)}`,
+    '',
+    '# Wait until the running app fully exits',
+    'while kill -0 "$APP_PID" 2>/dev/null; do sleep 0.3; done',
+    '',
+    'rm -rf "$STAGING_DIR" "$OLD_DIR"',
+    'mkdir -p "$STAGING_DIR" "$OLD_DIR"',
+    'if /usr/bin/ditto -xk "$ZIP_PATH" "$STAGING_DIR"; then',
+    '  NEW_APP=$(/usr/bin/find "$STAGING_DIR" -maxdepth 1 -name "*.app" -print -quit)',
+    '  if [ -n "$NEW_APP" ] && mv "$APP_PATH" "$OLD_DIR/"; then',
+    '    if mv "$NEW_APP" "$APP_PATH"; then',
+    '      /usr/bin/xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null',
+    '      /usr/bin/open -n "$APP_PATH"',
+    '    else',
+    '      # Swap failed halfway — roll the old bundle back and relaunch it',
+    '      mv "$OLD_DIR"/*.app "$APP_PATH" 2>/dev/null',
+    '      /usr/bin/open -n "$APP_PATH"',
+    '    fi',
+    '  fi',
+    'fi',
+    'rm -rf "$STAGING_DIR" "$OLD_DIR" "$ZIP_PATH"',
+    'rm -f "$0"',
+    '',
+  ].join('\n');
+
+  try {
+    await fs.writeFile(scriptPath, script, { mode: 0o700 });
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error || 'script_write_failed') };
+  }
+
+  try {
+    // Mirror the Windows flow: stop interfering quit handlers, flush the
+    // store, tear the windows down, hand off to the installer, exit.
+    _appIsQuitting = true;
+    try { await _saveStoreQueue; } catch { /* flushed best-effort */ }
+
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.removeAllListeners('close');
+      win.destroy();
+    }
+
+    spawn('/bin/bash', [scriptPath], { detached: true, stdio: 'ignore' }).unref();
+    setImmediate(() => app.exit(0));
+    return { ok: true };
+  } catch (error) {
+    _appIsQuitting = false;
+    return { ok: false, error: String(error?.message || error || 'install_failed') };
   }
 }
 
@@ -1577,6 +2074,7 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on('update-downloaded', (info) => {
+    updateDownloaded = true;
     lastUpdateProgressPercent = -1;
     sendAutoUpdateStatus({
       status: 'downloaded',
@@ -1660,9 +2158,21 @@ async function deleteTemplate(id) {
 }
 
 function registerIpc() {
-  ipcMain.handle('bootstrap', async () => buildBootstrap());
+  // Sender check on every channel: only the main window's own renderer may
+  // invoke our IPC. Any other webContents (e.g. a compromised webview that
+  // somehow reaches ipcRenderer) gets a uniform refusal.
+  function handle(channel, fn) {
+    ipcMain.handle(channel, (event, ...args) => {
+      if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+        return { ok: false, error: 'forbidden' };
+      }
+      return fn(event, ...args);
+    });
+  }
 
-  ipcMain.handle('add-account', async (_event, type) => {
+  handle('bootstrap', async () => buildBootstrap());
+
+  handle('add-account', async (_event, type) => {
     const accountType = (type === 'telegram') ? 'telegram' : 'whatsapp';
     const isTg = accountType === 'telegram';
     const idx = isTg ? nextTgIndex() : nextWpIndex();
@@ -1688,26 +2198,26 @@ function registerIpc() {
     };
   });
 
-  ipcMain.handle('remove-account', async (_event, accountId) => {
+  handle('remove-account', async (_event, accountId) => {
     return removeAccount(accountId);
   });
 
-  ipcMain.handle('rename-account', async (_event, payload) => {
+  handle('rename-account', async (_event, payload) => {
     return renameAccount(payload?.accountId, payload?.name);
   });
 
-  ipcMain.handle('set-account-frozen', async (_event, payload) => {
+  handle('set-account-frozen', async (_event, payload) => {
     return setAccountFrozen(payload?.accountId, payload?.frozen);
   });
-  ipcMain.handle('set-account-pinned', async (_event, payload) => {
+  handle('set-account-pinned', async (_event, payload) => {
     return setAccountPinned(payload?.accountId, payload?.pinned);
   });
 
-  ipcMain.handle('move-account', async (_event, payload) => {
+  handle('move-account', async (_event, payload) => {
     return moveAccount(payload?.accountId, payload?.direction);
   });
 
-  ipcMain.handle('pick-account-icon', async () => {
+  handle('pick-account-icon', async () => {
     if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Выберите иконку WhatsApp',
@@ -1727,12 +2237,12 @@ function registerIpc() {
     return { canceled: false, path: picked, url };
   });
 
-  ipcMain.handle('set-account-icon', async (_event, payload) => {
+  handle('set-account-icon', async (_event, payload) => {
     if (!payload || typeof payload !== 'object') return { ok: false, error: 'invalid_payload' };
     return setAccountIcon(payload.accountId, payload.iconPath);
   });
 
-  ipcMain.handle('set-account-color', async (_event, payload) => {
+  handle('set-account-color', async (_event, payload) => {
     const id = String(payload?.accountId || '').trim();
     const color = String(payload?.color || '').trim();
     if (!id || !color) return { ok: false, error: 'invalid_params' };
@@ -1748,10 +2258,11 @@ function registerIpc() {
     return { ok: true, account: accountToRuntimePayload(account) };
   });
 
-  ipcMain.handle('save-settings', async (_event, payload) => {
+  handle('save-settings', async (_event, payload) => {
     const current = state.store.settings || {};
     const next = {
       uiTheme: String(payload?.uiTheme ?? current.uiTheme ?? DEFAULT_SETTINGS.uiTheme).toLowerCase() === 'light' ? 'light' : 'dark',
+      uiTiles: String(payload?.uiTiles ?? current.uiTiles ?? DEFAULT_SETTINGS.uiTiles).toLowerCase() === 'calm' ? 'calm' : 'raw',
       weatherCity: String(payload?.weatherCity ?? current.weatherCity ?? DEFAULT_SETTINGS.weatherCity).trim() || DEFAULT_SETTINGS.weatherCity,
       weatherUnit: normalizeWeatherUnit(payload?.weatherUnit ?? current.weatherUnit ?? DEFAULT_SETTINGS.weatherUnit),
       lastSeenReleaseNotesVersion: String(
@@ -1796,27 +2307,27 @@ function registerIpc() {
     return { ...state.store.settings };
   });
 
-  ipcMain.handle('crm-load-contact', async (_event, payload) => {
+  handle('crm-load-contact', async (_event, payload) => {
     return loadCrmContact(payload?.accountId, payload?.accountName, payload?.contactName);
   });
 
-  ipcMain.handle('crm-save-contact', async (_event, payload) => {
+  handle('crm-save-contact', async (_event, payload) => {
     return saveCrmContact(payload || {});
   });
 
-  ipcMain.handle('list-templates', async () => {
+  handle('list-templates', async () => {
     return { ok: true, templates: state.store.templates.map((tpl) => ({ ...tpl })) };
   });
 
-  ipcMain.handle('save-template', async (_event, payload) => {
+  handle('save-template', async (_event, payload) => {
     return saveTemplate(payload || {});
   });
 
-  ipcMain.handle('delete-template', async (_event, id) => {
+  handle('delete-template', async (_event, id) => {
     return deleteTemplate(id);
   });
 
-  ipcMain.handle('pick-attachments', async () => {
+  handle('pick-attachments', async () => {
     if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, files: [] };
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Выберите вложения',
@@ -1836,7 +2347,7 @@ function registerIpc() {
 
   /* ── Pick audio file for voice message ── */
   const MAX_VOICE_FILE_SIZE = 16 * 1024 * 1024; // 16 MB
-  ipcMain.handle('pick-audio-file', async () => {
+  handle('pick-audio-file', async () => {
     if (!mainWindow || mainWindow.isDestroyed()) return { ok: false, error: 'no_window' };
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Выберите аудиофайл для голосового сообщения',
@@ -1866,7 +2377,7 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('schedule-message', async (_event, payload) => {
+  handle('schedule-message', async (_event, payload) => {
     const accountId = String(payload?.accountId || '');
     const chatName = clampString(String(payload?.chatName || '').trim(), LIMITS.CHAT_NAME);
     const text = clampString(String(payload?.text || ''), LIMITS.MESSAGE_TEXT);
@@ -1925,7 +2436,7 @@ function registerIpc() {
     return { ok: true, item };
   });
 
-  ipcMain.handle('list-scheduled', async (_event, payload) => {
+  handle('list-scheduled', async (_event, payload) => {
     const accountId = String(payload?.accountId || '').trim();
     const limit = Math.max(1, Math.min(300, Number(payload?.limit) || 100));
 
@@ -1942,22 +2453,22 @@ function registerIpc() {
     return { ok: true, items };
   });
 
-  ipcMain.handle('claim-due-scheduled', async (_event, payload) => {
+  handle('claim-due-scheduled', async (_event, payload) => {
     const items = await claimDueScheduled(Number(payload?.limit) || 5);
     return { ok: true, items };
   });
 
-  ipcMain.handle('complete-scheduled', async (_event, payload) => {
+  handle('complete-scheduled', async (_event, payload) => {
     return markScheduledResult(payload || {});
   });
 
-  ipcMain.handle('cancel-scheduled', async (_event, id) => {
+  handle('cancel-scheduled', async (_event, id) => {
     return cancelScheduled(String(id || ''));
   });
 
   /* Make a pending/failed item due right now so the renderer's runner sends it
      on the next (immediately-kicked) tick. */
-  ipcMain.handle('send-scheduled-now', async (_event, id) => {
+  handle('send-scheduled-now', async (_event, id) => {
     const item = state.store.scheduled.find((row) => row.id === String(id || ''));
     if (!item) return { ok: false, error: 'not_found' };
     if (!['pending', 'failed'].includes(item.status)) return { ok: false, error: 'invalid_status' };
@@ -1972,7 +2483,7 @@ function registerIpc() {
   });
 
   /* Postpone a pending/failed item by N minutes from max(now, its time). */
-  ipcMain.handle('snooze-scheduled', async (_event, payload) => {
+  handle('snooze-scheduled', async (_event, payload) => {
     const id = String(payload?.id || '');
     let minutes = Math.round(Number(payload?.minutes) || 0);
     if (!Number.isFinite(minutes) || minutes < 1) return { ok: false, error: 'bad_minutes' };
@@ -1995,14 +2506,14 @@ function registerIpc() {
   function contactLangKey(accountId, chatName) {
     return `${accountId}\u0000${chatName}`;
   }
-  ipcMain.handle('get-contact-lang', async (_event, payload) => {
+  handle('get-contact-lang', async (_event, payload) => {
     const accountId = String(payload?.accountId || '');
     const chatName = String(payload?.chatName || '').trim();
     if (!accountId || !chatName) return { ok: false, lang: '' };
     const lang = state.store.contactLangs?.[contactLangKey(accountId, chatName)] || '';
     return { ok: true, lang };
   });
-  ipcMain.handle('set-contact-lang', async (_event, payload) => {
+  handle('set-contact-lang', async (_event, payload) => {
     const accountId = String(payload?.accountId || '');
     const chatName = clampString(String(payload?.chatName || '').trim(), LIMITS.CHAT_NAME);
     const lang = String(payload?.lang || '').trim().slice(0, 10);
@@ -2020,12 +2531,87 @@ function registerIpc() {
     return { ok: true };
   });
 
+  handle('favorites-toggle', async (_event, payload) => {
+    const accountId = String(payload?.accountId || '').trim();
+    const name = clampString(String(payload?.name || '').trim(), LIMITS.CHAT_NAME);
+    if (!accountId || !name) return { ok: false, error: 'bad_args' };
+    if (!state.store.accounts.some((acc) => acc.id === accountId)) {
+      return { ok: false, error: 'account_not_found' };
+    }
+    if (!Array.isArray(state.store.favorites)) state.store.favorites = [];
+    const key = accountId + '::' + name.toLowerCase();
+    const idx = state.store.favorites.findIndex(
+      (f) => String(f.accountId || '') + '::' + String(f.name || '').toLowerCase() === key,
+    );
+    let on;
+    if (idx >= 0) {
+      state.store.favorites.splice(idx, 1);
+      on = false;
+    } else {
+      if (state.store.favorites.length >= LIMITS.FAVORITES_PER_USER) {
+        return { ok: false, error: 'limit' };
+      }
+      state.store.favorites.push({ accountId, name });
+      on = true;
+      // exclusivity: a favorite cannot also be important
+      if (Array.isArray(state.store.important)) {
+        state.store.important = state.store.important.filter(
+          (f) => String(f.accountId || '') + '::' + String(f.name || '').toLowerCase() !== key,
+        );
+      }
+    }
+    await saveStore();
+    return {
+      ok: true,
+      on,
+      favorites: state.store.favorites.map((f) => ({ ...f })),
+      important: (state.store.important || []).map((f) => ({ ...f })),
+    };
+  });
+
+  handle('important-toggle', async (_event, payload) => {
+    const accountId = String(payload?.accountId || '').trim();
+    const name = clampString(String(payload?.name || '').trim(), LIMITS.CHAT_NAME);
+    if (!accountId || !name) return { ok: false, error: 'bad_args' };
+    if (!state.store.accounts.some((acc) => acc.id === accountId)) {
+      return { ok: false, error: 'account_not_found' };
+    }
+    if (!Array.isArray(state.store.important)) state.store.important = [];
+    if (!Array.isArray(state.store.favorites)) state.store.favorites = [];
+    const key = accountId + '::' + name.toLowerCase();
+    const idx = state.store.important.findIndex(
+      (f) => String(f.accountId || '') + '::' + String(f.name || '').toLowerCase() === key,
+    );
+    let on;
+    if (idx >= 0) {
+      state.store.important.splice(idx, 1);
+      on = false;
+    } else {
+      if (state.store.important.length >= LIMITS.IMPORTANT_PER_USER) {
+        return { ok: false, error: 'limit' };
+      }
+      state.store.important.push({ accountId, name });
+      on = true;
+      // exclusivity: an important contact cannot also be a favorite
+      state.store.favorites = state.store.favorites.filter(
+        (f) => String(f.accountId || '') + '::' + String(f.name || '').toLowerCase() !== key,
+      );
+    }
+    await saveStore();
+    return {
+      ok: true,
+      on,
+      favorites: state.store.favorites.map((f) => ({ ...f })),
+      important: (state.store.important || []).map((f) => ({ ...f })),
+    };
+  });
+
   /**
    * Attach local files to a webview's <input type="file"> via Chrome DevTools Protocol.
    * Used by the scheduled-send runner to deliver photo/video/document attachments —
    * JS can't set `input.files` programmatically, but CDP's DOM.setFileInputFiles can.
    */
-  ipcMain.handle('send-attachments-via-cdp', async (_event, payload) => {
+  handle('send-attachments-via-cdp', async (_event, payload) => {
     const id = Number(payload?.webContentsId);
     const selector = String(payload?.selector || '').trim();
     const files = Array.isArray(payload?.files) ? payload.files.map(String).filter(Boolean) : [];
@@ -2061,54 +2647,88 @@ function registerIpc() {
 
     const dbg = contents.debugger;
     let weAttached = false;
+    let timeoutTimer = null;
     try {
       if (!dbg.isAttached()) {
         dbg.attach('1.3');
         weAttached = true;
       }
-      await dbg.sendCommand('DOM.enable');
-      const { root } = await dbg.sendCommand('DOM.getDocument', { depth: -1, pierce: true });
-      const { nodeId } = await dbg.sendCommand('DOM.querySelector', {
-        nodeId: root.nodeId,
-        selector,
+      // Guard the whole CDP sequence with a timeout: a wedged renderer can
+      // leave sendCommand pending forever, which would hang the renderer's
+      // await and keep the debugger attached indefinitely.
+      const CDP_TIMEOUT_MS = 15000;
+      const timeout = new Promise((_, reject) => {
+        timeoutTimer = setTimeout(() => reject(new Error('cdp_timeout')), CDP_TIMEOUT_MS);
       });
-      if (!nodeId) return { ok: false, error: 'input_not_found' };
-      await dbg.sendCommand('DOM.setFileInputFiles', { nodeId, files });
-      return { ok: true };
+      const run = (async () => {
+        await dbg.sendCommand('DOM.enable');
+        const { root } = await dbg.sendCommand('DOM.getDocument', { depth: -1, pierce: true });
+        const { nodeId } = await dbg.sendCommand('DOM.querySelector', {
+          nodeId: root.nodeId,
+          selector,
+        });
+        if (!nodeId) return { ok: false, error: 'input_not_found' };
+        await dbg.sendCommand('DOM.setFileInputFiles', { nodeId, files });
+        return { ok: true };
+      })();
+      return await Promise.race([run, timeout]);
     } catch (e) {
+      if (String(e?.message || e) === 'cdp_timeout') {
+        // Force-detach so the wedged target doesn't keep the debugger hostage
+        try { dbg.detach(); } catch { /* ignore */ }
+        weAttached = false; // already detached
+        return { ok: false, error: 'cdp_timeout' };
+      }
       return { ok: false, error: String(e?.message || e) };
     } finally {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
       if (weAttached) {
         try { dbg.detach(); } catch { /* ignore */ }
       }
     }
   });
 
-  ipcMain.handle('open-data-dir', async () => {
+  handle('open-data-dir', async () => {
     await shell.openPath(state.paths.userData);
     return { ok: true };
   });
 
-  ipcMain.handle('get-clipboard-text', async () => {
+  handle('get-clipboard-text', async () => {
     return { ok: true, text: clipboard.readText() };
   });
 
-  ipcMain.handle('set-clipboard-text', async (_event, text) => {
+  handle('set-clipboard-text', async (_event, text) => {
     clipboard.writeText(clampString(text, LIMITS.CLIPBOARD_TEXT));
     return { ok: true };
   });
 
-  ipcMain.handle('set-dock-badge', async (_event, payload) => {
+  handle('set-dock-badge', async (_event, payload) => {
     return setDockBadge(payload?.count);
   });
 
-  ipcMain.handle('check-for-updates', async (_event, payload) => {
+  handle('check-for-updates', async (_event, payload) => {
     return checkForUpdatesNow(String(payload?.source || 'manual'));
   });
 
-  ipcMain.handle('install-downloaded-update', async () => {
+  handle('open-releases-page', async () => {
+    safeOpenExternal(RELEASES_LATEST_URL);
+    return { ok: true };
+  });
+
+  handle('install-downloaded-update', async () => {
     if (!app.isPackaged) {
       return { ok: false, error: 'not_packaged' };
+    }
+    // Custom macOS flow for unsigned builds: zip-swap via detached script.
+    // All guards (not_downloaded, mac_manual_required) run BEFORE any window
+    // is destroyed.
+    if (process.platform === 'darwin' && !hasMacDeveloperIdSignature()) {
+      return installMacDownloadedUpdate();
+    }
+    // Refuse before tearing windows down if nothing has been downloaded yet —
+    // otherwise a premature click left the user with a dead, windowless app.
+    if (!updateDownloaded) {
+      return { ok: false, error: 'not_downloaded' };
     }
     try {
       // Prevent before-quit handler from interfering
@@ -2137,7 +2757,7 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('translate-text', async (_event, payload) => {
+  handle('translate-text', async (_event, payload) => {
     const text = clampString(payload?.text, LIMITS.TRANSLATE_TEXT);
     const from = String(payload?.from || 'auto').slice(0, 10);
     const to = String(payload?.to || 'en').slice(0, 10);
@@ -2188,7 +2808,7 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('cleanup-cache', async () => cleanupHttpCachesForAllAccounts());
+  handle('cleanup-cache', async () => cleanupHttpCachesForAllAccounts());
 }
 
 /*
@@ -2367,9 +2987,11 @@ async function bootstrap() {
   }
   ensurePaths();
   await loadStore();
+  pruneFinishedScheduled();
   recoverStaleProcessingItems();
   ensureDefaultAccount();
-  await saveStore();
+  // Boot-time save must not kill bootstrap on a full disk — log and continue.
+  await saveStore().catch((err) => console.error('[bootstrap] initial save failed:', err));
 
   setupWebviewGuards();
   registerIpc();

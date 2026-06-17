@@ -330,7 +330,16 @@
     }
   }
 
+  // Set when main returns 'mac_manual_required' (app runs from a DMG or a
+  // translocated path and can't self-swap). The install buttons then turn
+  // into "open GitHub Releases" actions.
+  let macManualRequired = false;
+
   async function installUpdate() {
+    if (macManualRequired) {
+      window.waDeck?.openReleasesPage?.();
+      return;
+    }
     if (!window.waDeck?.installDownloadedUpdate) {
       setStatus('Установка обновления недоступна');
       return;
@@ -339,7 +348,28 @@
     for (const b of buttons) { b.classList.add('is-busy'); b.disabled = true; }
     const result = await window.waDeck.installDownloadedUpdate().catch(() => null);
     if (!result?.ok) {
-      setStatus('Не удалось установить обновление');
+      if (result?.error === 'mac_manual_required') {
+        macManualRequired = true;
+        setStatus('Запустите приложение из папки Программы для автообновления');
+        // Repurpose the buttons: next click opens the releases page
+        for (const b of buttons) {
+          b.classList.remove('is-busy');
+          b.disabled = false;
+          b.textContent = 'Открыть Releases';
+        }
+        if (els.updateToastSub) {
+          els.updateToastSub.textContent = 'Запустите приложение из папки Программы для автообновления';
+        }
+        if (els.updateStatusText) {
+          els.updateStatusText.textContent = 'Запустите приложение из папки Программы для автообновления';
+        }
+        return;
+      }
+      if (result?.error === 'not_downloaded') {
+        setStatus('Обновление ещё не загружено');
+      } else {
+        setStatus('Не удалось установить обновление');
+      }
       for (const b of buttons) { b.classList.remove('is-busy'); b.disabled = false; }
     }
   }
@@ -347,19 +377,23 @@
   /* ── Release Notes ── */
 
   function compareVersions(a, b) {
-    const pa = String(a || '')
-      .replace(/^v/i, '')
-      .split('.')
-      .map((part) => Number(part) || 0);
-    const pb = String(b || '')
-      .replace(/^v/i, '')
-      .split('.')
-      .map((part) => Number(part) || 0);
-    const len = Math.max(pa.length, pb.length);
+    // Strip prerelease suffixes per part ('0.7.14-beta.1' used to become NaN);
+    // a release outranks its own prerelease when the numeric parts are equal.
+    const parse = (v) => {
+      const s = String(v || '').replace(/^v/i, '');
+      return {
+        nums: s.split('.').map((part) => Number(String(part).split('-')[0]) || 0),
+        prerelease: s.includes('-'),
+      };
+    };
+    const pa = parse(a);
+    const pb = parse(b);
+    const len = Math.max(pa.nums.length, pb.nums.length);
     for (let i = 0; i < len; i += 1) {
-      const diff = (pa[i] || 0) - (pb[i] || 0);
+      const diff = (pa.nums[i] || 0) - (pb.nums[i] || 0);
       if (diff !== 0) return diff;
     }
+    if (pa.prerelease !== pb.prerelease) return pa.prerelease ? -1 : 1;
     return 0;
   }
 
@@ -434,19 +468,23 @@
       return;
     }
     els.manualUpdate?.classList.add('is-loading');
-    const response = await window.waDeck.checkForUpdates({ source: 'manual_button' });
-    if (response?.ok) {
-      setStatus('Обновление: запрос отправлен');
-    } else if (response?.error === 'not_packaged') {
-      setStatus('Обновление доступно только в .dmg/.exe сборке');
-    } else if (response?.error === 'mac_signature_required') {
-      setStatus('Для macOS: обновление вручную через GitHub Releases');
-    } else if (response?.error) {
-      setStatus(`Обновление: ${response.error}`);
+    try {
+      const response = await window.waDeck.checkForUpdates({ source: 'manual_button' });
+      if (response?.ok) {
+        setStatus('Обновление: запрос отправлен');
+      } else if (response?.error === 'not_packaged') {
+        setStatus('Обновление доступно только в .dmg/.exe сборке');
+      } else if (response?.error) {
+        setStatus(`Обновление: ${response.error}`);
+      }
+    } catch {
+      setStatus('Обновление: ошибка запроса');
+    } finally {
+      // Always drop the spinner, even when the invoke rejects
+      setTimeout(() => {
+        els.manualUpdate?.classList.remove('is-loading');
+      }, 520);
     }
-    setTimeout(() => {
-      els.manualUpdate?.classList.remove('is-loading');
-    }, 520);
   }
 
   window.WaDeckAutoUpdateModule = {

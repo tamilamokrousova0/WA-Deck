@@ -115,13 +115,12 @@
         const tasks = batch.map(async (account) => {
           const webview = state.webviews.get(account.id);
           if (!isWebviewReady(webview)) return;
-          let count = 0;
-          try {
-            const raw = await safeExecuteInWebview(webview, collectUnreadCountScript(), true);
-            count = Number(raw || 0) || 0;
-          } catch {
-            count = Number(state.unreadByAccount.get(account.id) || 0);
-          }
+          // safeExecuteInWebview never rejects — it resolves null on failure.
+          // The webview script returns -1 when it could not count. In both
+          // cases keep the previous counter instead of resetting it to 0.
+          const raw = await safeExecuteInWebview(webview, collectUnreadCountScript(), true);
+          const count = Number(raw);
+          if (raw === null || !Number.isFinite(count) || count < 0) return;
           setUnreadCount(account.id, count);
         });
         await Promise.allSettled(tasks);
