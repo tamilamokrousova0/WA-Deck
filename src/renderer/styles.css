@@ -532,8 +532,113 @@ html[data-theme='light'] .sidebar-resize-handle.active {
   min-width: 0;
   display: flex;
   align-items: center;
+  gap: 6px;
+  /* overflow MUST stay visible — the dropdown panels are absolutely positioned
+     children that drop below the toolbar; the menu buttons are fixed-size pills
+     that never overflow horizontally, so no clipping is needed here. */
+  overflow: visible;
+}
+
+/* ── Toolbar pinned menus: favorites (gold) / important (blue) dropdowns ──
+   A fixed-size pill (icon + unread count) that reveals, on hover or click, a
+   panel listing the contacts with new messages. Replaces the old chip strips —
+   the toolbar width is now stable regardless of how many contacts are unread. */
+.pin-menu { position: relative; flex: 0 0 auto; }
+.pin-menu.hidden { display: none; }
+.pin-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--fav-line);
+  border-radius: 999px;
+  background: var(--fav-soft);
+  color: var(--fav);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.pin-menu-btn:hover,
+.pin-menu.open .pin-menu-btn { background: color-mix(in oklab, var(--fav) 22%, transparent); }
+.pin-menu-ic { font-size: 12px; line-height: 1; }
+.pin-menu-count { font-variant-numeric: tabular-nums; min-width: 9px; text-align: center; }
+.pin-menu-imp .pin-menu-btn { border-color: var(--imp-line); background: var(--imp-soft); color: var(--imp); }
+.pin-menu-imp .pin-menu-btn:hover,
+.pin-menu-imp.open .pin-menu-btn { background: color-mix(in oklab, var(--imp) 22%, transparent); }
+
+.pin-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  display: none;
+  min-width: 232px;
+  max-width: 300px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 5px;
+  background: var(--panel, #181e2b);
+  border: 1px solid var(--line, #2b313b);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.pin-menu.open .pin-menu-panel { display: block; }
+/* invisible bridge across the 6px gap so the cursor can travel button→panel */
+.pin-menu.open::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  height: 8px;
+}
+.pin-row {
+  display: flex;
+  align-items: center;
   gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s ease;
+}
+.pin-row:hover { background: rgba(255, 255, 255, 0.06); }
+html[data-theme='light'] .pin-row:hover { background: rgba(0, 0, 0, 0.05); }
+.pin-row-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; flex: 1 1 auto; }
+.pin-row-who {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-strong);
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pin-row-sub {
+  font-size: 10px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pin-row-cnt {
+  flex: 0 0 auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--rose, #d94040);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 html[data-theme='light'] .toolbar {
   background: linear-gradient(180deg, #f8f9fb 0%, #f2f4f8 100%);

@@ -10,10 +10,11 @@
 (function setupImportantModule() {
   let state, els, setStatus, setActiveAccount, isWebviewReady, safeExecuteInWebview;
 
-  const SCAN_MS = 12000;          // per-important unread rescan period
+  const SCAN_MS = 6000;           // per-important unread rescan period
   let _scanTimer = null;
   let _scanBusy = false;
   let _impUnread = new Map();     // impKey -> unread count (only entries with unread)
+  let _impCloseTimer = null;      // delayed-close timer for the toolbar dropdown
 
   function init(ctx) {
     state = ctx.state;
@@ -24,6 +25,7 @@
     safeExecuteInWebview = ctx.safeExecuteInWebview;
     if (!Array.isArray(state.important)) state.important = [];
     bindCrmImpToggle();
+    bindImpMenu();
     render();
   }
 
@@ -132,6 +134,9 @@
   async function jumpToImportant(f) {
     const acc = accountById(f.accountId);
     if (!acc) { setStatus && setStatus('Важные: аккаунт удалён'); return; }
+    // Optimistic reset: opening the chat marks it read — clear the badge now.
+    _impUnread.delete(impKey(f.accountId, f.name));
+    render();
     if (setActiveAccount) setActiveAccount(f.accountId);
     const webview = state.webviews.get(f.accountId);
     if (!webview) return;
@@ -144,11 +149,19 @@
         await bySearch(webview, f.name);   // fallback: search by name
       }
     } catch { /* stay on the account */ }
+    rescanSoon(1500);
+    rescanSoon(4000);
+  }
+
+  /* On-demand rescan after `delay`ms — chat opened or active account switched.
+     Overlap-safe via the _scanBusy guard in scanImportantUnread(). */
+  function rescanSoon(delay) {
+    setTimeout(() => { scanImportantUnread().catch(() => {}); }, Math.max(0, Number(delay) || 0));
   }
 
   /* ── render both surfaces ── */
   function render() {
-    renderImpStrip();
+    renderImpMenu();
     renderHubImp();
   }
 
@@ -159,26 +172,78 @@
     return b;
   }
 
-  /* Toolbar strip — compact chips, only for important contacts with unread. */
-  function renderImpStrip() {
-    const host = els.impStrip || document.getElementById('imp-strip');
-    if (!host) return;
-    host.innerHTML = '';
+  /* ── Toolbar dropdown menu (blue, mirror of favorites) ──
+     Compact pill (diamond + unread count) revealing the important contacts
+     with new messages on hover/click; clicking a row jumps to that chat. */
+  function impMenuEl() { return els.impMenu || document.getElementById('imp-menu'); }
+  function closeImpMenu() {
+    const m = impMenuEl();
+    if (!m) return;
+    m.classList.remove('open');
+    m.querySelector('.pin-menu-btn')?.setAttribute('aria-expanded', 'false');
+  }
+  function openImpMenu() {
+    const m = impMenuEl();
+    if (!m || m.classList.contains('hidden')) return;
+    if (_impCloseTimer) { clearTimeout(_impCloseTimer); _impCloseTimer = null; }
+    m.classList.add('open');
+    m.querySelector('.pin-menu-btn')?.setAttribute('aria-expanded', 'true');
+  }
+  function bindImpMenu() {
+    const m = impMenuEl();
+    if (!m || m._impMenuBound) return;
+    m._impMenuBound = true;
+    const btn = m.querySelector('.pin-menu-btn');
+    m.addEventListener('mouseenter', openImpMenu);
+    m.addEventListener('mouseleave', () => {
+      if (_impCloseTimer) clearTimeout(_impCloseTimer);
+      _impCloseTimer = setTimeout(closeImpMenu, 220);
+    });
+    btn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (m.classList.contains('open')) closeImpMenu(); else openImpMenu();
+    });
+    document.addEventListener('click', (e) => { if (!m.contains(e.target)) closeImpMenu(); });
+  }
+
+  function renderImpMenu() {
+    const m = impMenuEl();
+    if (!m) return;
     const imps = unreadImportant();
-    if (!imps.length) { host.classList.add('hidden'); return; }
-    host.classList.remove('hidden');
+    const panel = m.querySelector('.pin-menu-panel');
+    const countEl = m.querySelector('.pin-menu-count');
+    if (!imps.length) {
+      m.classList.add('hidden');
+      m.classList.remove('open');
+      if (panel) panel.innerHTML = '';
+      return;
+    }
+    m.classList.remove('hidden');
+    const total = imps.reduce((s, f) => s + (Number(f.count) || 0), 0);
+    if (countEl) countEl.textContent = total > 99 ? '99+' : String(total);
+    if (!panel) return;
+    panel.innerHTML = '';
     for (const f of imps) {
       const acc = accountById(f.accountId);
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'imp-chip';
-      chip.title = `${f.name} · ${acc ? acc.name : 'аккаунт удалён'} · новое сообщение`;
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'pin-row';
+      row.title = `${f.name} · ${acc ? acc.name : 'аккаунт удалён'}`;
       const who = document.createElement('span');
-      who.className = 'imp-chip-who';
+      who.className = 'pin-row-who';
       who.textContent = f.name;
-      chip.append(who, badge(f.count));
-      chip.addEventListener('click', () => { jumpToImportant(f); });
-      host.appendChild(chip);
+      const sub = document.createElement('span');
+      sub.className = 'pin-row-sub';
+      sub.textContent = acc ? acc.name : '—';
+      const txt = document.createElement('span');
+      txt.className = 'pin-row-txt';
+      txt.append(who, sub);
+      const cnt = document.createElement('span');
+      cnt.className = 'pin-row-cnt';
+      cnt.textContent = f.count > 99 ? '99+' : String(f.count);
+      row.append(txt, cnt);
+      row.addEventListener('click', () => { closeImpMenu(); jumpToImportant(f); });
+      panel.appendChild(row);
     }
   }
 
@@ -264,5 +329,6 @@
     isImportant,
     importantAccountIds,
     onAccountRemoved,
+    rescanSoon,
   };
 })();

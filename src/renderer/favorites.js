@@ -11,10 +11,11 @@
 (function setupFavoritesModule() {
   let state, els, setStatus, setActiveAccount, isWebviewReady, safeExecuteInWebview;
 
-  const SCAN_MS = 12000;          // per-favorite unread rescan period
+  const SCAN_MS = 6000;           // per-favorite unread rescan period
   let _scanTimer = null;
   let _scanBusy = false;
   let _favUnread = new Map();     // favKey -> unread count (only entries with unread)
+  let _favCloseTimer = null;      // delayed-close timer for the toolbar dropdown
 
   function init(ctx) {
     state = ctx.state;
@@ -25,6 +26,7 @@
     safeExecuteInWebview = ctx.safeExecuteInWebview;
     if (!Array.isArray(state.favorites)) state.favorites = [];
     bindCrmFavToggle();
+    bindFavMenu();
     render();
   }
 
@@ -138,6 +140,11 @@
   async function jumpToFavorite(f) {
     const acc = accountById(f.accountId);
     if (!acc) { setStatus && setStatus('Избранное: аккаунт удалён'); return; }
+    // Optimistic reset: opening the chat marks it read, so clear the badge now
+    // for instant feedback. The follow-up rescans reconcile (re-add if somehow
+    // still unread).
+    _favUnread.delete(favKey(f.accountId, f.name));
+    render();
     if (setActiveAccount) setActiveAccount(f.accountId);
     const webview = state.webviews.get(f.accountId);
     if (!webview) return;
@@ -150,11 +157,21 @@
         await bySearch(webview, f.name);   // fallback: search by name
       }
     } catch { /* stay on the account */ }
+    rescanSoon(1500);
+    rescanSoon(4000);
+  }
+
+  /* Debounced-ish on-demand rescan: run a fresh unread scan after `delay`ms.
+     Called when a chat is opened (read state just changed) or the active
+     account switches, so the badge clears quickly instead of waiting for the
+     next poll. Overlap is safe — scanFavoriteUnread() guards with _scanBusy. */
+  function rescanSoon(delay) {
+    setTimeout(() => { scanFavoriteUnread().catch(() => {}); }, Math.max(0, Number(delay) || 0));
   }
 
   /* ── render both surfaces ── */
   function render() {
-    renderFavStrip();
+    renderFavMenu();
     renderHubFav();
   }
 
@@ -165,26 +182,80 @@
     return b;
   }
 
-  /* Toolbar strip — compact chips, only for favorites with unread. */
-  function renderFavStrip() {
-    const host = els.favStrip || document.getElementById('fav-strip');
-    if (!host) return;
-    host.innerHTML = '';
+  /* ── Toolbar dropdown menu ──
+     A single compact pill (star + unread count) that reveals, on hover or
+     click, the list of favorite contacts with new messages. Clicking a row
+     jumps to that chat. Fixed-size pill → never overflows the toolbar, no
+     matter how many favorites have unread (the list scrolls inside the panel). */
+  function favMenuEl() { return els.favMenu || document.getElementById('fav-menu'); }
+  function closeFavMenu() {
+    const m = favMenuEl();
+    if (!m) return;
+    m.classList.remove('open');
+    m.querySelector('.pin-menu-btn')?.setAttribute('aria-expanded', 'false');
+  }
+  function openFavMenu() {
+    const m = favMenuEl();
+    if (!m || m.classList.contains('hidden')) return;
+    if (_favCloseTimer) { clearTimeout(_favCloseTimer); _favCloseTimer = null; }
+    m.classList.add('open');
+    m.querySelector('.pin-menu-btn')?.setAttribute('aria-expanded', 'true');
+  }
+  function bindFavMenu() {
+    const m = favMenuEl();
+    if (!m || m._favMenuBound) return;
+    m._favMenuBound = true;
+    const btn = m.querySelector('.pin-menu-btn');
+    m.addEventListener('mouseenter', openFavMenu);
+    m.addEventListener('mouseleave', () => {
+      if (_favCloseTimer) clearTimeout(_favCloseTimer);
+      _favCloseTimer = setTimeout(closeFavMenu, 220);   // grace period to cross into the panel
+    });
+    btn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (m.classList.contains('open')) closeFavMenu(); else openFavMenu();
+    });
+    document.addEventListener('click', (e) => { if (!m.contains(e.target)) closeFavMenu(); });
+  }
+
+  function renderFavMenu() {
+    const m = favMenuEl();
+    if (!m) return;
     const favs = unreadFavorites();
-    if (!favs.length) { host.classList.add('hidden'); return; }
-    host.classList.remove('hidden');
+    const panel = m.querySelector('.pin-menu-panel');
+    const countEl = m.querySelector('.pin-menu-count');
+    if (!favs.length) {
+      m.classList.add('hidden');
+      m.classList.remove('open');
+      if (panel) panel.innerHTML = '';
+      return;
+    }
+    m.classList.remove('hidden');
+    const total = favs.reduce((s, f) => s + (Number(f.count) || 0), 0);
+    if (countEl) countEl.textContent = total > 99 ? '99+' : String(total);
+    if (!panel) return;
+    panel.innerHTML = '';
     for (const f of favs) {
       const acc = accountById(f.accountId);
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'fav-chip';
-      chip.title = `${f.name} · ${acc ? acc.name : 'аккаунт удалён'} · новое сообщение`;
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'pin-row';
+      row.title = `${f.name} · ${acc ? acc.name : 'аккаунт удалён'}`;
       const who = document.createElement('span');
-      who.className = 'fav-chip-who';
+      who.className = 'pin-row-who';
       who.textContent = f.name;
-      chip.append(who, badge(f.count));
-      chip.addEventListener('click', () => { jumpToFavorite(f); });
-      host.appendChild(chip);
+      const sub = document.createElement('span');
+      sub.className = 'pin-row-sub';
+      sub.textContent = acc ? acc.name : '—';
+      const txt = document.createElement('span');
+      txt.className = 'pin-row-txt';
+      txt.append(who, sub);
+      const cnt = document.createElement('span');
+      cnt.className = 'pin-row-cnt';
+      cnt.textContent = f.count > 99 ? '99+' : String(f.count);
+      row.append(txt, cnt);
+      row.addEventListener('click', () => { closeFavMenu(); jumpToFavorite(f); });
+      panel.appendChild(row);
     }
   }
 
@@ -270,5 +341,6 @@
     isFavorite,
     favoriteAccountIds,
     onAccountRemoved,
+    rescanSoon,
   };
 })();

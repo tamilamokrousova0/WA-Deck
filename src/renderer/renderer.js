@@ -210,11 +210,9 @@ const els = {
   openScheduleToolbar: document.getElementById('open-schedule-toolbar'),
   sendVoiceMsg: document.getElementById('send-voice-msg'),
 
-  favStrip: document.getElementById('fav-strip'),
-  hubFav: document.getElementById('hub-fav'),
+  favMenu: document.getElementById('fav-menu'),
   crmFavToggle: document.getElementById('crm-fav-toggle'),
-  impStrip: document.getElementById('imp-strip'),
-  hubImp: document.getElementById('hub-imp'),
+  impMenu: document.getElementById('imp-menu'),
   crmImpToggle: document.getElementById('crm-imp-toggle'),
 };
 
@@ -2255,6 +2253,11 @@ function setActiveAccount(accountId) {
   } finally {
     _switchingAccount = false;
   }
+  // Reading typically happens on the account you switch to — refresh the
+  // favorite/important unread badges shortly after so they clear promptly
+  // instead of lingering until the next poll.
+  window.WaDeckFavoritesModule?.rescanSoon?.(1500);
+  window.WaDeckImportantModule?.rescanSoon?.(1500);
 }
 function _setActiveAccountInner(accountId) {
   const nextId = String(accountId || '').trim();

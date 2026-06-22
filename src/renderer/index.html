@@ -120,8 +120,20 @@
             </div>
           </div>
           <div class="toolbar-pins">
-            <div id="fav-strip" class="fav-strip hidden" title="Избранные контакты — клик открывает чат"></div>
-            <div id="imp-strip" class="imp-strip hidden" title="Важные контакты — клик открывает чат"></div>
+            <div id="fav-menu" class="pin-menu pin-menu-fav hidden">
+              <button type="button" class="pin-menu-btn" aria-haspopup="true" aria-expanded="false" title="Новые сообщения от избранных">
+                <span class="pin-menu-ic">★</span>
+                <span class="pin-menu-count">0</span>
+              </button>
+              <div class="pin-menu-panel" role="menu"></div>
+            </div>
+            <div id="imp-menu" class="pin-menu pin-menu-imp hidden">
+              <button type="button" class="pin-menu-btn" aria-haspopup="true" aria-expanded="false" title="Новые сообщения от важных">
+                <span class="pin-menu-ic">◆</span>
+                <span class="pin-menu-count">0</span>
+              </button>
+              <div class="pin-menu-panel" role="menu"></div>
+            </div>
           </div>
           <div id="weather-widget" class="weather-widget">
             <div id="weather-toggle" class="weather-toggle weather-display" title="Погода">
@@ -184,8 +196,6 @@
               <div id="hub-greeting" class="hub-greeting"></div>
               <div id="hub-title" class="hub-title">WA Deck</div>
               <div id="hub-clocks" class="hub-clocks"></div>
-              <div id="hub-fav" class="hub-fav hidden"></div>
-              <div id="hub-imp" class="hub-imp hidden"></div>
               <div class="hub-section-head">
                 <h2 class="hub-section-title">Аккаунты <span id="hub-accts-count" class="hub-section-count"></span></h2>
                 <div id="hub-filters" class="hub-filters"></div>
