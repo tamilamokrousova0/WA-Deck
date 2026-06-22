@@ -508,6 +508,32 @@ html[data-theme='light'] .sidebar-resize-handle.active {
   gap: 6px;
   padding: 8px 12px;
   position: relative;
+  /* Keep the toolbar bounded to its grid cell. We deliberately do NOT set
+     overflow:hidden here — toolbar buttons (schedule/weather) drop popovers
+     below the 40px row and clipping would cut them off. Overflow is contained
+     one level down, in .toolbar-pins, which holds the chip strips. */
+  min-width: 0;
+}
+
+/* Fixed toolbar zones keep their size; only .toolbar-pins (the chip strips)
+   flexes to the leftover space and scrolls internally. */
+.toolbar-left,
+.weather-widget,
+.toolbar-clock,
+.toolbar-right {
+  flex: 0 0 auto;
+}
+
+/* Flexible middle zone for the favorite/important chip strips. Takes only the
+   space left between the buttons and the right-side widgets; clips overflow so
+   a flood of unread chips can never shove the layout off-screen. */
+.toolbar-pins {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
 }
 html[data-theme='light'] .toolbar {
   background: linear-gradient(180deg, #f8f9fb 0%, #f2f4f8 100%);
@@ -6165,8 +6191,9 @@ html[data-theme='light'] {
   display: flex;
   align-items: center;
   gap: 5px;
+  flex: 0 1 auto;
   min-width: 0;
-  max-width: 300px;
+  max-width: 100%;
   overflow-x: auto;
   scrollbar-width: none;
   padding: 0 2px;
@@ -6221,19 +6248,27 @@ html[data-theme='light'] {
 .hub-fav-chip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  max-width: 220px;
-  padding: 5px 8px 5px 10px;
+  gap: 5px;
+  max-width: 170px;
+  padding: 3px 7px;
   border: 1px solid var(--fav-line);
-  border-radius: var(--radius-md);
+  border-radius: 999px;
   background: var(--fav-soft);
   cursor: pointer;
+  overflow: hidden;
   transition: background 0.12s ease;
 }
 .hub-fav-chip:hover { background: color-mix(in oklab, var(--fav) 18%, transparent); }
-.hub-fav-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.hub-fav-txt {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  min-width: 0;
+  line-height: 1.2;
+}
 .hub-fav-who {
-  font-size: 12px;
+  flex: 0 1 auto;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-strong);
   overflow: hidden;
@@ -6241,12 +6276,14 @@ html[data-theme='light'] {
   white-space: nowrap;
 }
 .hub-fav-sub {
-  font-size: 10px;
+  flex: 0 1 auto;
+  font-size: 9px;
   color: var(--text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.hub-fav-sub::before { content: '·'; margin: 0 4px; opacity: 0.55; }
 
 /* CRM drawer star toggle (30×30, matches the close-button footprint) */
 .crm-fav-toggle {
@@ -6293,8 +6330,9 @@ html[data-theme='light'] {
   display: flex;
   align-items: center;
   gap: 5px;
+  flex: 0 1 auto;
   min-width: 0;
-  max-width: 300px;
+  max-width: 100%;
   overflow-x: auto;
   scrollbar-width: none;
   padding: 0 2px;
@@ -6347,19 +6385,27 @@ html[data-theme='light'] {
 .hub-imp-chip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  max-width: 220px;
-  padding: 5px 8px 5px 10px;
+  gap: 5px;
+  max-width: 170px;
+  padding: 3px 7px;
   border: 1px solid var(--imp-line);
-  border-radius: var(--radius-md);
+  border-radius: 999px;
   background: var(--imp-soft);
   cursor: pointer;
+  overflow: hidden;
   transition: background 0.12s ease;
 }
 .hub-imp-chip:hover { background: color-mix(in oklab, var(--imp) 18%, transparent); }
-.hub-imp-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.hub-imp-txt {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  min-width: 0;
+  line-height: 1.2;
+}
 .hub-imp-who {
-  font-size: 12px;
+  flex: 0 1 auto;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-strong);
   overflow: hidden;
@@ -6367,12 +6413,14 @@ html[data-theme='light'] {
   white-space: nowrap;
 }
 .hub-imp-sub {
-  font-size: 10px;
+  flex: 0 1 auto;
+  font-size: 9px;
   color: var(--text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.hub-imp-sub::before { content: '·'; margin: 0 4px; opacity: 0.55; }
 .crm-imp-toggle {
   margin-right: 8px;
   display: grid;

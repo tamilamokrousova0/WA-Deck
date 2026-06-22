@@ -1,6 +1,6 @@
 {
   "name": "wa-deck",
-  "version": "0.7.13",
+  "version": "0.7.14",
   "description": "WA Deck: multi-account WhatsApp manager",
   "main": "src/main.js",
   "scripts": {
@@ -20,7 +20,7 @@
     "electron-updater": "^6.3.9"
   },
   "devDependencies": {
-    "electron": "^42.3.2",
+    "electron": "^42.4.1",
     "electron-builder": "^26.8.1"
   },
   "build": {
@@ -87,7 +87,10 @@
       "runAfterFinish": true,
       "displayLanguageSelector": true,
       "multiLanguageInstaller": true,
-      "installerLanguages": ["ru_RU", "en_US"],
+      "installerLanguages": [
+        "ru_RU",
+        "en_US"
+      ],
       "language": "1049"
     },
     "portable": {
