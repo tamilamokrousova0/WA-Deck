@@ -119,22 +119,6 @@
             </button>
             </div>
           </div>
-          <div class="toolbar-pins">
-            <div id="fav-menu" class="pin-menu pin-menu-fav hidden">
-              <button type="button" class="pin-menu-btn" aria-haspopup="true" aria-expanded="false" title="Новые сообщения от избранных">
-                <span class="pin-menu-ic">★</span>
-                <span class="pin-menu-count">0</span>
-              </button>
-              <div class="pin-menu-panel" role="menu"></div>
-            </div>
-            <div id="imp-menu" class="pin-menu pin-menu-imp hidden">
-              <button type="button" class="pin-menu-btn" aria-haspopup="true" aria-expanded="false" title="Новые сообщения от важных">
-                <span class="pin-menu-ic">◆</span>
-                <span class="pin-menu-count">0</span>
-              </button>
-              <div class="pin-menu-panel" role="menu"></div>
-            </div>
-          </div>
           <div id="weather-widget" class="weather-widget">
             <div id="weather-toggle" class="weather-toggle weather-display" title="Погода">
               <span id="weather-icon" class="weather-icon">🌙</span>
@@ -174,6 +158,22 @@
             </button>
           </div>
         </header>
+        <div id="pin-feed" class="pin-feed hidden" aria-label="Избранные и важные контакты с новыми сообщениями">
+          <div class="pin-feed-head">
+            <span class="pin-feed-title">Сейчас важно</span>
+            <span class="pin-feed-legend">
+              <span class="pin-feed-lg pin-feed-lg-imp" title="Важные">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 21V4M6 4h11l-2 3.5L17 11H6"/></svg>
+              </span>
+              <span class="pin-feed-lg pin-feed-lg-fav" title="Избранные">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8 6.8 19.5l1-5.8-4.2-4.1 5.8-.8z"/></svg>
+              </span>
+            </span>
+          </div>
+          <div id="pin-feed-track" class="pin-feed-track"></div>
+          <button type="button" id="pin-feed-more" class="pin-feed-more hidden" aria-haspopup="true" aria-expanded="false"></button>
+          <div id="pin-feed-pop" class="pin-feed-pop hidden" role="menu"></div>
+        </div>
         <section id="webviews" class="webviews">
           <div id="hub-screen" class="hub-screen hidden" aria-hidden="true">
             <div id="hub-overlay" class="hub-overlay">
@@ -698,10 +698,10 @@
             <span class="crm-badge">контакт</span>
           </div>
           <button type="button" id="crm-fav-toggle" class="crm-fav-toggle" title="Добавить в избранное" aria-pressed="false">
-            <span class="crm-fav-star">★</span>
+            <svg class="crm-fav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8 6.8 19.5l1-5.8-4.2-4.1 5.8-.8z"/></svg>
           </button>
           <button type="button" id="crm-imp-toggle" class="crm-imp-toggle" title="Добавить в Важные" aria-pressed="false">
-            <span class="crm-imp-diamond">◆</span>
+            <svg class="crm-imp-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 21V4M6 4h11l-2 3.5L17 11H6"/></svg>
           </button>
           <button type="button" id="crm-close" class="crm-close-btn" title="Закрыть">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -771,6 +771,7 @@
     <script src="crm.js"></script>
     <script src="favorites.js"></script>
     <script src="important.js"></script>
+    <script src="pin-feed.js"></script>
 
     <!-- Floating Tweaks widget (theme + scene), bottom-right corner -->
     <button type="button" id="tweaks-fab" class="tweaks-fab" title="Оформление">

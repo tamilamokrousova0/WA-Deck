@@ -497,7 +497,8 @@ html[data-theme='light'] .sidebar-resize-handle.active {
 .workspace {
   min-width: 0;
   display: grid;
-  grid-template-rows: 40px 1fr;
+  /* toolbar · priority feed (auto → 0 when empty) · content */
+  grid-template-rows: 40px auto 1fr;
 }
 
 .toolbar {
@@ -524,122 +525,6 @@ html[data-theme='light'] .sidebar-resize-handle.active {
   flex: 0 0 auto;
 }
 
-/* Flexible middle zone for the favorite/important chip strips. Takes only the
-   space left between the buttons and the right-side widgets; clips overflow so
-   a flood of unread chips can never shove the layout off-screen. */
-.toolbar-pins {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  /* overflow MUST stay visible — the dropdown panels are absolutely positioned
-     children that drop below the toolbar; the menu buttons are fixed-size pills
-     that never overflow horizontally, so no clipping is needed here. */
-  overflow: visible;
-}
-
-/* ── Toolbar pinned menus: favorites (gold) / important (blue) dropdowns ──
-   A fixed-size pill (icon + unread count) that reveals, on hover or click, a
-   panel listing the contacts with new messages. Replaces the old chip strips —
-   the toolbar width is now stable regardless of how many contacts are unread. */
-.pin-menu { position: relative; flex: 0 0 auto; }
-.pin-menu.hidden { display: none; }
-.pin-menu-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 9px;
-  border: 1px solid var(--fav-line);
-  border-radius: 999px;
-  background: var(--fav-soft);
-  color: var(--fav);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
-}
-.pin-menu-btn:hover,
-.pin-menu.open .pin-menu-btn { background: color-mix(in oklab, var(--fav) 22%, transparent); }
-.pin-menu-ic { font-size: 12px; line-height: 1; }
-.pin-menu-count { font-variant-numeric: tabular-nums; min-width: 9px; text-align: center; }
-.pin-menu-imp .pin-menu-btn { border-color: var(--imp-line); background: var(--imp-soft); color: var(--imp); }
-.pin-menu-imp .pin-menu-btn:hover,
-.pin-menu-imp.open .pin-menu-btn { background: color-mix(in oklab, var(--imp) 22%, transparent); }
-
-.pin-menu-panel {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 60;
-  display: none;
-  min-width: 232px;
-  max-width: 300px;
-  max-height: 340px;
-  overflow-y: auto;
-  padding: 5px;
-  background: var(--panel, #181e2b);
-  border: 1px solid var(--line, #2b313b);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
-}
-.pin-menu.open .pin-menu-panel { display: block; }
-/* invisible bridge across the 6px gap so the cursor can travel button→panel */
-.pin-menu.open::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 0;
-  width: 100%;
-  height: 8px;
-}
-.pin-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  text-align: left;
-  transition: background 0.1s ease;
-}
-.pin-row:hover { background: rgba(255, 255, 255, 0.06); }
-html[data-theme='light'] .pin-row:hover { background: rgba(0, 0, 0, 0.05); }
-.pin-row-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; flex: 1 1 auto; }
-.pin-row-who {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-strong);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pin-row-sub {
-  font-size: 10px;
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pin-row-cnt {
-  flex: 0 0 auto;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--rose, #d94040);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 18px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
 html[data-theme='light'] .toolbar {
   background: linear-gradient(180deg, #f8f9fb 0%, #f2f4f8 100%);
   border-bottom-color: rgba(0, 0, 0, 0.06);
@@ -1227,6 +1112,12 @@ html[data-theme='light'] .account-type-tg {
 }
 
 .webviews {
+  /* Pinned to the 1fr grid track explicitly. Without this, when the priority
+     feed (.pin-feed, grid-row 2) is display:none — i.e. nothing unread, the
+     common case — auto-placement would slide .webviews up into the `auto`
+     track, collapsing its height to 0 (its webview children are
+     position:absolute and contribute no height) → black screen. */
+  grid-row: 3;
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -6274,121 +6165,6 @@ html[data-theme='light'] {
   --imp-line: rgba(37, 99, 235, 0.5);
 }
 
-/* Shared unread count badge (toolbar + hub favorite chips) */
-.fav-chip-cnt {
-  flex: 0 0 auto;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
-  background: var(--rose, #d94040);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 16px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Toolbar strip — compact chips, shown ONLY for favorites with a new message.
-   Gold highlight + soft pulse draw the eye to the fresh message. */
-.fav-strip {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 100%;
-  overflow-x: auto;
-  scrollbar-width: none;
-  padding: 0 2px;
-}
-.fav-strip::-webkit-scrollbar { display: none; }
-.fav-strip.hidden { display: none; }
-.fav-chip {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 130px;
-  height: 22px;
-  padding: 0 5px 0 8px;
-  border: 1px solid var(--fav-line);
-  border-radius: 999px;
-  background: var(--fav-soft);
-  color: var(--fav);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  animation: favChipPulse 2s ease-in-out infinite;
-  transition: background 0.12s ease;
-}
-.fav-chip:hover { background: color-mix(in oklab, var(--fav) 26%, transparent); }
-.fav-chip-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@keyframes favChipPulse {
-  0%, 100% { box-shadow: 0 0 0 0 transparent; }
-  50%      { box-shadow: 0 0 0 2px var(--fav-soft); }
-}
-
-/* Hub block — appears above the account list only when favorites have unread. */
-.hub-fav {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0 0 14px;
-}
-.hub-fav.hidden { display: none; }
-.hub-fav-cap {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--fav);
-}
-.hub-fav-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.hub-fav-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 170px;
-  padding: 3px 7px;
-  border: 1px solid var(--fav-line);
-  border-radius: 999px;
-  background: var(--fav-soft);
-  cursor: pointer;
-  overflow: hidden;
-  transition: background 0.12s ease;
-}
-.hub-fav-chip:hover { background: color-mix(in oklab, var(--fav) 18%, transparent); }
-.hub-fav-txt {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  min-width: 0;
-  line-height: 1.2;
-}
-.hub-fav-who {
-  flex: 0 1 auto;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-strong);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.hub-fav-sub {
-  flex: 0 1 auto;
-  font-size: 9px;
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.hub-fav-sub::before { content: '·'; margin: 0 4px; opacity: 0.55; }
 
 /* CRM drawer star toggle (30×30, matches the close-button footprint) */
 .crm-fav-toggle {
@@ -6417,115 +6193,6 @@ html[data-theme='light'] {
    block above; same geometry, blue accent). Mutually exclusive with
    favorites; chips jump to the account.
    ============================================================ */
-.imp-chip-cnt {
-  flex: 0 0 auto;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
-  background: var(--rose, #d94040);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 16px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-.imp-strip {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 100%;
-  overflow-x: auto;
-  scrollbar-width: none;
-  padding: 0 2px;
-}
-.imp-strip::-webkit-scrollbar { display: none; }
-.imp-strip.hidden { display: none; }
-.imp-chip {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 130px;
-  height: 22px;
-  padding: 0 5px 0 8px;
-  border: 1px solid var(--imp-line);
-  border-radius: 999px;
-  background: var(--imp-soft);
-  color: var(--imp);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  animation: impChipPulse 2s ease-in-out infinite;
-  transition: background 0.12s ease;
-}
-.imp-chip:hover { background: color-mix(in oklab, var(--imp) 26%, transparent); }
-.imp-chip-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@keyframes impChipPulse {
-  0%, 100% { box-shadow: 0 0 0 0 transparent; }
-  50%      { box-shadow: 0 0 0 2px var(--imp-soft); }
-}
-.hub-imp {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0 0 14px;
-}
-.hub-imp.hidden { display: none; }
-.hub-imp-cap {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--imp);
-}
-.hub-imp-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.hub-imp-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 170px;
-  padding: 3px 7px;
-  border: 1px solid var(--imp-line);
-  border-radius: 999px;
-  background: var(--imp-soft);
-  cursor: pointer;
-  overflow: hidden;
-  transition: background 0.12s ease;
-}
-.hub-imp-chip:hover { background: color-mix(in oklab, var(--imp) 18%, transparent); }
-.hub-imp-txt {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  min-width: 0;
-  line-height: 1.2;
-}
-.hub-imp-who {
-  flex: 0 1 auto;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-strong);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.hub-imp-sub {
-  flex: 0 1 auto;
-  font-size: 9px;
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.hub-imp-sub::before { content: '·'; margin: 0 4px; opacity: 0.55; }
 .crm-imp-toggle {
   margin-right: 8px;
   display: grid;
@@ -6546,3 +6213,167 @@ html[data-theme='light'] {
   border-color: var(--imp-line);
 }
 .crm-imp-toggle.is-imp .crm-imp-diamond { color: var(--imp); }
+
+/* CRM header toggles now use outline SVG icons (star / flag) instead of glyphs */
+.crm-fav-toggle .crm-fav-ic,
+.crm-imp-toggle .crm-imp-ic { width: 16px; height: 16px; display: block; }
+.crm-fav-toggle.is-fav { color: var(--fav); }
+.crm-imp-toggle.is-imp { color: var(--imp); }
+
+/* ============================================================
+   PRIORITY FEED — single full-width row under the toolbar listing
+   favorite/important contacts with new messages, sorted by urgency.
+   Lives in its own .workspace grid track, so it never pushes the
+   toolbar or the WhatsApp chat field off-screen. Collapses to 0 when
+   nothing is unread (the .hidden display:none shrinks the auto track).
+   ============================================================ */
+.pin-feed {
+  grid-row: 2;            /* keep .webviews anchored to row 3 (the 1fr track) */
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(180deg, #161b26 0%, #141823 100%);
+  min-width: 0;
+}
+.pin-feed.hidden { display: none; }
+
+.pin-feed-head {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-2, #aab4c2);
+  user-select: none;
+}
+.pin-feed-legend { display: inline-flex; align-items: center; gap: 6px; }
+.pin-feed-lg { display: inline-flex; }
+.pin-feed-lg svg { width: 13px; height: 13px; display: block; }
+.pin-feed-lg-fav { color: var(--fav); }
+.pin-feed-lg-imp { color: var(--imp); }
+
+/* Horizontally scrollable lane with edge fade; scrollbar hidden. */
+.pin-feed-track {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 0 2px;
+  -webkit-mask: linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+  mask: linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+}
+.pin-feed-track::-webkit-scrollbar { display: none; }
+
+.pin-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--stroke, #262d38);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--bg-2, #1b212a);
+  color: var(--text-strong, #e6eaf0);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.pin-chip:hover { transform: translateY(-1px); }
+.pin-chip-fav { border-left-color: var(--fav); }
+.pin-chip-imp { border-left-color: var(--imp); }
+.pin-chip-fav:hover { border-color: var(--fav-line); }
+.pin-chip-imp:hover { border-color: var(--imp-line); }
+.pin-chip-ic { flex: 0 0 auto; display: inline-flex; }
+.pin-chip-ic svg { width: 14px; height: 14px; display: block; }
+.pin-chip-fav .pin-chip-ic { color: var(--fav); }
+.pin-chip-imp .pin-chip-ic { color: var(--imp); }
+.pin-chip-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+.pin-chip-who {
+  font-size: 11.5px; font-weight: 700; max-width: 150px;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.pin-chip-sub {
+  font-size: 9px; color: var(--text-3, #6b7686); max-width: 150px;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.pin-chip-cnt {
+  flex: 0 0 auto;
+  min-width: 17px; height: 17px; padding: 0 4px;
+  border-radius: 999px;
+  background: var(--rose, #d94040);
+  color: #fff;
+  font-size: 10px; font-weight: 800; line-height: 17px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.pin-feed-more {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px dashed var(--stroke, #262d38);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2, #aab4c2);
+  font-size: 11px; font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+.pin-feed-more:hover { border-color: var(--text-3, #6b7686); color: var(--text-strong, #e6eaf0); }
+.pin-feed-more.hidden { display: none; }
+
+/* "+N тихих" popover — anchored to the RIGHT edge and clamped to the
+   viewport so it can never run off-screen (the bug the old left:0 dropdown had). */
+.pin-feed-pop {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 4px);
+  right: 12px;
+  width: 252px;
+  max-width: calc(100vw - 24px);
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--panel, #181e2b);
+  border: 1px solid var(--line, #2b313b);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.pin-feed-pop.hidden { display: none; }
+.pin-feed-pop-cap {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--text-3, #6b7686); font-weight: 700; padding: 6px 8px 4px;
+}
+.pin-pop-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-strong, #e6eaf0);
+  text-align: left;
+}
+.pin-pop-row:hover { background: var(--bg-2, #1b212a); }
+.pin-pop-ic { flex: 0 0 auto; display: inline-flex; }
+.pin-pop-ic svg { width: 14px; height: 14px; display: block; }
+.pin-pop-row-fav .pin-pop-ic { color: var(--fav); }
+.pin-pop-row-imp .pin-pop-ic { color: var(--imp); }
+.pin-pop-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+.pin-pop-who { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pin-pop-sub { font-size: 9.5px; color: var(--text-3, #6b7686); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -210,9 +210,7 @@ const els = {
   openScheduleToolbar: document.getElementById('open-schedule-toolbar'),
   sendVoiceMsg: document.getElementById('send-voice-msg'),
 
-  favMenu: document.getElementById('fav-menu'),
   crmFavToggle: document.getElementById('crm-fav-toggle'),
-  impMenu: document.getElementById('imp-menu'),
   crmImpToggle: document.getElementById('crm-imp-toggle'),
 };
 
@@ -1568,8 +1566,6 @@ async function updateHubDashboard() {
   } catch { /* ignore */ }
 
   updateHubFilters();
-  if (window.WaDeckFavoritesModule) window.WaDeckFavoritesModule.renderHubFav();
-  if (window.WaDeckImportantModule) window.WaDeckImportantModule.renderHubImp();
 
   const countEl = document.getElementById('hub-accts-count');
   if (countEl) countEl.textContent = state.accounts.length ? String(state.accounts.length) : '';
@@ -4235,6 +4231,12 @@ function bindActions() {
 }
 
 async function init() {
+  /* Startup timing — surfaces where the ~first-launch delay goes (bootstrap IPC
+     vs. sidebar paint vs. webview boot). Read with `ELECTRON_ENABLE_LOGGING=1`. */
+  const _bootT0 = (window.performance?.now?.() ?? Date.now());
+  const _bootMs = () => Math.round((window.performance?.now?.() ?? Date.now()) - _bootT0);
+  console.log('[boot] init start');
+
   /* Guard: detect broken CSS grid from corrupted --sidebar-width (NaNpx etc.) */
   const appRoot = document.getElementById('app-root');
   if (appRoot) {
@@ -4320,6 +4322,7 @@ async function init() {
   }
 
   const boot = await window.waDeck.bootstrap();
+  console.log(`[boot] bootstrap IPC resolved +${_bootMs()}ms (${(boot.accounts || []).length} accounts)`);
   state.accounts = Array.isArray(boot.accounts) ? boot.accounts : [];
   state.settings = {
     uiTheme: normalizeTheme(boot.settings?.uiTheme || 'dark'),
@@ -4350,6 +4353,7 @@ async function init() {
 
   // Render sidebar immediately so accounts are visible right away
   renderAccounts();
+  console.log(`[boot] sidebar painted +${_bootMs()}ms`);
 
   // Staged background load: kick off webview creation for every account but
   // staggered by STAGGER_MS so the UI stays responsive during initial paint.
@@ -4443,6 +4447,7 @@ async function init() {
   WaDeckAutoUpdateModule.maybeShowReleaseNotes().catch(console.error);
 
   setStatus('');
+  console.log(`[boot] init complete +${_bootMs()}ms (webviews creating in background, +${state.accounts.length * 400}ms staggered)`);
 }
 
 /* ── Toolbar "Шаблоны" button → open the settings drawer on the Templates

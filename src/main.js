@@ -1404,6 +1404,30 @@ function addSingleInstanceGuard() {
 }
 
 
+/* Reload the main window after a renderer crash, but only once it has finished
+   its initial load (reloading a sandboxed renderer mid-startup triggers
+   Electron's "binding.startupData is null" error) and not in a tight loop
+   (≥3 reloads in 60s → back off so a persistent failure isn't an infinite
+   reload loop). */
+let _mainReloadTimes = [];
+let _mainLoadedOnce = false;
+function recoverMainWindow(tag) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!_mainLoadedOnce) {
+    console.error(`[main] ${tag}: crash before first load — not reloading (would hit sandbox startup race)`);
+    return;
+  }
+  const now = Date.now();
+  _mainReloadTimes = _mainReloadTimes.filter((t) => now - t < 60000);
+  if (_mainReloadTimes.length >= 3) {
+    console.error(`[main] ${tag}: 3 reloads within 60s — backing off to avoid a crash-loop`);
+    return;
+  }
+  _mainReloadTimes.push(now);
+  console.warn(`[main] ${tag}: reloading main window to recover from black screen`);
+  try { mainWindow.webContents.reload(); } catch (err) { console.error('[main] recover reload failed:', err); }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1680,
@@ -1452,6 +1476,29 @@ function createWindow() {
       // ignore channel send errors
     }
   });
+  /* ── Main-window resilience ──
+     Over long sessions (every account's <webview> is kept on a hot GPU
+     compositor layer for instant switching — see 0.7.9) the main renderer or
+     the shared GPU process can die under memory pressure. With no handler the
+     window is left blank — only `backgroundColor` shows — until the user
+     manually restarts. That is exactly the "black screen after 4-5 hours, fine
+     after restart" symptom. Auto-reload the renderer so it self-heals, throttled
+     to avoid a crash-loop, and log the reason so recurrences are diagnosable. */
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[main] render-process-gone:', details?.reason, 'exitCode:', details?.exitCode);
+    if (details?.reason === 'clean-exit') return;
+    recoverMainWindow('render-process-gone');
+  });
+  mainWindow.webContents.on('unresponsive', () => {
+    console.warn('[main] renderer became unresponsive');
+  });
+  mainWindow.webContents.on('responsive', () => {
+    console.log('[main] renderer responsive again');
+  });
+  mainWindow.webContents.on('did-finish-load', () => {
+    _mainLoadedOnce = true;   // safe to auto-reload only after the first load
+  });
+
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   // On macOS in dev mode (not packaged), set dock icon from PNG.
@@ -2996,6 +3043,22 @@ async function bootstrap() {
   setupWebviewGuards();
   registerIpc();
   createWindow();
+
+  /* GPU / utility process death. The GPU process is shared by the whole app;
+     after a long session (many always-hot webview compositor layers exhaust GPU
+     memory) it can crash/OOM, and Chromium's new GPU process sometimes fails to
+     repaint — leaving a black window until manual restart. Recover by reloading
+     the renderer, but ONLY on a genuine crash/oom (not orderly 'killed'/
+     'clean-exit' restarts, which are routine and would make a reload disruptive)
+     and via recoverMainWindow, which refuses to act until the renderer's first
+     load (guards the startup sandbox race) and throttles against crash-loops. */
+  app.on('child-process-gone', (_event, details) => {
+    console.error('[main] child-process-gone:', details?.type, 'reason:', details?.reason, 'exitCode:', details?.exitCode);
+    if (details?.type === 'GPU' && (details?.reason === 'crashed' || details?.reason === 'oom')) {
+      recoverMainWindow('gpu-process-gone');
+    }
+  });
+
   setupAutoUpdater();
   startPeriodicCacheCleanup();
   setupPowerMonitor();

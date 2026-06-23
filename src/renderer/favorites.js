@@ -15,7 +15,6 @@
   let _scanTimer = null;
   let _scanBusy = false;
   let _favUnread = new Map();     // favKey -> unread count (only entries with unread)
-  let _favCloseTimer = null;      // delayed-close timer for the toolbar dropdown
 
   function init(ctx) {
     state = ctx.state;
@@ -26,7 +25,6 @@
     safeExecuteInWebview = ctx.safeExecuteInWebview;
     if (!Array.isArray(state.favorites)) state.favorites = [];
     bindCrmFavToggle();
-    bindFavMenu();
     render();
   }
 
@@ -35,7 +33,7 @@
   }
   function normName(s) { return String(s || '').trim().toLowerCase(); }
   function accountById(id) {
-    return (state.accounts || []).find((a) => a.id === id) || null;
+    return (state?.accounts || []).find((a) => a.id === id) || null;
   }
 
   function isFavorite(accountId, name) {
@@ -51,7 +49,7 @@
 
   /* Favorites that currently have unread messages, in store order. */
   function unreadFavorites() {
-    return (state.favorites || [])
+    return (state?.favorites || [])
       .map((f) => ({ ...f, count: _favUnread.get(favKey(f.accountId, f.name)) || 0 }))
       .filter((f) => f.count > 0);
   }
@@ -104,8 +102,11 @@
         const webview = state.webviews.get(accountId);
         if (!isWebviewReady(webview)) { carry(favs); continue; }
         let rows = null;
-        try { rows = await safeExecuteInWebview(webview, collectUnreadChatsScript(), true); }
-        catch { rows = null; }
+        try {
+          rows = window.WaDeckPinFeed?.scanAccountUnread
+            ? await window.WaDeckPinFeed.scanAccountUnread(accountId, webview, safeExecuteInWebview)
+            : await safeExecuteInWebview(webview, collectUnreadChatsScript(), true);
+        } catch { rows = null; }
         if (!Array.isArray(rows)) { carry(favs); continue; }
         const unreadByName = new Map();
         for (const r of rows) {
@@ -125,9 +126,15 @@
     }
   }
 
+  let _scanTick = 0;
   function startFavoritePolling() {
     if (_scanTimer) clearInterval(_scanTimer);
-    _scanTimer = setInterval(() => { scanFavoriteUnread().catch(() => {}); }, SCAN_MS);
+    _scanTimer = setInterval(() => {
+      _scanTick += 1;
+      // Background (window unfocused): scan ~3× less often to cut idle CPU.
+      if (!document.hasFocus() && (_scanTick % 3 !== 0)) return;
+      scanFavoriteUnread().catch(() => {});
+    }, SCAN_MS);
     setTimeout(() => { scanFavoriteUnread().catch(() => {}); }, 1500);
   }
 
@@ -169,131 +176,36 @@
     setTimeout(() => { scanFavoriteUnread().catch(() => {}); }, Math.max(0, Number(delay) || 0));
   }
 
-  /* ── render both surfaces ── */
+  /* ── render ──
+     The favorites/important data is now surfaced by the shared priority feed
+     (pin-feed.js), which renders a single sorted row under the toolbar. This
+     module owns the unread scan + jump; the feed owns the markup. */
   function render() {
-    renderFavMenu();
-    renderHubFav();
+    window.WaDeckPinFeed?.render?.();
   }
 
-  function badge(count) {
-    const b = document.createElement('span');
-    b.className = 'fav-chip-cnt';
-    b.textContent = count > 99 ? '99+' : String(count);
-    return b;
+  /* Data getters consumed by the priority feed. */
+  function listUnread() {
+    return unreadFavorites().map((f) => ({
+      accountId: f.accountId,
+      name: f.name,
+      count: f.count,
+      accountName: accountById(f.accountId)?.name || '',
+      category: 'fav',
+    }));
+  }
+  function listQuiet() {
+    return (state?.favorites || [])
+      .filter((f) => !((_favUnread.get(favKey(f.accountId, f.name)) || 0) > 0))
+      .map((f) => ({
+        accountId: f.accountId,
+        name: f.name,
+        count: 0,
+        accountName: accountById(f.accountId)?.name || '',
+        category: 'fav',
+      }));
   }
 
-  /* ── Toolbar dropdown menu ──
-     A single compact pill (star + unread count) that reveals, on hover or
-     click, the list of favorite contacts with new messages. Clicking a row
-     jumps to that chat. Fixed-size pill → never overflows the toolbar, no
-     matter how many favorites have unread (the list scrolls inside the panel). */
-  function favMenuEl() { return els.favMenu || document.getElementById('fav-menu'); }
-  function closeFavMenu() {
-    const m = favMenuEl();
-    if (!m) return;
-    m.classList.remove('open');
-    m.querySelector('.pin-menu-btn')?.setAttribute('aria-expanded', 'false');
-  }
-  function openFavMenu() {
-    const m = favMenuEl();
-    if (!m || m.classList.contains('hidden')) return;
-    if (_favCloseTimer) { clearTimeout(_favCloseTimer); _favCloseTimer = null; }
-    m.classList.add('open');
-    m.querySelector('.pin-menu-btn')?.setAttribute('aria-expanded', 'true');
-  }
-  function bindFavMenu() {
-    const m = favMenuEl();
-    if (!m || m._favMenuBound) return;
-    m._favMenuBound = true;
-    const btn = m.querySelector('.pin-menu-btn');
-    m.addEventListener('mouseenter', openFavMenu);
-    m.addEventListener('mouseleave', () => {
-      if (_favCloseTimer) clearTimeout(_favCloseTimer);
-      _favCloseTimer = setTimeout(closeFavMenu, 220);   // grace period to cross into the panel
-    });
-    btn?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (m.classList.contains('open')) closeFavMenu(); else openFavMenu();
-    });
-    document.addEventListener('click', (e) => { if (!m.contains(e.target)) closeFavMenu(); });
-  }
-
-  function renderFavMenu() {
-    const m = favMenuEl();
-    if (!m) return;
-    const favs = unreadFavorites();
-    const panel = m.querySelector('.pin-menu-panel');
-    const countEl = m.querySelector('.pin-menu-count');
-    if (!favs.length) {
-      m.classList.add('hidden');
-      m.classList.remove('open');
-      if (panel) panel.innerHTML = '';
-      return;
-    }
-    m.classList.remove('hidden');
-    const total = favs.reduce((s, f) => s + (Number(f.count) || 0), 0);
-    if (countEl) countEl.textContent = total > 99 ? '99+' : String(total);
-    if (!panel) return;
-    panel.innerHTML = '';
-    for (const f of favs) {
-      const acc = accountById(f.accountId);
-      const row = document.createElement('button');
-      row.type = 'button';
-      row.className = 'pin-row';
-      row.title = `${f.name} · ${acc ? acc.name : 'аккаунт удалён'}`;
-      const who = document.createElement('span');
-      who.className = 'pin-row-who';
-      who.textContent = f.name;
-      const sub = document.createElement('span');
-      sub.className = 'pin-row-sub';
-      sub.textContent = acc ? acc.name : '—';
-      const txt = document.createElement('span');
-      txt.className = 'pin-row-txt';
-      txt.append(who, sub);
-      const cnt = document.createElement('span');
-      cnt.className = 'pin-row-cnt';
-      cnt.textContent = f.count > 99 ? '99+' : String(f.count);
-      row.append(txt, cnt);
-      row.addEventListener('click', () => { closeFavMenu(); jumpToFavorite(f); });
-      panel.appendChild(row);
-    }
-  }
-
-  /* Hub block — appears only when favorites have unread. */
-  function renderHubFav() {
-    const host = els.hubFav || document.getElementById('hub-fav');
-    if (!host) return;
-    host.innerHTML = '';
-    const favs = unreadFavorites();
-    if (!favs.length) { host.classList.add('hidden'); return; }
-    host.classList.remove('hidden');
-    const cap = document.createElement('div');
-    cap.className = 'hub-fav-cap';
-    cap.textContent = 'Новое от избранных';
-    host.appendChild(cap);
-    const row = document.createElement('div');
-    row.className = 'hub-fav-row';
-    for (const f of favs) {
-      const acc = accountById(f.accountId);
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'hub-fav-chip';
-      chip.title = `${f.name} · ${acc ? acc.name : 'аккаунт удалён'}`;
-      const who = document.createElement('span');
-      who.className = 'hub-fav-who';
-      who.textContent = f.name;
-      const sub = document.createElement('span');
-      sub.className = 'hub-fav-sub';
-      sub.textContent = acc ? acc.name : '—';
-      const txt = document.createElement('span');
-      txt.className = 'hub-fav-txt';
-      txt.append(who, sub);
-      chip.append(txt, badge(f.count));
-      chip.addEventListener('click', () => { jumpToFavorite(f); });
-      row.appendChild(chip);
-    }
-    host.appendChild(row);
-  }
 
   /* ── CRM star ── */
   function syncCrmToggle() {
@@ -335,12 +247,14 @@
   window.WaDeckFavoritesModule = {
     init,
     startFavoritePolling,
-    renderFavStrip: render, // renderer calls this after renderAccounts — refresh both
-    renderHubFav,
+    renderFavStrip: render, // renderer calls this after renderAccounts — refresh the feed
     syncCrmToggle,
     isFavorite,
     favoriteAccountIds,
     onAccountRemoved,
     rescanSoon,
+    listUnread,
+    listQuiet,
+    jump: jumpToFavorite,
   };
 })();

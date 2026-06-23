@@ -14,7 +14,6 @@
   let _scanTimer = null;
   let _scanBusy = false;
   let _impUnread = new Map();     // impKey -> unread count (only entries with unread)
-  let _impCloseTimer = null;      // delayed-close timer for the toolbar dropdown
 
   function init(ctx) {
     state = ctx.state;
@@ -25,7 +24,6 @@
     safeExecuteInWebview = ctx.safeExecuteInWebview;
     if (!Array.isArray(state.important)) state.important = [];
     bindCrmImpToggle();
-    bindImpMenu();
     render();
   }
 
@@ -34,7 +32,7 @@
   }
   function normName(s) { return String(s || '').trim().toLowerCase(); }
   function accountById(id) {
-    return (state.accounts || []).find((a) => a.id === id) || null;
+    return (state?.accounts || []).find((a) => a.id === id) || null;
   }
 
   function isImportant(accountId, name) {
@@ -50,7 +48,7 @@
 
   /* Important contacts that currently have unread messages, in store order. */
   function unreadImportant() {
-    return (state.important || [])
+    return (state?.important || [])
       .map((f) => ({ ...f, count: _impUnread.get(impKey(f.accountId, f.name)) || 0 }))
       .filter((f) => f.count > 0);
   }
@@ -103,8 +101,11 @@
         const webview = state.webviews.get(accountId);
         if (!isWebviewReady(webview)) { carry(imps); continue; }
         let rows = null;
-        try { rows = await safeExecuteInWebview(webview, collectUnreadChatsScript(), true); }
-        catch { rows = null; }
+        try {
+          rows = window.WaDeckPinFeed?.scanAccountUnread
+            ? await window.WaDeckPinFeed.scanAccountUnread(accountId, webview, safeExecuteInWebview)
+            : await safeExecuteInWebview(webview, collectUnreadChatsScript(), true);
+        } catch { rows = null; }
         if (!Array.isArray(rows)) { carry(imps); continue; }
         const unreadByName = new Map();
         for (const r of rows) {
@@ -124,9 +125,15 @@
     }
   }
 
+  let _scanTick = 0;
   function startImportantPolling() {
     if (_scanTimer) clearInterval(_scanTimer);
-    _scanTimer = setInterval(() => { scanImportantUnread().catch(() => {}); }, SCAN_MS);
+    _scanTimer = setInterval(() => {
+      _scanTick += 1;
+      // Background (window unfocused): scan ~3× less often to cut idle CPU.
+      if (!document.hasFocus() && (_scanTick % 3 !== 0)) return;
+      scanImportantUnread().catch(() => {});
+    }, SCAN_MS);
     setTimeout(() => { scanImportantUnread().catch(() => {}); }, 1500);
   }
 
@@ -159,129 +166,33 @@
     setTimeout(() => { scanImportantUnread().catch(() => {}); }, Math.max(0, Number(delay) || 0));
   }
 
-  /* ── render both surfaces ── */
+  /* ── render ── (data is surfaced by the shared priority feed, pin-feed.js) */
   function render() {
-    renderImpMenu();
-    renderHubImp();
+    window.WaDeckPinFeed?.render?.();
   }
 
-  function badge(count) {
-    const b = document.createElement('span');
-    b.className = 'imp-chip-cnt';
-    b.textContent = count > 99 ? '99+' : String(count);
-    return b;
+  /* Data getters consumed by the priority feed. */
+  function listUnread() {
+    return unreadImportant().map((f) => ({
+      accountId: f.accountId,
+      name: f.name,
+      count: f.count,
+      accountName: accountById(f.accountId)?.name || '',
+      category: 'imp',
+    }));
+  }
+  function listQuiet() {
+    return (state?.important || [])
+      .filter((f) => !((_impUnread.get(impKey(f.accountId, f.name)) || 0) > 0))
+      .map((f) => ({
+        accountId: f.accountId,
+        name: f.name,
+        count: 0,
+        accountName: accountById(f.accountId)?.name || '',
+        category: 'imp',
+      }));
   }
 
-  /* ── Toolbar dropdown menu (blue, mirror of favorites) ──
-     Compact pill (diamond + unread count) revealing the important contacts
-     with new messages on hover/click; clicking a row jumps to that chat. */
-  function impMenuEl() { return els.impMenu || document.getElementById('imp-menu'); }
-  function closeImpMenu() {
-    const m = impMenuEl();
-    if (!m) return;
-    m.classList.remove('open');
-    m.querySelector('.pin-menu-btn')?.setAttribute('aria-expanded', 'false');
-  }
-  function openImpMenu() {
-    const m = impMenuEl();
-    if (!m || m.classList.contains('hidden')) return;
-    if (_impCloseTimer) { clearTimeout(_impCloseTimer); _impCloseTimer = null; }
-    m.classList.add('open');
-    m.querySelector('.pin-menu-btn')?.setAttribute('aria-expanded', 'true');
-  }
-  function bindImpMenu() {
-    const m = impMenuEl();
-    if (!m || m._impMenuBound) return;
-    m._impMenuBound = true;
-    const btn = m.querySelector('.pin-menu-btn');
-    m.addEventListener('mouseenter', openImpMenu);
-    m.addEventListener('mouseleave', () => {
-      if (_impCloseTimer) clearTimeout(_impCloseTimer);
-      _impCloseTimer = setTimeout(closeImpMenu, 220);
-    });
-    btn?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (m.classList.contains('open')) closeImpMenu(); else openImpMenu();
-    });
-    document.addEventListener('click', (e) => { if (!m.contains(e.target)) closeImpMenu(); });
-  }
-
-  function renderImpMenu() {
-    const m = impMenuEl();
-    if (!m) return;
-    const imps = unreadImportant();
-    const panel = m.querySelector('.pin-menu-panel');
-    const countEl = m.querySelector('.pin-menu-count');
-    if (!imps.length) {
-      m.classList.add('hidden');
-      m.classList.remove('open');
-      if (panel) panel.innerHTML = '';
-      return;
-    }
-    m.classList.remove('hidden');
-    const total = imps.reduce((s, f) => s + (Number(f.count) || 0), 0);
-    if (countEl) countEl.textContent = total > 99 ? '99+' : String(total);
-    if (!panel) return;
-    panel.innerHTML = '';
-    for (const f of imps) {
-      const acc = accountById(f.accountId);
-      const row = document.createElement('button');
-      row.type = 'button';
-      row.className = 'pin-row';
-      row.title = `${f.name} · ${acc ? acc.name : 'аккаунт удалён'}`;
-      const who = document.createElement('span');
-      who.className = 'pin-row-who';
-      who.textContent = f.name;
-      const sub = document.createElement('span');
-      sub.className = 'pin-row-sub';
-      sub.textContent = acc ? acc.name : '—';
-      const txt = document.createElement('span');
-      txt.className = 'pin-row-txt';
-      txt.append(who, sub);
-      const cnt = document.createElement('span');
-      cnt.className = 'pin-row-cnt';
-      cnt.textContent = f.count > 99 ? '99+' : String(f.count);
-      row.append(txt, cnt);
-      row.addEventListener('click', () => { closeImpMenu(); jumpToImportant(f); });
-      panel.appendChild(row);
-    }
-  }
-
-  /* Hub block — appears only when important contacts have unread. */
-  function renderHubImp() {
-    const host = els.hubImp || document.getElementById('hub-imp');
-    if (!host) return;
-    host.innerHTML = '';
-    const imps = unreadImportant();
-    if (!imps.length) { host.classList.add('hidden'); return; }
-    host.classList.remove('hidden');
-    const cap = document.createElement('div');
-    cap.className = 'hub-imp-cap';
-    cap.textContent = 'Новое от важных';
-    host.appendChild(cap);
-    const row = document.createElement('div');
-    row.className = 'hub-imp-row';
-    for (const f of imps) {
-      const acc = accountById(f.accountId);
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'hub-imp-chip';
-      chip.title = `${f.name} · ${acc ? acc.name : 'аккаунт удалён'}`;
-      const who = document.createElement('span');
-      who.className = 'hub-imp-who';
-      who.textContent = f.name;
-      const sub = document.createElement('span');
-      sub.className = 'hub-imp-sub';
-      sub.textContent = acc ? acc.name : '—';
-      const txt = document.createElement('span');
-      txt.className = 'hub-imp-txt';
-      txt.append(who, sub);
-      chip.append(txt, badge(f.count));
-      chip.addEventListener('click', () => { jumpToImportant(f); });
-      row.appendChild(chip);
-    }
-    host.appendChild(row);
-  }
 
   /* ── CRM diamond ── */
   function syncCrmToggle() {
@@ -323,12 +234,14 @@
   window.WaDeckImportantModule = {
     init,
     startImportantPolling,
-    renderImpStrip: render, // renderer calls this after renderAccounts — refresh both
-    renderHubImp,
+    renderImpStrip: render, // renderer calls this after renderAccounts — refresh the feed
     syncCrmToggle,
     isImportant,
     importantAccountIds,
     onAccountRemoved,
     rescanSoon,
+    listUnread,
+    listQuiet,
+    jump: jumpToImportant,
   };
 })();
