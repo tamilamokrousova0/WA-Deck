@@ -1703,6 +1703,10 @@ html[data-theme='light'] textarea[readonly] {
 }
 
 .btn-quick-min {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   padding: 2px 10px;
   min-width: 0;
   min-height: 24px;
@@ -1710,6 +1714,32 @@ html[data-theme='light'] textarea[readonly] {
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
+}
+
+/* Повтор / Джиттер — компактные, ровно две колонки рядом (метка над селектом). */
+.schedule-repeat-label {
+  flex: 1;
+  min-width: 0;
+  gap: 3px;
+  font-size: 11px;
+}
+.schedule-repeat-label .settings-select {
+  width: 100%;
+  max-width: none;
+  min-height: 26px;
+  padding: 4px 8px;
+}
+
+/* Кнопки «Добавить/Очистить вложения» — меньше и в один ряд, а не столбиком. */
+#pick-attachments,
+#clear-attachments {
+  flex: 1;
+  min-width: 0;
+  min-height: 26px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .scheduled-item-top {
@@ -6377,3 +6407,76 @@ html[data-theme='light'] {
 .pin-pop-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
 .pin-pop-who { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pin-pop-sub { font-size: 9.5px; color: var(--text-3, #6b7686); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Global contact search (Cmd/Ctrl+K) ─────────────────────────────────── */
+.global-search {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  background: rgba(4, 8, 16, 0.55);
+  backdrop-filter: blur(3px);
+}
+.global-search.hidden { display: none; }
+.gs-box {
+  width: min(560px, calc(100vw - 48px));
+  max-height: 62vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-bg, #101826);
+  border: 1px solid var(--border, #263042);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+#global-search-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-1, #e8edf5);
+  font-size: 15px;
+  padding: 16px 18px 12px;
+}
+.gs-status {
+  padding: 0 18px 8px;
+  font-size: 11px;
+  color: var(--text-3, #6b7686);
+  border-bottom: 1px solid var(--border, #263042);
+}
+.gs-list {
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.gs-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-1, #e8edf5);
+  text-align: left;
+  cursor: pointer;
+}
+.gs-row.is-active { background: var(--accent-dim, rgba(61, 214, 140, 0.14)); }
+.gs-row-who {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gs-row-sub {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-3, #6b7686);
+}

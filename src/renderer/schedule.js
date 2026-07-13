@@ -1,4 +1,7 @@
-(function setupScheduleModule() {
+import { WADECK_WV_TOKEN } from './core/state.js';
+import { closeModalAnimated, showToast } from './core/helpers.js';
+import { collectChatsFromSidebarScript } from './webview-scripts/collect-chats.js';
+
   let state, els, setStatus, trimMapSize, runWithBusyButton;
   let accountById, ensureWebview, isWebviewReady, sendWebviewInput, delay;
   let formatDateTime, nextSendAtLocal, showConfirm, applyTemplateVariables;
@@ -50,6 +53,11 @@
     els.scheduleTarget.value = `${state.scheduleTarget.accountName} / ${state.scheduleTarget.chatName}`;
   }
 
+  // In-flight collector runs per account. The collect script hijacks
+  // #pane-side.scrollTop for up to ~4.6s — two concurrent runs would fight
+  // over the scroll position and both return truncated/garbled lists.
+  const _chatFetchInflight = new Map();
+
   async function fetchChatsForAccount(accountId, force = false) {
     const safeAccountId = String(accountId || '').trim();
     if (!safeAccountId) return [];
@@ -64,23 +72,34 @@
       return cached.chats;
     }
 
+    const inflight = _chatFetchInflight.get(safeAccountId);
+    if (inflight) return inflight;
+
     const webview = state.webviews.get(safeAccountId);
     if (!webview) return [];
 
-    let chats = [];
+    const run = (async () => {
+      let chats = [];
+      try {
+        const wvToken = typeof WADECK_WV_TOKEN !== 'undefined' ? WADECK_WV_TOKEN : '';
+        chats = await webview.executeJavaScript(collectChatsFromSidebarScript(wvToken), true);
+      } catch {
+        chats = [];
+      }
+
+      const normalized = Array.isArray(chats)
+        ? chats.map((chat) => String(chat || '').trim()).filter(Boolean)
+        : [];
+
+      state.chatPickerCache = { accountId: safeAccountId, at: Date.now(), chats: normalized };
+      return normalized;
+    })();
+    _chatFetchInflight.set(safeAccountId, run);
     try {
-      const wvToken = typeof WADECK_WV_TOKEN !== 'undefined' ? WADECK_WV_TOKEN : '';
-      chats = await webview.executeJavaScript(collectChatsFromSidebarScript(wvToken), true);
-    } catch {
-      chats = [];
+      return await run;
+    } finally {
+      _chatFetchInflight.delete(safeAccountId);
     }
-
-    const normalized = Array.isArray(chats)
-      ? chats.map((chat) => String(chat || '').trim()).filter(Boolean)
-      : [];
-
-    state.chatPickerCache = { accountId: safeAccountId, at: Date.now(), chats: normalized };
-    return normalized;
   }
 
   // Generation token: a quick account switch must not let a late response
@@ -216,9 +235,17 @@
   const SCHEDULED_PAGE_SIZE = 30;
   let _scheduledVisibleLimit = SCHEDULED_PAGE_SIZE;
 
+  // Generation token against overlapping renders: the 15s runner and user
+  // button handlers can call renderScheduled() concurrently; clearing the list
+  // before the await let the two interleave (clear-A, clear-B, append-A,
+  // append-B) into a fully duplicated list with live duplicate buttons.
+  let _renderScheduledGen = 0;
+
   async function renderScheduled() {
-    els.scheduledList.innerHTML = '';
+    const gen = ++_renderScheduledGen;
     const response = await window.waDeck.listScheduled({ limit: 2000 });
+    if (gen !== _renderScheduledGen) return; // a newer render is in flight
+    els.scheduledList.innerHTML = '';
     const items = Array.isArray(response?.items) ? response.items : [];
 
     /* Update toolbar schedule button indicator */
@@ -270,7 +297,9 @@
 
       const meta = document.createElement('div');
       meta.className = 'scheduled-meta';
-      meta.textContent = `Отправка: ${formatDateTime(item.sendAt)} | файлов: ${item.attachments?.length || 0}`;
+      const repeatLabel = { daily: 'каждый день', weekdays: 'по будням', weekly: 'раз в неделю' }[item.repeat] || '';
+      meta.textContent = `Отправка: ${formatDateTime(item.sendAt)} | файлов: ${item.attachments?.length || 0}`
+        + (repeatLabel ? ` | ↻ ${repeatLabel}` : '');
       if (item.status === 'pending') {
         const cd = document.createElement('span');
         cd.className = 'scheduled-countdown';
@@ -464,12 +493,16 @@
     }
     const sendAtIso = parsedSendAt.toISOString();
 
+    const repeatEl = document.getElementById('schedule-repeat');
+    const jitterEl = document.getElementById('schedule-jitter');
     const payload = {
       accountId: state.scheduleTarget.accountId,
       chatName: state.scheduleTarget.chatName,
       text: String(els.scheduleText.value || ''),
       sendAt: sendAtIso,
       attachments: state.attachmentsDraft,
+      repeat: String(repeatEl?.value || ''),
+      jitterMinutes: Number(jitterEl?.value) || 0,
     };
 
     const response = await window.waDeck.scheduleMessage(payload);
@@ -547,6 +580,17 @@
 
     const nativeType = async (str) => {
       for (const ch of str) {
+        if (ch === '\n') {
+          // WhatsApp's composer treats Enter as "send" — a raw '\n' char event
+          // either vanishes or fires the send path mid-message. Line breaks
+          // need the Shift+Enter sequence.
+          await sendWebviewInput(webview, { type: 'keyDown', keyCode: 'Return', modifiers: ['shift'] });
+          await sendWebviewInput(webview, { type: 'char', keyCode: 'Return', modifiers: ['shift'] });
+          await sendWebviewInput(webview, { type: 'keyUp', keyCode: 'Return', modifiers: ['shift'] });
+          await delay(30);
+          continue;
+        }
+        if (ch === '\r') continue;
         await sendWebviewInput(webview, { type: 'char', keyCode: ch });
         await delay(15);
       }
@@ -979,6 +1023,19 @@
     }
     await delay(250);
 
+    /* From here on input.click is suppressed — every exit (success or error)
+       must restore it eagerly. The 8s backstop timer only covers the case
+       where the webview call itself dies; leaving the override in place for
+       those 8s would swallow a manual attach click by the user. */
+    const restoreInputClick = () => query(`(() => {
+      clearTimeout(window.__waDeckClickRestoreTimer);
+      if (window.__waDeckOrigInputClick) {
+        HTMLInputElement.prototype.click = window.__waDeckOrigInputClick;
+        window.__waDeckOrigInputClick = null;
+      }
+      return true;
+    })()`);
+
     /* B. Wait for the hidden <input type="file"> for this kind to appear. */
     let inputReady = false;
     for (let i = 0; i < 30; i++) {
@@ -990,6 +1047,7 @@
     }
 
     if (!inputReady) {
+      await restoreInputClick();
       await nativeKey('Escape');
       return { ok: false, error: 'file_input_not_found' };
     }
@@ -1002,21 +1060,14 @@
       files: paths,
     });
     if (!cdp?.ok) {
+      await restoreInputClick();
       await nativeKey('Escape');
       return { ok: false, error: `cdp_${cdp?.error || 'failed'}` };
     }
 
     /* C2. Files are delivered — restore the suppressed input.click now that the
-       OS dialog can no longer fire. The 8s backstop above also handles error
-       paths, but restoring eagerly keeps the override window minimal. */
-    await query(`(() => {
-      clearTimeout(window.__waDeckClickRestoreTimer);
-      if (window.__waDeckOrigInputClick) {
-        HTMLInputElement.prototype.click = window.__waDeckOrigInputClick;
-        window.__waDeckOrigInputClick = null;
-      }
-      return true;
-    })()`);
+       OS dialog can no longer fire. */
+    await restoreInputClick();
 
     /* D. Wait for the preview modal. WhatsApp shows a lightbox with a
        Send button; we detect it by a data-icon="send" that lives OUTSIDE
@@ -1141,30 +1192,59 @@
         }
         if (!webview) {
           console.warn('[scheduled]', item.chatName, 'webview_not_found');
-          await window.waDeck.completeScheduled({ id: item.id, ok: false, errorText: 'webview_not_found' });
+          await reportScheduledResult(item, false, 'webview_not_found');
           continue;
         }
 
         const result = await runScheduledSend(webview, item);
         console.log('[scheduled] result:', item.chatName, JSON.stringify(result));
 
-        await window.waDeck.completeScheduled({
-          id: item.id,
-          ok: Boolean(result?.ok),
-          errorText: result?.ok ? '' : String(result?.error || 'send_failed'),
-        });
-
-        if (result?.ok) {
-          setStatus(`Отправлено: ${item.chatName}`);
-        } else {
-          setStatus(`Ошибка отправки: ${item.chatName} (${result?.error || 'send_failed'})`);
-        }
+        await reportScheduledResult(item, Boolean(result?.ok), result?.ok ? '' : String(result?.error || 'send_failed'));
       }
 
       await renderScheduled();
     } finally {
       state.scheduleRunnerBusy = false;
     }
+  }
+
+  /* Transient failures (webview still loading after a cold start, account
+     webview not created yet, WA Web DOM not settled) used to be reported as
+     terminal `failed` — a message due right after launch was silently never
+     sent. Requeue those via snooze with a short backoff, up to 3 attempts per
+     session; everything else stays a real failure. */
+  const TRANSIENT_SEND_ERRORS = new Set(['webview_not_ready', 'webview_not_found', 'search_input_not_found']);
+  const TRANSIENT_RETRY_SNOOZE_MIN = 2;
+  const TRANSIENT_RETRY_MAX = 3;
+  const _transientRetryCounts = new Map(); // scheduled item id → attempts this session
+
+  async function reportScheduledResult(item, ok, errorText) {
+    await window.waDeck.completeScheduled({ id: item.id, ok, errorText: ok ? '' : errorText });
+
+    if (ok) {
+      _transientRetryCounts.delete(item.id);
+      setStatus(`Отправлено: ${item.chatName}`);
+      return;
+    }
+
+    if (TRANSIENT_SEND_ERRORS.has(errorText)) {
+      const attempts = (_transientRetryCounts.get(item.id) || 0) + 1;
+      if (attempts <= TRANSIENT_RETRY_MAX) {
+        _transientRetryCounts.set(item.id, attempts);
+        const snoozed = await window.waDeck.snoozeScheduled({
+          id: item.id,
+          minutes: TRANSIENT_RETRY_SNOOZE_MIN * attempts,
+        }).catch(() => null);
+        if (snoozed?.ok) {
+          setStatus(`Повторная попытка ${attempts}/${TRANSIENT_RETRY_MAX} через ${TRANSIENT_RETRY_SNOOZE_MIN * attempts} мин: ${item.chatName}`);
+          return;
+        }
+      } else {
+        _transientRetryCounts.delete(item.id);
+      }
+    }
+
+    setStatus(`Ошибка отправки: ${item.chatName} (${errorText || 'send_failed'})`);
   }
 
   function startScheduleRunner() {
@@ -1185,7 +1265,7 @@
     return { ...state.scheduleTarget };
   }
 
-  window.WaDeckScheduleModule = {
+  export const WaDeckScheduleModule = {
     init,
     cancelScheduleEditMode,
     renderScheduleTarget,
@@ -1203,4 +1283,4 @@
     openChatInWebview,
     openChatByListClick,
   };
-})();
+  window.WaDeckScheduleModule = WaDeckScheduleModule;

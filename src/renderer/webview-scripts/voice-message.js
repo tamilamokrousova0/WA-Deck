@@ -21,12 +21,13 @@ function voiceMessageSetupScript(audioBase64, mimeType) {
       || navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
     const _origGUM = window.__waDeckRealGUM;
     try {
-      /* ── 1. Decode base64 → ArrayBuffer ── */
+      /* ── 1. Decode base64 → ArrayBuffer ──
+         fetch of a data: URL instead of atob + per-char loop: the synchronous
+         decode froze the WhatsApp UI for hundreds of ms on files near the
+         16MB cap (~21MB of base64). */
       const b64 = ${JSON.stringify(safeB64)};
-      const binaryStr = atob(b64);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-      const rawBuffer = bytes.buffer;
+      const resp = await fetch('data:application/octet-stream;base64,' + b64);
+      const rawBuffer = await resp.arrayBuffer();
 
       /* ── 2. Decode audio → get duration ── */
       const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -68,6 +69,32 @@ function voiceMessageSetupScript(audioBase64, mimeType) {
       let gumResolve = null;
       const gumPromise = new Promise((r) => { gumResolve = r; });
 
+      /* Safety net: if WhatsApp never calls getUserMedia (aborted send) and the
+         renderer never runs Phase 3 cleanup, auto-restore the real getUserMedia
+         so a stale override can't poison later real mic capture. Held in a
+         mutable holder so the gUM interception below can re-arm it: 15s is
+         right for "recording never started", but once capture IS running the
+         deadline must cover the full audio duration — a fixed 15s would close
+         streamCtx mid-recording and truncate any voice message longer than
+         ~14s. */
+      const safety = { timer: null };
+      const armSafetyRestore = (ms) => {
+        if (safety.timer) { try { clearTimeout(safety.timer); } catch (_) {} }
+        safety.timer = setTimeout(() => {
+          try {
+            if (navigator.mediaDevices.getUserMedia !== _origGUM) {
+              navigator.mediaDevices.getUserMedia = _origGUM;
+            }
+          } catch (_) {}
+          /* Full cleanup, mirroring Phase 3: close the AudioContext (Chromium
+             caps ~6 live contexts — leaking one per aborted send soon makes
+             every later voice message fail) and drop the state object so the
+             re-entrancy guard does not stay latched forever. */
+          try { streamCtx.close().catch(() => {}); } catch (_) {}
+          try { delete window.__waDeckVoice; } catch (_) {}
+        }, ms);
+      };
+
       /* The fake stream is handed out exactly ONCE: the real getUserMedia is
          restored synchronously before returning the fake, so anything else
          calling gUM afterwards (e.g. an incoming WhatsApp call) gets the real
@@ -78,28 +105,16 @@ function voiceMessageSetupScript(audioBase64, mimeType) {
           fakeDelivered = true;
           navigator.mediaDevices.getUserMedia = _origGUM;
           streamSrc.start(0);
+          /* Recording started — extend the safety deadline past the hold time
+             (duration + padding + Phase-2 margin) plus 10s slack. */
+          armSafetyRestore(Math.ceil((duration + paddingSec + 0.3) * 1000) + 10000);
           if (gumResolve) gumResolve(true);
           return fakeStream;
         }
         return _origGUM(constraints);
       };
 
-      /* Safety net: if WhatsApp never calls getUserMedia (aborted send) and the
-         renderer never runs Phase 3 cleanup, auto-restore the real getUserMedia
-         after 15s so a stale override can't poison later real mic capture. */
-      const safetyRestoreTimer = setTimeout(() => {
-        try {
-          if (navigator.mediaDevices.getUserMedia !== _origGUM) {
-            navigator.mediaDevices.getUserMedia = _origGUM;
-          }
-        } catch (_) {}
-        /* Full cleanup, mirroring Phase 3: close the AudioContext (Chromium
-           caps ~6 live contexts — leaking one per aborted send soon makes
-           every later voice message fail) and drop the state object so the
-           re-entrancy guard does not stay latched forever. */
-        try { streamCtx.close().catch(() => {}); } catch (_) {}
-        try { delete window.__waDeckVoice; } catch (_) {}
-      }, 15000);
+      armSafetyRestore(15000);
 
       /* ── 6. Find PTT (mic) button ── */
       const findPttBtn = () => {
@@ -160,7 +175,7 @@ function voiceMessageSetupScript(audioBase64, mimeType) {
         duration,
         paddingSec,
         _origGUM,
-        safetyRestoreTimer,
+        safety,
       };
 
       return { ok: true, x: x, y: y, duration: duration };
@@ -210,7 +225,7 @@ function voiceMessageCleanupScript() {
     try {
       const vs = window.__waDeckVoice;
       if (vs) {
-        if (vs.safetyRestoreTimer) { try { clearTimeout(vs.safetyRestoreTimer); } catch (_) {} }
+        if (vs.safety && vs.safety.timer) { try { clearTimeout(vs.safety.timer); } catch (_) {} }
         /* Restore original getUserMedia — always from the global native
            reference so we can never re-install a stale fake. */
         const realGUM = window.__waDeckRealGUM || vs._origGUM;
@@ -227,3 +242,5 @@ function voiceMessageCleanupScript() {
     }
   })();`;
 }
+
+export { voiceMessageSetupScript, voiceMessageWaitScript, voiceMessageCleanupScript };

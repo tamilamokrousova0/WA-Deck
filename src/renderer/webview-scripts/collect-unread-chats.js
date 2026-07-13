@@ -71,3 +71,5 @@ function collectUnreadChatsScript() {
     return out;
   })();`;
 }
+
+export { collectUnreadChatsScript };

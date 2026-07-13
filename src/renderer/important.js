@@ -7,7 +7,8 @@
    Reliability note: unread detection reuses the SAME scanner that powers
    favorites/inbox (collect-unread-chats.js) — reliable because chats with new
    messages bubble to the TOP of WhatsApp's chat list. */
-(function setupImportantModule() {
+import { collectUnreadChatsScript } from './webview-scripts/collect-unread-chats.js';
+
   let state, els, setStatus, setActiveAccount, isWebviewReady, safeExecuteInWebview;
 
   const SCAN_MS = 6000;           // per-important unread rescan period
@@ -231,7 +232,7 @@
     render();
   }
 
-  window.WaDeckImportantModule = {
+  export const WaDeckImportantModule = {
     init,
     startImportantPolling,
     renderImpStrip: render, // renderer calls this after renderAccounts — refresh the feed
@@ -244,4 +245,4 @@
     listQuiet,
     jump: jumpToImportant,
   };
-})();
+  window.WaDeckImportantModule = WaDeckImportantModule;

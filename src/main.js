@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell, clipboard, session, Menu, webContents, powerMonitor } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, clipboard, session, Menu, webContents, powerMonitor, nativeImage } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs/promises');
@@ -50,7 +50,12 @@ async function isAttachmentPathAllowed(filePath) {
     } catch {
       return false;
     }
-    const home = os.homedir();
+    // realpath the home dir too: on machines where the home path traverses a
+    // symlink (network/managed homes, macOS /var → /private/var style), the
+    // resolved file never prefix-matches the unresolved home and every
+    // attachment would be rejected.
+    let home = os.homedir();
+    try { home = await fs.realpath(home); } catch { /* keep unresolved */ }
     // macOS + Linux are case-sensitive on filenames but Windows is not;
     // normalize both sides for the prefix check.
     const caseInsensitive = process.platform === 'win32' || process.platform === 'darwin';
@@ -90,6 +95,7 @@ const DEFAULT_SETTINGS = {
   weatherUnit: 'celsius',
   lastSeenReleaseNotesVersion: '',
   translatorEnabled: true,
+  notificationsEnabled: true,
   crmHoverEnabled: true,
   uiScene: 'night',
   uiDensity: 'compact',
@@ -187,11 +193,8 @@ const ALLOWED_WEBVIEW_PERMISSIONS = new Set([
   'speaker-selection',
 ]);
 
-function setDockBadge(count) {
+function setDockBadge(count, badgeDataUrl) {
   const safeCount = Math.max(0, Number(count) || 0);
-  if (safeCount > 0) {
-    // badge set silently
-  }
   if (process.platform === 'darwin') {
     const badge = safeCount > 0 ? String(safeCount) : '';
     try {
@@ -205,6 +208,27 @@ function setDockBadge(count) {
       app.setBadgeCount(safeCount);
     } catch (e) {
       console.warn('[dock-badge] setBadgeCount error:', e?.message);
+    }
+    return { ok: true, count: safeCount };
+  }
+  if (process.platform === 'win32') {
+    // app.setBadgeCount is a no-op on Windows — the taskbar equivalent is an
+    // overlay icon. The renderer supplies a canvas-drawn PNG circle with the
+    // count (main has no canvas to draw one itself).
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        const url = String(badgeDataUrl || '');
+        if (safeCount > 0 && url.startsWith('data:image/png;base64,') && url.length < 65536) {
+          const img = nativeImage.createFromDataURL(url);
+          if (!img.isEmpty()) {
+            mainWindow.setOverlayIcon(img, `${safeCount} непрочитанных`);
+          }
+        } else {
+          mainWindow.setOverlayIcon(null, '');
+        }
+      }
+    } catch (e) {
+      console.warn('[dock-badge] setOverlayIcon error:', e?.message);
     }
     return { ok: true, count: safeCount };
   }
@@ -336,6 +360,7 @@ function sanitizeStore(raw) {
   clean.settings.weatherCity = String(clean.settings.weatherCity || DEFAULT_SETTINGS.weatherCity).trim() || DEFAULT_SETTINGS.weatherCity;
   clean.settings.weatherUnit = normalizeWeatherUnit(clean.settings.weatherUnit);
   clean.settings.translatorEnabled = normalizeBool(clean.settings.translatorEnabled, DEFAULT_SETTINGS.translatorEnabled);
+  clean.settings.notificationsEnabled = normalizeBool(clean.settings.notificationsEnabled, DEFAULT_SETTINGS.notificationsEnabled);
   clean.settings.crmHoverEnabled = normalizeBool(clean.settings.crmHoverEnabled, DEFAULT_SETTINGS.crmHoverEnabled);
   clean.settings.hibernateAfterMinutes = normalizeHibernateMinutes(
     clean.settings.hibernateAfterMinutes,
@@ -403,6 +428,13 @@ function sanitizeStore(raw) {
             .filter((att) => att.path)
         : [],
       sendAt: String(item?.sendAt || ''),
+      // Recurrence: baseSendAt is the canonical (jitter-free) occurrence time
+      // the next occurrence is computed from; repeatSpawned guards against
+      // spawning the next occurrence twice when an item is retried.
+      repeat: ['daily', 'weekdays', 'weekly'].includes(String(item?.repeat || '')) ? String(item.repeat) : '',
+      jitterMinutes: Math.max(0, Math.min(60, Math.round(Number(item?.jitterMinutes) || 0))),
+      baseSendAt: String(item?.baseSendAt || ''),
+      repeatSpawned: Boolean(item?.repeatSpawned),
       status: ['pending', 'processing', 'sent', 'failed', 'canceled'].includes(String(item?.status || ''))
         ? String(item.status)
         : 'pending',
@@ -518,6 +550,13 @@ function quarantineCorruptStoreFile(filePath) {
   }
 }
 
+/* Set when loadStore() had to quarantine a corrupt store, recover from the
+ * .backup, or reset to an empty store. cleanupOrphanPartitions() must not run
+ * in that state: a reset store has an (almost) empty account list, so the
+ * cleanup would rm -rf every existing wa_/tg_ login session as "orphaned".
+ * The flag costs one skipped cleanup; the next healthy launch catches up. */
+let storeLoadDegraded = false;
+
 async function loadStore() {
   const primary = state.paths.storePath;
   const backup = primary + '.backup';
@@ -536,6 +575,7 @@ async function loadStore() {
         } catch {
           // Keep the broken backup recoverable instead of overwriting it later
           quarantineCorruptStoreFile(backup);
+          storeLoadDegraded = true;
         }
       }
       state.store = sanitizeStore(null);
@@ -546,6 +586,7 @@ async function loadStore() {
     state.store = sanitizeStore(parsed);
   } catch (err) {
     console.warn('[WA-Deck] Primary store load failed:', err?.message || err);
+    storeLoadDegraded = true;
     // Preserve the unreadable primary before anything can overwrite it
     quarantineCorruptStoreFile(primary);
     // Primary corrupt or oversized — try the .backup as a lifeline
@@ -652,8 +693,17 @@ async function writeFileAtomic(filePath, data) {
   await fs.rename(tmpPath, filePath);
 }
 
+/* Coalescing: a queued-but-not-started write already covers every mutation
+ * made before it runs (the payload snapshot happens inside the closure), so
+ * bursts of micro-mutations (favorite toggle, lang set, snooze) share one
+ * trailing write instead of each paying full-store serialization + double
+ * disk IO. */
+let _saveStorePending = null;
+
 async function saveStore() {
+  if (_saveStorePending) return _saveStorePending;
   const run = _saveStoreQueue.then(async () => {
+    _saveStorePending = null; // snapshot taken now — later mutations need a new write
     const payload = JSON.stringify(state.store, null, 2);
     const primary = state.paths.storePath;
     const backupPath = primary + '.backup';
@@ -675,6 +725,7 @@ async function saveStore() {
       console.warn('[saveStore] backup refresh failed (non-fatal):', err?.message || err);
     }
   });
+  _saveStorePending = run;
   // The caller sees the rejection (so IPC handlers don't report ok:true on
   // ENOSPC), but the queue itself swallows it so the next write still runs.
   _saveStoreQueue = run.catch((err) => {
@@ -1350,16 +1401,82 @@ async function claimDueScheduled(limit = 5) {
   return out;
 }
 
+const REPEAT_KINDS = new Set(['daily', 'weekdays', 'weekly']);
+
+/* Next occurrence from the canonical (jitter-free) base time. Date arithmetic
+ * via setDate keeps the local wall-clock hour across DST transitions. Rolls
+ * forward past occurrences the app slept through (laptop closed for a week). */
+function nextRepeatSendAt(baseIso, repeat) {
+  const next = new Date(baseIso);
+  if (Number.isNaN(next.getTime())) return null;
+  const step = () => {
+    next.setDate(next.getDate() + (repeat === 'weekly' ? 7 : 1));
+    if (repeat === 'weekdays') {
+      while (next.getDay() === 0 || next.getDay() === 6) next.setDate(next.getDate() + 1);
+    }
+  };
+  step();
+  let guard = 0;
+  while (next.getTime() <= Date.now() && guard++ < 400) step();
+  return next;
+}
+
+/* Chain the next occurrence of a repeating message. Called from
+ * markScheduledResult for BOTH outcomes — one failed occurrence must not kill
+ * the series (cancel does: cancelScheduled never spawns). */
+function spawnNextRepeatOccurrence(item) {
+  try {
+    if (item.repeatSpawned) return; // retry of the same occurrence — already chained
+    const next = nextRepeatSendAt(item.baseSendAt || item.sendAt, item.repeat);
+    if (!next) return;
+    const pendingCount = state.store.scheduled
+      .filter((i) => ['pending', 'processing'].includes(i.status)).length;
+    if (pendingCount >= LIMITS.SCHEDULED_PER_USER) {
+      console.warn('[repeat] scheduled limit reached — series stops:', item.chatName);
+      return;
+    }
+    const jitter = Math.max(0, Math.min(60, Math.round(Number(item.jitterMinutes) || 0)));
+    const offsetMs = jitter ? Math.round((Math.random() * 2 - 1) * jitter * 60000) : 0;
+    const sendAtMs = Math.max(Date.now() + 60000, next.getTime() + offsetMs);
+    item.repeatSpawned = true;
+    state.store.scheduled.push({
+      id: `sched_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
+      accountId: item.accountId,
+      chatName: item.chatName,
+      text: item.text,
+      attachments: Array.isArray(item.attachments) ? item.attachments.map((att) => ({ ...att })) : [],
+      sendAt: new Date(sendAtMs).toISOString(),
+      baseSendAt: next.toISOString(),
+      repeat: item.repeat,
+      jitterMinutes: jitter,
+      repeatSpawned: false,
+      status: 'pending',
+      claimedAt: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      errorText: '',
+    });
+  } catch (err) {
+    console.warn('[repeat] spawn failed:', err?.message || err);
+  }
+}
+
 async function markScheduledResult(payload = {}) {
   const id = String(payload.id || '');
   const item = state.store.scheduled.find((row) => row.id === id);
   if (!item) return { ok: false, error: 'not_found' };
+  // A stale/duplicate completion must not flip an already-finished item
+  // (e.g. resurrect a canceled message as 'sent').
+  if (['sent', 'canceled'].includes(item.status)) return { ok: false, error: 'invalid_status' };
 
   const ok = Boolean(payload.ok);
   item.status = ok ? 'sent' : 'failed';
   item.claimedAt = '';
   item.errorText = ok ? '' : String(payload.errorText || 'send_failed');
   item.updatedAt = new Date().toISOString();
+  if (item.repeat && REPEAT_KINDS.has(item.repeat)) {
+    spawnNextRepeatOccurrence(item);
+  }
   // Keep the finished-items backlog bounded (14 days / 1000 records)
   pruneFinishedScheduled();
   await saveStore();
@@ -1392,6 +1509,11 @@ function addSingleInstanceGuard() {
   }
 
   app.on('second-instance', () => {
+    // Can fire before whenReady resolves — createWindow() would then throw
+    // "Cannot create BrowserWindow before app is ready" (swallowed by the
+    // global handler, silently dropping the second launch). bootstrap will
+    // create the window anyway.
+    if (!app.isReady()) return;
     if (!mainWindow || mainWindow.isDestroyed()) {
       createWindow();
       return;
@@ -1429,6 +1551,11 @@ function recoverMainWindow(tag) {
 }
 
 function createWindow() {
+  // A recreated window (macOS activate, second-instance) must re-earn the
+  // "first load finished" flag — otherwise a crash during ITS startup would
+  // trigger recoverMainWindow's reload mid-load, the exact sandbox race the
+  // flag guards against.
+  _mainLoadedOnce = false;
   mainWindow = new BrowserWindow({
     width: 1680,
     height: 980,
@@ -1456,6 +1583,14 @@ function createWindow() {
     delete webPreferences.preloadURL;
     webPreferences.nodeIntegration = false;
     webPreferences.contextIsolation = true;
+    // Also pin the attributes a compromised renderer could set on the
+    // <webview> tag itself: no popups, no disabled web security, sandboxed.
+    webPreferences.sandbox = true;
+    webPreferences.webSecurity = true;
+    if (params && typeof params === 'object') {
+      delete params.allowpopups;
+      delete params.disablewebsecurity;
+    }
     const src = String(params?.src || '');
     const allowed = src.startsWith('https://web.whatsapp.com/') || src.startsWith('https://web.telegram.org/');
     if (!allowed) {
@@ -1524,6 +1659,40 @@ function setupWebviewGuards() {
         callback(ALLOWED_WEBVIEW_PERMISSIONS.has(permission));
       });
       ses.setPermissionCheckHandler((_wc, permission) => ALLOWED_WEBVIEW_PERMISSIONS.has(permission));
+
+      /* Guest→host bridge preload (see src/preload-webview.js). Session-level
+         registration is untouched by the will-attach-webview hardening that
+         strips attribute-level preloads a compromised renderer could set. */
+      try {
+        const preloadPath = path.join(__dirname, 'preload-webview.js');
+        if (typeof ses.registerPreloadScript === 'function') {
+          ses.registerPreloadScript({ type: 'frame', filePath: preloadPath });
+        } else if (typeof ses.setPreloads === 'function') {
+          ses.setPreloads([preloadPath]);
+        }
+      } catch (err) {
+        console.warn('[webview-preload] registration failed:', err?.message || err);
+      }
+
+      /* Electron 43 changed the default download flow: without a will-download
+         handler, files are saved straight into ~/Downloads with no prompt.
+         Keep the explicit save dialog users expect for files downloaded from
+         WhatsApp/Telegram. The sync dialog is required: setSavePath() only
+         works while the will-download callback is on the stack. */
+      ses.on('will-download', (_evt, item) => {
+        try {
+          const fileName = item.getFilename() || 'download';
+          const parentWin = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : undefined;
+          const chosen = dialog.showSaveDialogSync(parentWin, {
+            title: 'Сохранить файл',
+            defaultPath: path.join(app.getPath('downloads'), fileName),
+          });
+          if (chosen) item.setSavePath(chosen);
+          else item.cancel();
+        } catch (err) {
+          console.warn('[will-download] save dialog failed, using default path:', err?.message || err);
+        }
+      });
     }
 
     // Determine webview type from partition (persist:tg_* = Telegram, persist:wa_* = WhatsApp)
@@ -1555,7 +1724,7 @@ function setupWebviewGuards() {
       return { action: 'deny' };
     });
 
-    contents.on('will-navigate', (event, url) => {
+    const enforceOriginAllowlist = (event, url) => {
       const dest = String(url || '');
       if (isTelegram()) {
         if (!dest.startsWith('https://web.telegram.org')) {
@@ -1566,7 +1735,12 @@ function setupWebviewGuards() {
           event.preventDefault();
         }
       }
-    });
+    };
+    contents.on('will-navigate', enforceOriginAllowlist);
+    // will-navigate does NOT fire for server-side redirects — without this a
+    // 30x from the allowed origin could land the webview on an arbitrary host
+    // with this session's permission grants still applied.
+    contents.on('will-redirect', enforceOriginAllowlist);
     /* Webview crash recovery — notify renderer to show error and allow reload */
     contents.on('render-process-gone', (_event, details) => {
       console.error('[webview] render-process-gone:', details?.reason, 'exitCode:', details?.exitCode);
@@ -1701,10 +1875,28 @@ function hasMacDeveloperIdSignature() {
   }
 }
 
+/* Source of the update check currently in flight ('manual' | 'auto').
+ * electron-updater's events carry no context, so the listeners in
+ * setupAutoUpdater() read this to tag their status messages — the renderer
+ * keeps background checks silent but surfaces manual ones. */
+let currentUpdateCheckSource = 'manual';
+
 async function checkForUpdatesNow(source = 'manual') {
   if (!app.isPackaged) {
     return { ok: false, error: 'not_packaged', source };
   }
+  if (process.platform === 'win32' && process.env.PORTABLE_EXECUTABLE_DIR) {
+    // electron-updater can't update the portable build (no app-update.yml is
+    // packaged into it) — without this guard the generic error path reports a
+    // misleading «Обновления не найдены».
+    sendAutoUpdateStatus({
+      status: 'error',
+      source,
+      message: 'Portable-сборка не обновляется автоматически — скачайте новую версию с GitHub Releases',
+    });
+    return { ok: false, error: 'portable_unsupported', source };
+  }
+  currentUpdateCheckSource = source === 'auto' ? 'auto' : 'manual';
   if (process.platform === 'darwin' && !hasMacDeveloperIdSignature()) {
     // Unsigned mac build: electron-updater refuses to install updates without
     // a Developer ID signature, so we run the custom zip-swap updater instead.
@@ -1724,6 +1916,66 @@ async function checkForUpdatesNow(source = 'manual') {
     sendAutoUpdateStatus({ status: 'error', source, message });
     return { ok: false, source, error: message };
   }
+}
+
+/* Background update check: one delayed check shortly after startup (releases
+ * are infrequent — no periodic re-check). The status goes out tagged
+ * source:'auto' — the renderer shows the available/downloaded toast but keeps
+ * checking/not-available/error quiet, so the background check never nags. */
+const AUTO_UPDATE_STARTUP_DELAY_MS = 30 * 1000;
+
+function scheduleBackgroundUpdateChecks() {
+  if (!app.isPackaged) return;
+  if (process.platform === 'win32' && process.env.PORTABLE_EXECUTABLE_DIR) return;
+  setTimeout(() => {
+    checkForUpdatesNow('auto').catch((err) => {
+      console.warn('[auto-update] background check failed:', err?.message || err);
+    });
+  }, AUTO_UPDATE_STARTUP_DELAY_MS);
+}
+
+/* ── Release notes: parsed from the bundled CHANGELOG.md ────────────────────
+ * The renderer's «Что нового» modal used to rely on a hardcoded map inside
+ * auto-update.js that silently went stale (last entry 0.6.1 while the app
+ * shipped 0.8.0). CHANGELOG.md is the single source of truth now — it ships
+ * inside the asar (see build.files) and is parsed once per session. */
+let releaseNotesCache = null;
+
+function parseChangelogNotes(md) {
+  const notes = {};
+  let current = null;
+  for (const rawLine of String(md || '').split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    const header = line.match(/^##\s+v?(\d+\.\d+\.\d+\S*)\s*$/);
+    if (header) {
+      current = header[1];
+      if (!notes[current]) notes[current] = [];
+      continue;
+    }
+    if (!current) continue;
+    // Top-level bullets only (indented sub-bullets stay out of the modal)
+    const bullet = line.match(/^-\s+(.*)$/);
+    if (!bullet) continue;
+    const text = bullet[1]
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/`([^`]*)`/g, '$1')
+      .replace(/\[(.+?)\]\([^)]*\)/g, '$1')
+      .trim();
+    if (text) notes[current].push(clampString(text, 500));
+  }
+  return notes;
+}
+
+async function loadReleaseNotesFromChangelog() {
+  if (releaseNotesCache) return releaseNotesCache;
+  try {
+    const md = await fs.readFile(path.join(app.getAppPath(), 'CHANGELOG.md'), 'utf8');
+    releaseNotesCache = parseChangelogNotes(md);
+  } catch (err) {
+    console.warn('[release-notes] CHANGELOG.md unavailable:', err?.message || err);
+    releaseNotesCache = {};
+  }
+  return releaseNotesCache;
 }
 
 /* ── Custom macOS in-app updater (unsigned builds) ─────────────────────────
@@ -2069,7 +2321,7 @@ function setupAutoUpdater() {
   if (!app.isPackaged) {
     sendAutoUpdateStatus({
       status: 'disabled',
-      source: 'manual',
+      source: currentUpdateCheckSource,
       message: 'Обновление доступно только в собранной версии',
     });
     return;
@@ -2085,13 +2337,13 @@ function setupAutoUpdater() {
   autoUpdater.disableDifferentialDownload = true;
 
   autoUpdater.on('checking-for-update', () => {
-    sendAutoUpdateStatus({ status: 'checking', source: 'manual', message: 'Проверка обновлений...' });
+    sendAutoUpdateStatus({ status: 'checking', source: currentUpdateCheckSource, message: 'Проверка обновлений...' });
   });
 
   autoUpdater.on('update-available', (info) => {
     sendAutoUpdateStatus({
       status: 'available',
-      source: 'manual',
+      source: currentUpdateCheckSource,
       version: String(info?.version || ''),
       message: `Найдена новая версия ${String(info?.version || '')}`,
     });
@@ -2100,7 +2352,7 @@ function setupAutoUpdater() {
   autoUpdater.on('update-not-available', (info) => {
     sendAutoUpdateStatus({
       status: 'not-available',
-      source: 'manual',
+      source: currentUpdateCheckSource,
       version: String(info?.version || app.getVersion()),
       message: `Актуальная версия ${String(info?.version || app.getVersion())}`,
     });
@@ -2112,7 +2364,7 @@ function setupAutoUpdater() {
     lastUpdateProgressPercent = percent;
     sendAutoUpdateStatus({
       status: 'downloading',
-      source: 'manual',
+      source: currentUpdateCheckSource,
       percent,
       transferred: Number(progress?.transferred || 0),
       total: Number(progress?.total || 0),
@@ -2125,7 +2377,7 @@ function setupAutoUpdater() {
     lastUpdateProgressPercent = -1;
     sendAutoUpdateStatus({
       status: 'downloaded',
-      source: 'manual',
+      source: currentUpdateCheckSource,
       version: String(info?.version || ''),
       message: `Обновление ${String(info?.version || '')} загружено`,
     });
@@ -2135,7 +2387,7 @@ function setupAutoUpdater() {
     lastUpdateProgressPercent = -1;
     sendAutoUpdateStatus({
       status: 'error',
-      source: 'manual',
+      source: currentUpdateCheckSource,
       message: normalizeUpdaterErrorMessage(error),
     });
   });
@@ -2318,7 +2570,7 @@ function registerIpc() {
       worldClocks: Array.isArray(payload?.worldClocks)
         ? payload.worldClocks
             .slice(0, 10)
-            .map((c) => ({ label: String(c?.label || '').trim().slice(0, 30), tz: String(c?.tz || '').trim() }))
+            .map((c) => ({ label: String(c?.label || '').trim().slice(0, 30), tz: String(c?.tz || '').trim().slice(0, 64) }))
             .filter((c) => c.label && c.tz)
         : (current.worldClocks || DEFAULT_SETTINGS.worldClocks),
       translatorEnabled: normalizeBool(
@@ -2328,6 +2580,10 @@ function registerIpc() {
       crmHoverEnabled: normalizeBool(
         payload?.crmHoverEnabled,
         normalizeBool(current.crmHoverEnabled, DEFAULT_SETTINGS.crmHoverEnabled),
+      ),
+      notificationsEnabled: normalizeBool(
+        payload?.notificationsEnabled,
+        normalizeBool(current.notificationsEnabled, DEFAULT_SETTINGS.notificationsEnabled),
       ),
       uiScene: (() => {
         const valid = ['night', 'day', 'rain', 'space', 'minimal'];
@@ -2465,13 +2721,26 @@ function registerIpc() {
       return { ok: false, error: 'scheduled_limit_reached' };
     }
 
+    const repeat = REPEAT_KINDS.has(String(payload?.repeat || '')) ? String(payload.repeat) : '';
+    const jitterMinutes = Math.max(0, Math.min(60, Math.round(Number(payload?.jitterMinutes) || 0)));
+    // Jitter applies to the first occurrence too (clamped into the future) so
+    // a repeating series never fires at a robotic exact minute.
+    let sendAtMs = parsedDate.getTime();
+    if (jitterMinutes) {
+      sendAtMs = Math.max(Date.now() + 60000, sendAtMs + Math.round((Math.random() * 2 - 1) * jitterMinutes * 60000));
+    }
+
     const item = {
       id: `sched_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
       accountId,
       chatName,
       text,
       attachments,
-      sendAt: parsedDate.toISOString(),
+      sendAt: new Date(sendAtMs).toISOString(),
+      baseSendAt: parsedDate.toISOString(),
+      repeat,
+      jitterMinutes,
+      repeatSpawned: false,
       status: 'pending',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -2553,9 +2822,12 @@ function registerIpc() {
   function contactLangKey(accountId, chatName) {
     return `${accountId}\u0000${chatName}`;
   }
+  const CONTACT_LANGS_MAX = 5000;
   handle('get-contact-lang', async (_event, payload) => {
     const accountId = String(payload?.accountId || '');
-    const chatName = String(payload?.chatName || '').trim();
+    // Same clamp as the setter — a >200-char chat name must build the same key
+    // on both paths, or the saved language is never found again.
+    const chatName = clampString(String(payload?.chatName || '').trim(), LIMITS.CHAT_NAME);
     if (!accountId || !chatName) return { ok: false, lang: '' };
     const lang = state.store.contactLangs?.[contactLangKey(accountId, chatName)] || '';
     return { ok: true, lang };
@@ -2571,6 +2843,13 @@ function registerIpc() {
     const key = contactLangKey(accountId, chatName);
     if (lang && /^[a-z-]{2,10}$/i.test(lang)) {
       state.store.contactLangs[key] = lang;
+      // Entry cap like every other collection — evict oldest (insertion order)
+      const keys = Object.keys(state.store.contactLangs);
+      if (keys.length > CONTACT_LANGS_MAX) {
+        for (const old of keys.slice(0, keys.length - CONTACT_LANGS_MAX)) {
+          delete state.store.contactLangs[old];
+        }
+      }
     } else {
       delete state.store.contactLangs[key];
     }
@@ -2658,6 +2937,9 @@ function registerIpc() {
    * Used by the scheduled-send runner to deliver photo/video/document attachments —
    * JS can't set `input.files` programmatically, but CDP's DOM.setFileInputFiles can.
    */
+  // Per-webContents CDP queue (send-attachments-via-cdp) — tail promises
+  const _cdpQueues = new Map();
+
   handle('send-attachments-via-cdp', async (_event, payload) => {
     const id = Number(payload?.webContentsId);
     const selector = String(payload?.selector || '').trim();
@@ -2692,47 +2974,61 @@ function registerIpc() {
       return { ok: false, error: 'untrusted_target' };
     }
 
-    const dbg = contents.debugger;
-    let weAttached = false;
-    let timeoutTimer = null;
-    try {
-      if (!dbg.isAttached()) {
-        dbg.attach('1.3');
-        weAttached = true;
-      }
-      // Guard the whole CDP sequence with a timeout: a wedged renderer can
-      // leave sendCommand pending forever, which would hang the renderer's
-      // await and keep the debugger attached indefinitely.
-      const CDP_TIMEOUT_MS = 15000;
-      const timeout = new Promise((_, reject) => {
-        timeoutTimer = setTimeout(() => reject(new Error('cdp_timeout')), CDP_TIMEOUT_MS);
-      });
-      const run = (async () => {
-        await dbg.sendCommand('DOM.enable');
-        const { root } = await dbg.sendCommand('DOM.getDocument', { depth: -1, pierce: true });
-        const { nodeId } = await dbg.sendCommand('DOM.querySelector', {
-          nodeId: root.nodeId,
-          selector,
+    // Serialize CDP work per webContents: with two overlapping calls the old
+    // isAttached() heuristic made the first call's finally-detach kill the
+    // second call's session mid-sendCommand.
+    const cdpWork = async () => {
+      const dbg = contents.debugger;
+      let weAttached = false;
+      let timeoutTimer = null;
+      try {
+        if (!dbg.isAttached()) {
+          dbg.attach('1.3');
+          weAttached = true;
+        }
+        // Guard the whole CDP sequence with a timeout: a wedged renderer can
+        // leave sendCommand pending forever, which would hang the renderer's
+        // await and keep the debugger attached indefinitely.
+        const CDP_TIMEOUT_MS = 15000;
+        const timeout = new Promise((_, reject) => {
+          timeoutTimer = setTimeout(() => reject(new Error('cdp_timeout')), CDP_TIMEOUT_MS);
         });
-        if (!nodeId) return { ok: false, error: 'input_not_found' };
-        await dbg.sendCommand('DOM.setFileInputFiles', { nodeId, files });
-        return { ok: true };
-      })();
-      return await Promise.race([run, timeout]);
-    } catch (e) {
-      if (String(e?.message || e) === 'cdp_timeout') {
-        // Force-detach so the wedged target doesn't keep the debugger hostage
-        try { dbg.detach(); } catch { /* ignore */ }
-        weAttached = false; // already detached
-        return { ok: false, error: 'cdp_timeout' };
+        const run = (async () => {
+          await dbg.sendCommand('DOM.enable');
+          const { root } = await dbg.sendCommand('DOM.getDocument', { depth: -1, pierce: true });
+          const { nodeId } = await dbg.sendCommand('DOM.querySelector', {
+            nodeId: root.nodeId,
+            selector,
+          });
+          if (!nodeId) return { ok: false, error: 'input_not_found' };
+          await dbg.sendCommand('DOM.setFileInputFiles', { nodeId, files });
+          return { ok: true };
+        })();
+        return await Promise.race([run, timeout]);
+      } catch (e) {
+        if (String(e?.message || e) === 'cdp_timeout') {
+          // Force-detach so the wedged target doesn't keep the debugger hostage
+          try { dbg.detach(); } catch { /* ignore */ }
+          weAttached = false; // already detached
+          return { ok: false, error: 'cdp_timeout' };
+        }
+        return { ok: false, error: String(e?.message || e) };
+      } finally {
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+        if (weAttached) {
+          try { dbg.detach(); } catch { /* ignore */ }
+        }
       }
-      return { ok: false, error: String(e?.message || e) };
-    } finally {
-      if (timeoutTimer) clearTimeout(timeoutTimer);
-      if (weAttached) {
-        try { dbg.detach(); } catch { /* ignore */ }
-      }
-    }
+    };
+
+    const prevTail = _cdpQueues.get(id) || Promise.resolve();
+    const result = prevTail.catch(() => {}).then(cdpWork);
+    const tail = result.catch(() => {});
+    _cdpQueues.set(id, tail);
+    tail.finally(() => {
+      if (_cdpQueues.get(id) === tail) _cdpQueues.delete(id);
+    });
+    return result;
   });
 
   handle('open-data-dir', async () => {
@@ -2750,11 +3046,23 @@ function registerIpc() {
   });
 
   handle('set-dock-badge', async (_event, payload) => {
-    return setDockBadge(payload?.count);
+    return setDockBadge(payload?.count, payload?.badge);
   });
 
   handle('check-for-updates', async (_event, payload) => {
     return checkForUpdatesNow(String(payload?.source || 'manual'));
+  });
+
+  handle('get-release-notes', async () => {
+    return { ok: true, notes: await loadReleaseNotesFromChangelog() };
+  });
+
+  handle('focus-main-window', async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    return { ok: true };
   });
 
   handle('open-releases-page', async () => {
@@ -2935,6 +3243,10 @@ let _suspendStartedAt = null;
  */
 async function cleanupOrphanPartitions() {
   if (!state.paths.userData) return;
+  if (storeLoadDegraded) {
+    console.warn('[orphan-cleanup] skipped: store was recovered/reset this session, account list may be incomplete');
+    return;
+  }
   const partitionsDir = path.join(state.paths.userData, 'Partitions');
   let entries = [];
   try {
@@ -3060,6 +3372,7 @@ async function bootstrap() {
   });
 
   setupAutoUpdater();
+  scheduleBackgroundUpdateChecks();
   startPeriodicCacheCleanup();
   setupPowerMonitor();
   cleanupOrphanPartitions().catch((err) => console.warn('[orphan-cleanup]', err?.message || err));
@@ -3091,7 +3404,12 @@ if (addSingleInstanceGuard()) {
     _appIsQuitting = true;
     event.preventDefault();
     try {
-      await _saveStoreQueue;
+      // Bounded wait: a wedged disk write (stalled network volume, hung
+      // fsync) must not make the app unquittable.
+      await Promise.race([
+        _saveStoreQueue,
+        new Promise((resolve) => setTimeout(resolve, 3000)),
+      ]);
     } catch (err) {
       console.error('[before-quit] save flush failed:', err);
     }

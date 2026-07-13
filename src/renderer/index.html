@@ -2,7 +2,7 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file: blob:; connect-src https://geocoding-api.open-meteo.com https://api.open-meteo.com https://github.com https://api.github.com; frame-src https://web.whatsapp.com https://web.telegram.org;" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file: blob:; connect-src https://geocoding-api.open-meteo.com https://api.open-meteo.com https://github.com https://api.github.com; frame-src https://web.whatsapp.com https://web.telegram.org;" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WA Deck</title>
     <link rel="stylesheet" href="styles.css" />
@@ -367,6 +367,16 @@
           </label>
           <label class="toggle-row">
             <span class="toggle-row-text">
+              <span class="toggle-row-title">Системные уведомления</span>
+              <span class="toggle-row-hint">Уведомление при новом сообщении от избранного или важного контакта, когда окно не в фокусе. Клик открывает чат.</span>
+            </span>
+            <span class="toggle-switch">
+              <input id="setting-notifications-enabled" type="checkbox" />
+              <span class="toggle-switch-track"><span class="toggle-switch-thumb"></span></span>
+            </span>
+          </label>
+          <label class="toggle-row">
+            <span class="toggle-row-text">
               <span class="toggle-row-title">Гибернация неактивных аккаунтов</span>
               <span class="toggle-row-hint">Выгружает RAM после простоя. Активный и закреплённые — не трогаем. Пока выгружен, входящие отдадутся при следующем клике.</span>
             </span>
@@ -454,6 +464,26 @@
             <button type="button" class="btn btn-quick-min" data-quick-min="10">+10 мин</button>
             <button type="button" class="btn btn-quick-min" data-quick-min="15">+15 мин</button>
             <button type="button" class="btn btn-quick-min" data-quick-min="20">+20 мин</button>
+          </div>
+          <div class="row">
+            <label class="schedule-repeat-label">
+              Повтор
+              <select id="schedule-repeat" class="settings-select">
+                <option value="">Без повтора</option>
+                <option value="daily">Каждый день</option>
+                <option value="weekdays">По будням</option>
+                <option value="weekly">Раз в неделю</option>
+              </select>
+            </label>
+            <label class="schedule-repeat-label">
+              Джиттер
+              <select id="schedule-jitter" class="settings-select">
+                <option value="0">Точно в срок</option>
+                <option value="5">±5 мин</option>
+                <option value="15">±15 мин</option>
+                <option value="30">±30 мин</option>
+              </select>
+            </label>
           </div>
           <div class="row">
             <button type="button" id="pick-attachments" class="btn">Добавить вложения</button>
@@ -753,25 +783,14 @@
     </div>
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-    <script src="templates.js"></script>
-    <script src="webview-scripts/keep-alive.js"></script>
-    <script src="webview-scripts/bridge.js"></script>
-    <script src="webview-scripts/collect-chats.js"></script>
-    <script src="webview-scripts/unread-count.js"></script>
-    <script src="webview-scripts/collect-unread-chats.js"></script>
-    <script src="webview-scripts/active-chat-contact.js"></script>
-    <script src="webview-scripts/crm-chat-boundary.js"></script>
-    <script src="webview-scripts/crm-hover-bridge.js"></script>
-    <script src="webview-scripts/insert-text.js"></script>
-    <script src="webview-scripts/voice-message.js"></script>
-    <script src="webview-scripts/translator-bar.js"></script>
-    <script src="weather.js"></script>
-    <script src="auto-update.js"></script>
-    <script src="unread.js"></script>
-    <script src="crm.js"></script>
-    <script src="favorites.js"></script>
-    <script src="important.js"></script>
-    <script src="pin-feed.js"></script>
+    <div id="global-search" class="global-search hidden" role="dialog" aria-label="Глобальный поиск контакта">
+      <div class="gs-box">
+        <input id="global-search-input" type="text" placeholder="Поиск контакта по всем аккаунтам…" autocomplete="off" spellcheck="false" />
+        <div id="global-search-status" class="gs-status"></div>
+        <div id="global-search-list" class="gs-list"></div>
+      </div>
+    </div>
+
 
     <!-- Floating Tweaks widget (theme + scene), bottom-right corner -->
     <button type="button" id="tweaks-fab" class="tweaks-fab" title="Оформление">
@@ -832,7 +851,6 @@
       </div>
     </div>
 
-    <script src="schedule.js"></script>
-    <script src="renderer.js"></script>
+    <script src="dist/bundle.js"></script>
   </body>
 </html>

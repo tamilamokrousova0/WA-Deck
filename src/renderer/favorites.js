@@ -8,7 +8,8 @@
    messages bubble to the TOP of WhatsApp's chat list, so a no-scroll scan of
    #pane-side always catches them — this is why the previous name-matching
    approach (its own bespoke scan) was flaky and this one is not. */
-(function setupFavoritesModule() {
+import { collectUnreadChatsScript } from './webview-scripts/collect-unread-chats.js';
+
   let state, els, setStatus, setActiveAccount, isWebviewReady, safeExecuteInWebview;
 
   const SCAN_MS = 6000;           // per-favorite unread rescan period
@@ -244,7 +245,7 @@
     render();
   }
 
-  window.WaDeckFavoritesModule = {
+  export const WaDeckFavoritesModule = {
     init,
     startFavoritePolling,
     renderFavStrip: render, // renderer calls this after renderAccounts — refresh the feed
@@ -257,4 +258,4 @@
     listQuiet,
     jump: jumpToFavorite,
   };
-})();
+  window.WaDeckFavoritesModule = WaDeckFavoritesModule;

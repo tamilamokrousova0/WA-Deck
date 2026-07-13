@@ -1,4 +1,3 @@
-(function setupWeatherModule() {
   const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
   const GEO_CACHE_LIMIT = 24;
 
@@ -125,6 +124,11 @@
       latitude: Number(row.latitude),
       longitude: Number(row.longitude),
     };
+    // The cache has no TTL: caching NaN coords from a malformed geocoding
+    // response would make every 10-minute refresh 400 until app restart.
+    if (!Number.isFinite(coords.latitude) || !Number.isFinite(coords.longitude)) {
+      throw new Error('city_not_found');
+    }
     state.weatherGeoCache.set(cacheKey, coords);
     trimMapSize(state.weatherGeoCache, GEO_CACHE_LIMIT);
     return coords;
@@ -227,7 +231,7 @@
     }, REFRESH_INTERVAL_MS);
   }
 
-  window.WaDeckWeatherModule = {
+  export const WaDeckWeatherModule = {
     init,
     normalizeWeatherUnit,
     normalizeWeatherCity,
@@ -239,4 +243,4 @@
     toggleWeatherPopover,
     closeWeatherPopover,
   };
-})();
+  window.WaDeckWeatherModule = WaDeckWeatherModule;

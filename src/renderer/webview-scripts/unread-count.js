@@ -50,3 +50,5 @@ function collectUnreadCountScript() {
     return total;
   })();`;
 }
+
+export { collectUnreadCountScript };

@@ -1,4 +1,5 @@
-(function setupUnreadModule() {
+import { collectUnreadCountScript } from './webview-scripts/unread-count.js';
+
   let state, els, renderAccounts, isWebviewReady, safeExecuteInWebview, updateHubDashboard;
   let _hubDashboardDebounceTimer = null;
 
@@ -9,6 +10,38 @@
     isWebviewReady = ctx.isWebviewReady;
     safeExecuteInWebview = ctx.safeExecuteInWebview;
     updateHubDashboard = ctx.updateHubDashboard;
+  }
+
+  /* Windows taskbar overlay icon: main can't rasterize text, so the badge
+     circle is drawn here on a canvas and shipped as a PNG data URL. Cached by
+     label — the count rarely changes between polls. Harmless on macOS (main
+     ignores it there and uses the native dock badge). */
+  let _badgeCache = { label: '', url: '' };
+
+  function renderBadgeDataUrl(count) {
+    const label = count > 99 ? '99+' : String(count);
+    if (_badgeCache.label === label) return _badgeCache.url;
+    try {
+      const size = 32;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return '';
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+      ctx.fillStyle = '#e53935';
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold ${label.length > 2 ? 13 : 17}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, size / 2, size / 2 + 1);
+      _badgeCache = { label, url: canvas.toDataURL('image/png') };
+      return _badgeCache.url;
+    } catch {
+      return '';
+    }
   }
 
   function scheduleDockBadgeSync() {
@@ -23,7 +56,8 @@
         return acc + Math.max(0, count);
       }, 0);
 
-      const result = await window.waDeck.setDockBadge({ count: total }).catch(() => null);
+      const badge = total > 0 ? renderBadgeDataUrl(total) : '';
+      const result = await window.waDeck.setDockBadge({ count: total, badge }).catch(() => null);
       if (!result?.ok) {
         return;
       }
@@ -147,7 +181,11 @@
     }, _pollIntervalMs);
   }
 
+  // Guard on `state`: these fire at document level and can arrive between
+  // script evaluation and init() (state undefined), and must not start the
+  // poll interval before startUnreadPolling() has been called.
   window.addEventListener('focus', () => {
+    if (!state || !state.unreadPollTimer) return;
     if (_pollIntervalMs !== POLL_ACTIVE_MS) {
       _pollIntervalMs = POLL_ACTIVE_MS;
       _restartPollTimer();
@@ -155,6 +193,7 @@
     }
   });
   window.addEventListener('blur', () => {
+    if (!state || !state.unreadPollTimer) return;
     if (_pollIntervalMs !== POLL_BACKGROUND_MS) {
       _pollIntervalMs = POLL_BACKGROUND_MS;
       _restartPollTimer();
@@ -173,7 +212,7 @@
     setTimeout(() => pollUnreadCounts().catch(() => {}), 800);
   }
 
-  window.WaDeckUnreadModule = {
+  export const WaDeckUnreadModule = {
     init,
     parseUnreadFromTitle,
     updateActiveUnreadIndicator,
@@ -181,4 +220,4 @@
     scheduleDockBadgeSync,
     startUnreadPolling,
   };
-})();
+  window.WaDeckUnreadModule = WaDeckUnreadModule;

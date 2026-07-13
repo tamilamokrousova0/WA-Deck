@@ -1,4 +1,6 @@
-(function setupCrmModule() {
+import { crmChatBoundaryScript } from './webview-scripts/crm-chat-boundary.js';
+import { activeChatContactScript } from './webview-scripts/active-chat-contact.js';
+
   let state, els, setStatus, activeAccount, selectedWebview;
 
   function init(ctx) {
@@ -9,13 +11,35 @@
     selectedWebview = ctx.selectedWebview;
   }
 
+  // Snapshot of the field values at the moment edit mode was entered — the
+  // «Отмена» button restores them; without this, cancelled edits stayed on
+  // screen as if saved while the file on disk held different content.
+  let _crmEditSnapshot = null;
+
   function setCrmEditable(editable) {
     const on = Boolean(editable);
+    if (on && !state.crmEditable) {
+      _crmEditSnapshot = {
+        about: String(els.crmAbout?.value || ''),
+        myInfo: String(els.crmMyInfo?.value || ''),
+      };
+    }
     state.crmEditable = on;
     if (els.crmAbout) els.crmAbout.readOnly = !on;
     if (els.crmMyInfo) els.crmMyInfo.readOnly = !on;
     if (els.crmSave) els.crmSave.disabled = !on;
     if (els.crmEdit) els.crmEdit.textContent = on ? 'Отмена' : 'Изменить';
+  }
+
+  function cancelCrmEdit() {
+    if (_crmEditSnapshot) {
+      if (els.crmAbout) els.crmAbout.value = _crmEditSnapshot.about;
+      if (els.crmMyInfo) els.crmMyInfo.value = _crmEditSnapshot.myInfo;
+      autoResizeCrmTextarea(els.crmAbout);
+      autoResizeCrmTextarea(els.crmMyInfo);
+      _crmEditSnapshot = null;
+    }
+    setCrmEditable(false);
   }
 
   function crmFormPayload() {
@@ -178,7 +202,7 @@
 
   function toggleCrmEdit() {
     if (state.crmEditable) {
-      setCrmEditable(false);
+      cancelCrmEdit();
     } else {
       setCrmEditable(true);
     }
@@ -205,6 +229,9 @@
 
     state.crmTarget.filePath = String(response.filePath || target.filePath || '');
     els.crmMeta.textContent = `Файл: ${state.crmTarget.filePath || '—'}`;
+    // Saved values are the new baseline — «Отмена» after a save must not
+    // revert the display to pre-edit content the file no longer holds.
+    _crmEditSnapshot = { about: payload.about, myInfo: payload.myInfo };
     // Push freshly saved record into hover cache so any in-flight fetch is ignored,
     // and the popover hides immediately if hover was turned off.
     const savedRecord = response.record || {
@@ -228,7 +255,8 @@
 
   function addCrmNote() {
     const el = els.crmMyInfo;
-    if (!el || el.readOnly) {
+    if (!el) return; // the dereferences below would TypeError otherwise
+    if (el.readOnly) {
       setCrmEditable(true);
     }
     const MONTHS_RU = [
@@ -255,7 +283,7 @@
     if (els.crmMyInfo) els.crmMyInfo.addEventListener('input', () => autoResizeCrmTextarea(els.crmMyInfo));
   }
 
-  window.WaDeckCrmModule = {
+  export const WaDeckCrmModule = {
     init,
     setCrmEditable,
     openCrmModal,
@@ -267,4 +295,4 @@
     bindCrmAutoResize,
     updateCrmModalPosition,
   };
-})();
+  window.WaDeckCrmModule = WaDeckCrmModule;

@@ -56,3 +56,5 @@ function keepAliveScript() {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { keepAliveScript };
 }
+
+export { keepAliveScript };

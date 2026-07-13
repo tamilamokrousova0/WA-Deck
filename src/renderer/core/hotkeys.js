@@ -1,0 +1,129 @@
+/* Global hotkeys: DevTools shortcut, the Escape UI-reset stack and the
+   templates/search shortcuts. Extracted verbatim from renderer.js. */
+import { state, els } from './state.js';
+import { closeConfirm } from './helpers.js';
+import { selectedWebview, closeAccountContextMenu } from './accounts.js';
+import { closeAccountMenu } from './account-menu.js';
+import {
+  toggleTweaksPopover,
+  showSettingsMenu,
+  showSettingsSection,
+  openSettingsPanel,
+  closeSettingsPanel,
+} from './settings.js';
+import { WaDeckScheduleModule } from '../schedule.js';
+import { WaDeckAutoUpdateModule } from '../auto-update.js';
+import { WaDeckCrmModule } from '../crm.js';
+
+// Global hotkey: Cmd+Alt+Shift+I → open DevTools of the currently active
+// WhatsApp webview (so DOM diagnostics run in WA's context, not ours).
+document.addEventListener('keydown', (e) => {
+  // e.code, not e.key: on macOS Option(+Shift) turns 'i' into a dead key, and
+  // on the RU layout the letter is 'ш' — the physical-key code works on both.
+  if ((e.metaKey || e.ctrlKey) && e.altKey && e.shiftKey && e.code === 'KeyI') {
+    const wv = selectedWebview();
+    if (wv && typeof wv.openDevTools === 'function') {
+      try { wv.openDevTools(); } catch (err) { console.warn('openDevTools failed:', err); }
+      e.preventDefault();
+    }
+  }
+});
+
+function handleEscapeUiReset() {
+  // Escape closes ONLY the topmost UI layer per press (stack order below).
+  const isOpen = (el) => Boolean(el && !el.classList.contains('hidden') && !el.classList.contains('is-closing'));
+
+  // 1. Floating Tweaks popover — the most shallow UI
+  const tweaksPanel = document.getElementById('tweaks-panel');
+  if (isOpen(tweaksPanel)) {
+    toggleTweaksPopover(false);
+    return;
+  }
+  // 2. Open context menus (account / refresh)
+  if (document.getElementById('account-context-menu')) {
+    closeAccountContextMenu();
+    return;
+  }
+  // 3. Confirm modal — cancels the pending action
+  if (isOpen(els.confirmModal)) {
+    closeConfirm(false);
+    return;
+  }
+  // 4. Chat picker
+  if (isOpen(els.chatPickerModal)) {
+    WaDeckScheduleModule.closeChatPicker();
+    return;
+  }
+  // 5. Account management modal
+  if (isOpen(els.accountMenuModal)) {
+    closeAccountMenu();
+    return;
+  }
+  // 6. Release notes / update modals
+  if (isOpen(els.releaseNotesModal)) {
+    WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(console.error);
+    return;
+  }
+  if (isOpen(els.updateAvailableModal)) {
+    WaDeckAutoUpdateModule.closeUpdateModal();
+    return;
+  }
+  // 7. Inline template edit form (lives inside the settings panel)
+  const tmplEditWrap = document.getElementById('tmpl-edit-wrap');
+  if (!state.panelHidden && isOpen(tmplEditWrap)) {
+    if (typeof window._hideTemplateEditForm === 'function') window._hideTemplateEditForm();
+    return;
+  }
+  // 8. CRM modal
+  if (isOpen(els.crmModal)) {
+    WaDeckCrmModule.closeCrmModal();
+    return;
+  }
+  // 9. Settings: open section goes back to the menu first…
+  if (!state.panelHidden && state._openSettingsSection) {
+    showSettingsMenu();
+    return;
+  }
+  // 10. …and only then the panel itself closes
+  if (!state.panelHidden) {
+    closeSettingsPanel();
+  }
+}
+
+/* ── Toolbar "Шаблоны" button → open the settings drawer on the Templates
+   section. The old full-screen tq-overlay palette has been removed in
+   favour of the unified right-drawer UX. ── */
+(function setupTemplatesShortcut() {
+  function openTemplatesDrawer() {
+    if (state.panelHidden) openSettingsPanel();
+    showSettingsSection('templates');
+  }
+
+  if (els.openTemplateQuick) {
+    els.openTemplateQuick.addEventListener('click', () => {
+      const isOpenOnTemplates = !state.panelHidden && state._openSettingsSection === 'templates';
+      if (isOpenOnTemplates) {
+        closeSettingsPanel();
+      } else {
+        openTemplatesDrawer();
+      }
+    });
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyK' && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      window.WaDeckGlobalSearch?.toggle?.();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyT' && !e.shiftKey && !e.altKey) {
+      const active = document.activeElement;
+      const inInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
+      if (inInput) return;
+      e.preventDefault();
+      openTemplatesDrawer();
+    }
+  });
+})();
+
+export { handleEscapeUiReset };

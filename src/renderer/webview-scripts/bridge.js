@@ -8,6 +8,17 @@ function bridgeScript(token) {
     /* Host-issued token kept in the closure (never on window) */
     const __WADECK_TOKEN = ${tokenJs};
 
+    /* Guest→host send: prefer the preload's contextBridge channel (page code
+       cannot patch or observe it — see src/preload-webview.js); fall back to
+       the console marker when the session preload didn't run for this load. */
+    const __waDeckEmit = (kind, json) => {
+      const send = window.__waDeckGuestSend;
+      if (typeof send === 'function') {
+        try { send(__WADECK_TOKEN, kind, json); return; } catch {}
+      }
+      console.log('__WADECK_' + kind + '__' + __WADECK_TOKEN + ':' + json);
+    };
+
     /* Health marker, throttled to at most one per minute */
     let healthLastSent = 0;
     const emitHealth = (detail) => {
@@ -15,7 +26,7 @@ function bridgeScript(token) {
       if (now - healthLastSent < 60000) return;
       healthLastSent = now;
       try {
-        console.log('__WADECK_HEALTH__' + __WADECK_TOKEN + ':' + JSON.stringify({ script: 'bridge', ok: false, detail: detail }));
+        __waDeckEmit('HEALTH', JSON.stringify({ script: 'bridge', ok: false, detail: detail }));
       } catch {}
     };
 
@@ -203,3 +214,5 @@ function bridgeScript(token) {
     return true;
   })();`;
 }
+
+export { bridgeScript };

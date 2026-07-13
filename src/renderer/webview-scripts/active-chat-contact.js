@@ -165,3 +165,5 @@ function activeChatContactScript() {
     return '';
   })();`;
 }
+
+export { activeChatContactScript };

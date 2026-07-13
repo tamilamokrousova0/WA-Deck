@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld('waDeck', {
   setClipboardText: (text) => ipcRenderer.invoke('set-clipboard-text', text),
   setDockBadge: (payload) => ipcRenderer.invoke('set-dock-badge', payload),
   checkForUpdates: (payload) => ipcRenderer.invoke('check-for-updates', payload),
+  getReleaseNotes: () => ipcRenderer.invoke('get-release-notes'),
+  focusMainWindow: () => ipcRenderer.invoke('focus-main-window'),
   installDownloadedUpdate: () => ipcRenderer.invoke('install-downloaded-update'),
   openReleasesPage: () => ipcRenderer.invoke('open-releases-page'),
   translateText: (payload) => ipcRenderer.invoke('translate-text', payload),

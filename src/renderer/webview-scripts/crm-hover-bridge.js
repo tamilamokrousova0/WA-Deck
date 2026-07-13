@@ -6,8 +6,19 @@ function crmHoverBridgeScript(token) {
 
     /* Host-issued token kept in the closure (never on window) */
     const __WADECK_TOKEN = ${tokenJs};
+
+    /* Guest→host send: prefer the preload's contextBridge channel (page code
+       cannot patch or observe it — see src/preload-webview.js); fall back to
+       the console marker when the session preload didn't run for this load. */
+    const __waDeckEmit = (kind, json) => {
+      const send = window.__waDeckGuestSend;
+      if (typeof send === 'function') {
+        try { send(__WADECK_TOKEN, kind, json); return; } catch {}
+      }
+      console.log('__WADECK_' + kind + '__' + __WADECK_TOKEN + ':' + json);
+    };
     const sendHover = (payload) => {
-      console.log('__WADECK_CRM_HOVER__' + __WADECK_TOKEN + ':' + JSON.stringify(payload));
+      __waDeckEmit('CRM_HOVER', JSON.stringify(payload));
     };
 
     const normalize = (value) =>
@@ -120,3 +131,5 @@ function crmHoverBridgeScript(token) {
     return true;
   })();`;
 }
+
+export { crmHoverBridgeScript };

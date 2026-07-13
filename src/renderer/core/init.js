@@ -1,0 +1,286 @@
+/* Bootstrap: global error handlers, the init() sequence and startup kick-off.
+   Extracted verbatim from renderer.js. */
+import { state, els } from './state.js';
+import {
+  setStatus,
+  trimMapSize,
+  runWithBusyButton,
+  showConfirm,
+  delay,
+  formatDateTime,
+  nextSendAtLocal,
+  applyTemplateVariables,
+} from './helpers.js';
+import {
+  renderAccounts,
+  activeAccount,
+  selectedWebview,
+  setActiveAccount,
+  accountById,
+} from './accounts.js';
+import {
+  ensureWebview,
+  isWebviewReady,
+  safeExecuteInWebview,
+  sendWebviewInput,
+  insertTextIntoActiveChat,
+  applyHibernationSetting,
+} from './webviews.js';
+import { updateHubDashboard, updateToolbarClock, updateHubClocks } from './hub.js';
+import {
+  normalizeTheme,
+  applySettingsToForm,
+  updatePanelVisibility,
+  renderClocksSettings,
+  getHibernateMinutes,
+  refreshSettingsMenuSubtitles,
+} from './settings.js';
+import { handleEscapeUiReset } from './hotkeys.js';
+import { bindActions } from './bindings.js';
+import { WaDeckWeatherModule } from '../weather.js';
+import { WaDeckAutoUpdateModule } from '../auto-update.js';
+import { WaDeckUnreadModule } from '../unread.js';
+import { WaDeckCrmModule } from '../crm.js';
+import { WaDeckFavoritesModule } from '../favorites.js';
+import { WaDeckImportantModule } from '../important.js';
+import { WaDeckScheduleModule } from '../schedule.js';
+
+/* Global error handlers for renderer process */
+window.addEventListener('error', (e) => console.error('[renderer] error:', e.error || e.message));
+window.addEventListener('unhandledrejection', (e) => console.error('[renderer] unhandled rejection:', e.reason));
+
+let templateController = null;
+
+async function init() {
+  /* Startup timing — surfaces where the ~first-launch delay goes (bootstrap IPC
+     vs. sidebar paint vs. webview boot). Read with `ELECTRON_ENABLE_LOGGING=1`. */
+  const _bootT0 = (window.performance?.now?.() ?? Date.now());
+  const _bootMs = () => Math.round((window.performance?.now?.() ?? Date.now()) - _bootT0);
+  console.log('[boot] init start');
+
+  /* Guard: detect broken CSS grid from corrupted --sidebar-width (NaNpx etc.) */
+  const appRoot = document.getElementById('app-root');
+  if (appRoot) {
+    const sidebarEl = appRoot.querySelector('.sidebar');
+    if (sidebarEl) {
+      const sidebarRect = sidebarEl.getBoundingClientRect();
+      const appRect = appRoot.getBoundingClientRect();
+      if (sidebarRect.width < 40 || sidebarRect.width > 300 || sidebarRect.width >= appRect.width * 0.8) {
+        console.warn('[layout] Corrupted sidebar width detected, resetting to default');
+        appRoot.style.removeProperty('--sidebar-width');
+        localStorage.removeItem('sidebarWidth');
+      }
+    }
+  }
+
+  /* Accessibility: copy title → aria-label for all icon-only buttons */
+  document.querySelectorAll('.btn-icon[title]').forEach((btn) => {
+    if (!btn.getAttribute('aria-label')) btn.setAttribute('aria-label', btn.title);
+  });
+
+  const moduleCtx = { state, els, setStatus, trimMapSize, runWithBusyButton };
+  WaDeckWeatherModule.init(moduleCtx);
+  window.WaDeckNotifications?.init?.(moduleCtx);
+  window.WaDeckGlobalSearch?.init?.({ ...moduleCtx, isWebviewReady, safeExecuteInWebview });
+  WaDeckAutoUpdateModule.init(moduleCtx);
+  WaDeckUnreadModule.init({ ...moduleCtx, renderAccounts, isWebviewReady, safeExecuteInWebview, updateHubDashboard });
+  WaDeckCrmModule.init({ ...moduleCtx, activeAccount, selectedWebview });
+  WaDeckFavoritesModule.init({ ...moduleCtx, setActiveAccount, isWebviewReady, safeExecuteInWebview });
+  WaDeckImportantModule.init({ ...moduleCtx, setActiveAccount, isWebviewReady, safeExecuteInWebview });
+  WaDeckScheduleModule.init({ ...moduleCtx, trimMapSize, runWithBusyButton, accountById, ensureWebview, isWebviewReady, sendWebviewInput, delay, formatDateTime, nextSendAtLocal, showConfirm, applyTemplateVariables });
+  if (typeof window.waDeck.onAutoUpdateStatus === 'function' && !state.autoUpdateUnsubscribe) {
+    state.autoUpdateUnsubscribe = window.waDeck.onAutoUpdateStatus((payload) => {
+      WaDeckAutoUpdateModule.handleAutoUpdateStatus(payload);
+    });
+  }
+  if (typeof window.waDeck.onHostEscape === 'function') {
+    if (state.hostEscapeUnsubscribe) state.hostEscapeUnsubscribe();
+    state.hostEscapeUnsubscribe = window.waDeck.onHostEscape(() => {
+      // The search palette owns Escape while open — don't also reset the UI.
+      if (window.WaDeckGlobalSearch?.isOpen?.()) {
+        window.WaDeckGlobalSearch.close();
+        return;
+      }
+      handleEscapeUiReset();
+    });
+  }
+
+  /* Webview crash recovery — reload crashed webview and update status */
+  if (typeof window.waDeck.onWebviewCrashed === 'function') {
+    window.waDeck.onWebviewCrashed((payload) => {
+      console.warn('[webview-crashed]', payload.reason);
+      setStatus(`Webview упал (${payload.reason}). Перезагрузка...`);
+      // Find and reload any crashed webviews
+      for (const [accountId, webview] of state.webviews) {
+        try {
+          if (webview && webview.isConnected && webview.getWebContentsId) {
+            webview.getWebContentsId(); // throws if crashed
+          }
+        } catch {
+          console.warn('[webview-crashed] reloading', accountId);
+          try { webview.reload(); } catch { /* already dead */ }
+        }
+      }
+    });
+  }
+
+  /* System wake-up: after a long laptop sleep WhatsApp Web sessions go zombie
+     (socket alive on our side, server already dropped). Stagger soft reloads
+     across all webviews so we do not hammer the disk and network at once. */
+  if (typeof window.waDeck.onSystemResumed === 'function') {
+    window.waDeck.onSystemResumed((payload) => {
+      const minutes = Math.round((payload?.suspendedMs || 0) / 60000);
+      console.log(`[power] resumed after ~${minutes} min, staggering reloads`);
+      setStatus(`Система проснулась (${minutes} мин сна) — обновляю аккаунты…`);
+      const entries = Array.from(state.webviews.entries());
+      let i = 0;
+      for (const [accountId, webview] of entries) {
+        const delay = i * 250; // 250ms between reloads — never N parallel
+        i++;
+        setTimeout(() => {
+          if (!webview || !webview.isConnected) return;
+          try {
+            webview.reload();
+          } catch (err) {
+            console.warn('[power] reload failed for', accountId, err?.message || err);
+          }
+        }, delay);
+      }
+    });
+  }
+
+  const boot = await window.waDeck.bootstrap();
+  console.log(`[boot] bootstrap IPC resolved +${_bootMs()}ms (${(boot.accounts || []).length} accounts)`);
+  state.accounts = Array.isArray(boot.accounts) ? boot.accounts : [];
+  state.settings = {
+    uiTheme: normalizeTheme(boot.settings?.uiTheme || 'dark'),
+    weatherCity: WaDeckWeatherModule.normalizeWeatherCity(boot.settings?.weatherCity || 'Moscow'),
+    weatherUnit: WaDeckWeatherModule.normalizeWeatherUnit(boot.settings?.weatherUnit || 'celsius'),
+    lastSeenReleaseNotesVersion: String(boot.settings?.lastSeenReleaseNotesVersion || ''),
+    translatorEnabled: boot.settings?.translatorEnabled !== false,
+    crmHoverEnabled: boot.settings?.crmHoverEnabled !== false,
+    notificationsEnabled: boot.settings?.notificationsEnabled !== false,
+    uiScene: String(boot.settings?.uiScene || 'night'),
+    uiDensity: String(boot.settings?.uiDensity || 'cozy'),
+    tweaksCollapsed: !!boot.settings?.tweaksCollapsed,
+    worldClocks: Array.isArray(boot.settings?.worldClocks) ? boot.settings.worldClocks : [
+      { label: 'Москва', tz: 'Europe/Moscow' },
+      { label: 'Киев', tz: 'Europe/Kiev' },
+      { label: 'Берлин', tz: 'Europe/Berlin' },
+    ],
+  };
+  state.templates = Array.isArray(boot.templates) ? boot.templates.map((tpl) => ({ ...tpl })) : [];
+  state.favorites = Array.isArray(boot.favorites) ? boot.favorites.map((f) => ({ ...f })) : [];
+  state.important = Array.isArray(boot.important) ? boot.important.map((f) => ({ ...f })) : [];
+  state.runtime = boot.runtime || {};
+  state.runtime.appVersion = String(boot.appVersion || state.runtime.appVersion || '').trim();
+
+  // One-time application of the legacy scene/density attributes (the picker
+  // UI was removed) so CSS that still targets them keeps the current look.
+  document.documentElement.setAttribute('data-scene', state.settings.uiScene || 'night');
+  document.documentElement.setAttribute('data-density', state.settings.uiDensity || 'cozy');
+
+  // Render sidebar immediately so accounts are visible right away
+  renderAccounts();
+  console.log(`[boot] sidebar painted +${_bootMs()}ms`);
+
+  // Staged background load: kick off webview creation for every account but
+  // staggered by STAGGER_MS so the UI stays responsive during initial paint.
+  // Startup time to "app usable" stays fast; unread counters populate over
+  // the next few seconds as each account boots. For 30 accounts this takes
+  // ~15s total, but the UI never freezes.
+  //
+  // Note: all webviews stay alive for the lifetime of the app — idle-suspend
+  // was removed because it caused WhatsApp accounts to drop messages while
+  // suspended and forced users to re-click each account to reload WA Web.
+  const STAGGER_MS = 400;
+  for (let i = 0; i < state.accounts.length; i += 1) {
+    const account = state.accounts[i];
+    setTimeout(() => {
+      try {
+        ensureWebview(account);
+        const wv = state.webviews.get(account.id);
+        if (wv) wv._lastActive = Date.now();
+      } catch (err) {
+        console.error(`[init] failed to create webview for ${account.id}:`, err);
+      }
+    }, i * STAGGER_MS);
+  }
+
+  state.startupHubVisible = true;
+  if (state.startupHubTimeoutId) {
+    clearTimeout(state.startupHubTimeoutId);
+    state.startupHubTimeoutId = null;
+  }
+
+  // Стартуем всегда в хабе без активного WhatsApp.
+  setActiveAccount('');
+  updatePanelVisibility();
+  applySettingsToForm({ renderWeather: true });
+  WaDeckScheduleModule.renderAttachmentsDraft();
+  WaDeckScheduleModule.renderScheduleTarget();
+  els.crmContactName.value = '';
+  els.crmAbout.value = '';
+  els.crmMyInfo.value = '';
+  els.crmMeta.textContent = 'Файл: —';
+  WaDeckCrmModule.setCrmEditable(false);
+  if (window.WaDeckTemplatesModule?.createTemplateController) {
+    templateController = window.WaDeckTemplatesModule.createTemplateController({
+      state,
+      els,
+      setStatus,
+      insertTextToActiveChat: insertTextIntoActiveChat,
+      // Notify the settings palette whenever templates change so that
+      // newly-added categories show up in the library list immediately
+      // (without needing an app restart).
+      onChange: () => {
+        try { refreshSettingsMenuSubtitles(); } catch (e) { console.warn('[tmpl:onChange]', e); }
+      },
+    });
+    await templateController.init(state.templates);
+  }
+
+  els.scheduleAt.value = nextSendAtLocal(1);
+  /* renderScheduled() already called via setActiveAccount → _setActiveAccountInner */
+
+  bindActions();
+  WaDeckWeatherModule.startWeatherRefreshLoop();
+  WaDeckWeatherModule.refreshWeather().catch((e) => console.warn('[weather]', e));
+  WaDeckScheduleModule.startScheduleRunner();
+  WaDeckUnreadModule.startUnreadPolling();
+  WaDeckUnreadModule.scheduleDockBadgeSync();
+  WaDeckFavoritesModule.startFavoritePolling();
+  WaDeckImportantModule.startImportantPolling();
+  // Idle-suspend disabled: destroying inactive webviews after 15 min forced
+  // users to re-click every account to reload WhatsApp Web, which in turn
+  // missed incoming messages while suspended. Keeping all webviews alive for
+  // the lifetime of the app is the correct trade-off for the 10–20 account
+  // use case. The original memory optimisation target (30+ accounts on
+  // low-RAM machines) can be re-introduced behind a settings toggle if
+  // needed — see startIdleWebviewSweeper() which remains as dead code.
+  // startIdleWebviewSweeper();
+  renderClocksSettings();
+  // Toolbar clock — update immediately and every 15s
+  updateToolbarClock();
+  // Hub clock auto-refresh every 30s
+  if (!state._hubClockTimer) {
+    state._hubClockTimer = setInterval(() => {
+      updateToolbarClock();
+      const hs = document.getElementById('hub-screen');
+      if (hs && !hs.classList.contains('hidden')) updateHubClocks();
+    }, 30000);
+  }
+  // Hibernation: applied based on the persisted setting. Default 0 = off,
+  // so this is a no-op for users who haven't opted in.
+  applyHibernationSetting(getHibernateMinutes());
+  WaDeckAutoUpdateModule.maybeShowReleaseNotes().catch(console.error);
+
+  setStatus('');
+  console.log(`[boot] init complete +${_bootMs()}ms (webviews creating in background, +${state.accounts.length * 400}ms staggered)`);
+}
+
+init().catch((error) => {
+  setStatus(`Ошибка запуска: ${String(error?.message || error)}`);
+});
+
+export { templateController };

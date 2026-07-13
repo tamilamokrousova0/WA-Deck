@@ -11,7 +11,8 @@
    toolbar or the WhatsApp chat field off-screen — and there is no dropdown
    anchored to a toolbar pill, which removes the old off-screen-panel class of
    bugs entirely. */
-(function setupPinFeedModule() {
+import { collectUnreadChatsScript } from './webview-scripts/collect-unread-chats.js';
+
   const ICON = {
     fav: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8 6.8 19.5l1-5.8-4.2-4.1 5.8-.8z"/></svg>',
     imp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 21V4M6 4h11l-2 3.5L17 11H6"/></svg>',
@@ -176,6 +177,10 @@
 
     const unread = collectUnread();
 
+    // System notifications ride the same pipeline (count-increase detection
+    // lives in notifications.js; an empty list clears its baselines).
+    window.WaDeckNotifications?.observe?.(unread);
+
     // The row exists only while something is actually new — otherwise it
     // collapses (its grid track shrinks to 0), keeping the UI uncluttered.
     if (!unread.length) {
@@ -216,5 +221,5 @@
     }
   }
 
-  window.WaDeckPinFeed = { render, scanAccountUnread };
-})();
+  export const WaDeckPinFeed = { render, scanAccountUnread };
+  window.WaDeckPinFeed = WaDeckPinFeed;

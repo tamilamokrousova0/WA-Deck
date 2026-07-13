@@ -26,8 +26,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # src/renderer/dist/ is gitignored — the bundle must be built in CI or
+      # the packaged app ships without its renderer (blank window).
+      - name: Build renderer bundle
+        run: npm run build:renderer
+
+      # Signing + notarization are driven entirely by secrets: with them the
+      # build is Developer-ID-signed and notarized, without them it stays
+      # unsigned exactly as before (electron-builder skips on empty env).
+      #   CSC_LINK                    — base64 .p12 с сертификатом Developer ID Application
+      #   CSC_KEY_PASSWORD            — пароль от .p12
+      #   APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID — нотаризация
       - name: Build mac app
         run: npx electron-builder --mac dmg zip --arm64 --publish never
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Upload mac artifacts
         uses: actions/upload-artifact@v7
@@ -57,8 +74,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # src/renderer/dist/ is gitignored — the bundle must be built in CI or
+      # the packaged app ships without its renderer (blank window).
+      - name: Build renderer bundle
+        run: npm run build:renderer
+
+      # Windows code signing (SmartScreen): подпись включается наличием
+      # секретов, без них сборка остаётся неподписанной.
+      #   WIN_CSC_LINK         — base64 .pfx с code-signing сертификатом
+      #   WIN_CSC_KEY_PASSWORD — пароль от .pfx
       - name: Build win app
         run: npx electron-builder --win nsis portable --x64 --publish never
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
 
       - name: Upload win artifacts
         uses: actions/upload-artifact@v7

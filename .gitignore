@@ -4,3 +4,9 @@ dist
 .claude/
 .superpowers/
 docs/superpowers/
+# local working material, not part of the app
+mockups/
+# foreign runtime data / separate projects living alongside the repo
+statics/
+storages/
+wa-warmer/

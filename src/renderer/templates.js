@@ -1,4 +1,3 @@
-(function setupTemplateModule() {
   function normalizeText(value) {
     return String(value || '').replace(/\r/g, '');
   }
@@ -238,7 +237,7 @@
     };
   }
 
-  window.WaDeckTemplatesModule = {
+  export const WaDeckTemplatesModule = {
     createTemplateController,
   };
-})();
+  window.WaDeckTemplatesModule = WaDeckTemplatesModule;

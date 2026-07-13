@@ -7,13 +7,24 @@ function translatorBarScript(token) {
     /* Host-issued token kept in the closure (never on window) */
     const __WADECK_TOKEN = ${tokenJs};
 
+    /* Guest→host send: prefer the preload's contextBridge channel (page code
+       cannot patch or observe it — see src/preload-webview.js); fall back to
+       the console marker when the session preload didn't run for this load. */
+    const __waDeckEmit = (kind, json) => {
+      const send = window.__waDeckGuestSend;
+      if (typeof send === 'function') {
+        try { send(__WADECK_TOKEN, kind, json); return; } catch {}
+      }
+      console.log('__WADECK_' + kind + '__' + __WADECK_TOKEN + ':' + json);
+    };
+
     /* Health marker, throttled to at most one per minute */
     let healthLastSent = 0;
     function emitHealth(payload) {
       const now = Date.now();
       if (now - healthLastSent < 60000) return;
       healthLastSent = now;
-      try { console.log('__WADECK_HEALTH__' + __WADECK_TOKEN + ':' + JSON.stringify(payload)); } catch {}
+      try { __waDeckEmit('HEALTH', JSON.stringify(payload)); } catch {}
     }
 
     // Clean up any stale bar/overlays from a prior init
@@ -52,6 +63,24 @@ function translatorBarScript(token) {
     // so memory grew unbounded within a chat. A WeakMap lets detached rows be
     // garbage-collected automatically, no manual cap needed.
     let translatedCache = new WeakMap();
+    // Secondary text-keyed LRU: WhatsApp's virtualized list destroys and
+    // recreates row nodes on scroll, so the WeakMap alone meant every
+    // scroll-away-and-back re-sent the same messages to the paid translate
+    // API. Keyed by target lang + normalized text, capped, LRU-evicted.
+    const textCache = new Map();
+    const TEXT_CACHE_MAX = 300;
+    function textCacheGet(key) {
+      if (!textCache.has(key)) return '';
+      const val = textCache.get(key);
+      textCache.delete(key);
+      textCache.set(key, val); // LRU bump
+      return val;
+    }
+    function textCacheSet(key, translated) {
+      if (textCache.has(key)) textCache.delete(key);
+      textCache.set(key, translated);
+      if (textCache.size > TEXT_CACHE_MAX) textCache.delete(textCache.keys().next().value);
+    }
 
     function getChatId() {
       // Primary: standard WhatsApp chat header
@@ -159,6 +188,10 @@ function translatorBarScript(token) {
       ].join(';');
       translateBtn.addEventListener('mouseenter', () => { translateBtn.style.background = '#16a34a'; });
       translateBtn.addEventListener('mouseleave', () => { translateBtn.style.background = '#22c55e'; });
+      // Chromium collapses the composer's text selection on mousedown before
+      // click fires — without preventDefault, getSelectedText() inside
+      // doTranslate() sees an empty selection and the button silently no-ops.
+      translateBtn.addEventListener('mousedown', (e) => { e.preventDefault(); });
       translateBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         doTranslate();
@@ -316,7 +349,11 @@ function translatorBarScript(token) {
     }
 
     function toggleDropdown(type) {
+      // Clicking the button while ITS menu is open closes it — the old
+      // close-then-reopen made the button unable to dismiss its own menu.
+      const wasOpen = dropdownOpen === type;
       closeDropdowns();
+      if (wasOpen) return;
       const isFrom = type === 'from';
       const list = isFrom ? LANGS : TARGET_LANGS;
       const current = isFrom ? outgoingFrom : outgoingTo;
@@ -377,10 +414,13 @@ function translatorBarScript(token) {
     // ========== Composer helpers (for outgoing button) ==========
 
     function getComposer() {
+      // Last fallback is scoped to #main: a document-wide query could match
+      // the sidebar chat-search field and type the translation into search.
+      const main = document.querySelector('#main') || document;
       return (
         document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
         document.querySelector('footer div[contenteditable="true"][data-tab]') ||
-        document.querySelector('div[contenteditable="true"][role="textbox"]')
+        main.querySelector('div[contenteditable="true"][role="textbox"]')
       );
     }
 
@@ -394,7 +434,7 @@ function translatorBarScript(token) {
       const text = getSelectedText();
       if (!text) return;
       const payload = JSON.stringify({ text: text, from: outgoingFrom, to: outgoingTo });
-      console.log('__WADECK_TRANSLATE__' + __WADECK_TOKEN + ':' + payload);
+      __waDeckEmit('TRANSLATE', payload);
     }
 
     window.__waDeckInsertTranslation = function (translated) {
@@ -713,7 +753,7 @@ function translatorBarScript(token) {
         try { delete window[cbName]; } catch {}
       };
       const payload = JSON.stringify({ reqId: reqId, text: text, from: from, to: to });
-      console.log('__WADECK_TRANSLATE_MSG__' + __WADECK_TOKEN + ':' + payload);
+      __waDeckEmit('TRANSLATE_MSG', payload);
     }
 
     function applyOutgoingTo(code) {
@@ -733,15 +773,20 @@ function translatorBarScript(token) {
       const timer = setTimeout(() => { try { delete window[cbName]; } catch {} }, 5000);
       window[cbName] = function (lang) {
         clearTimeout(timer);
-        try { applyOutgoingTo(String(lang || '')); } catch {}
+        // Rapid chat switch A→B can deliver A's stored language after B's:
+        // drop the response if the user already moved to another chat, or
+        // B would inherit (and on next save persist) A's target language.
+        if (currentChatId === chatId) {
+          try { applyOutgoingTo(String(lang || '')); } catch {}
+        }
         try { delete window[cbName]; } catch {}
       };
-      console.log('__WADECK_GET_LANG__' + __WADECK_TOKEN + ':' + JSON.stringify({ reqId: reqId, chatId: chatId }));
+      __waDeckEmit('GET_LANG', JSON.stringify({ reqId: reqId, chatId: chatId }));
     }
 
     function saveContactLang(chatId, lang) {
       if (!chatId || chatId === '__unknown_chat__') return;
-      console.log('__WADECK_SET_LANG__' + __WADECK_TOKEN + ':' + JSON.stringify({ chatId: chatId, lang: lang }));
+      __waDeckEmit('SET_LANG', JSON.stringify({ chatId: chatId, lang: lang }));
     }
 
     function hasOverlay(row) {
@@ -773,14 +818,24 @@ function translatorBarScript(token) {
       if (!isIncomingRow(row)) return;
       const text = getMessageText(row);
       if (!text) return;
+      const cacheKey = INCOMING_TARGET + '|' + text;
+      const cachedTranslated = textCacheGet(cacheKey);
+      if (cachedTranslated) {
+        translatedCache.set(row, { state: 'done', translated: cachedTranslated });
+        renderOverlay(row, cachedTranslated);
+        return;
+      }
       const prevAttempts = entry && entry.state === 'failed' ? (entry.attempts || 0) : 0;
       translatedCache.set(row, { state: 'pending', attempts: prevAttempts });
       requestMessageTranslate(text, 'auto', INCOMING_TARGET, (result) => {
-        if (!row.isConnected) return;
         if (!result || !result.ok || !result.translated) {
-          translatedCache.set(row, { state: 'failed', failedAt: Date.now(), attempts: prevAttempts + 1 });
+          if (row.isConnected) translatedCache.set(row, { state: 'failed', failedAt: Date.now(), attempts: prevAttempts + 1 });
           return;
         }
+        // Populate the text cache even if the row got recycled meanwhile —
+        // the next sweep finds the recreated node and reuses the result.
+        textCacheSet(cacheKey, result.translated);
+        if (!row.isConnected) return;
         translatedCache.set(row, { state: 'done', translated: result.translated });
         renderOverlay(row, result.translated);
       });
@@ -832,13 +887,17 @@ function translatorBarScript(token) {
       let flushTimer = null;
       const flush = () => {
         flushTimer = null;
-        if (!autoTranslate || pendingBubbles.size === 0) { pendingBubbles.clear(); return; }
+        // window.__waDeckTranslatorDisabled is the host's global kill-switch:
+        // without this check the observer kept firing paid translate requests
+        // (and re-rendering overlays the dormant loop then stripped) after the
+        // user turned the translator off in settings.
+        if (!autoTranslate || window.__waDeckTranslatorDisabled || pendingBubbles.size === 0) { pendingBubbles.clear(); return; }
         const batch = Array.from(pendingBubbles);
         pendingBubbles.clear();
         for (let i = 0; i < batch.length; i++) processIncomingBubble(batch[i]);
       };
       chatObserver = new MutationObserver((mutations) => {
-        if (!autoTranslate) return;
+        if (!autoTranslate || window.__waDeckTranslatorDisabled) return;
         for (let i = 0; i < mutations.length; i++) {
           const added = mutations[i].addedNodes;
           for (let j = 0; j < added.length; j++) {
@@ -978,3 +1037,5 @@ function translatorBarScript(token) {
     return true;
   })();`;
 }
+
+export { translatorBarScript };

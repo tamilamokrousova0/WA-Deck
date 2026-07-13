@@ -2,6 +2,17 @@ function collectChatsFromSidebarScript(token) {
   const tokenJs = JSON.stringify(typeof token === 'string' ? token : '');
   return `(async () => {
     const __WADECK_TOKEN = ${tokenJs};
+
+    /* Guest→host send: prefer the preload's contextBridge channel (page code
+       cannot patch or observe it — see src/preload-webview.js); fall back to
+       the console marker when the session preload didn't run for this load. */
+    const __waDeckEmit = (kind, json) => {
+      const send = window.__waDeckGuestSend;
+      if (typeof send === 'function') {
+        try { send(__WADECK_TOKEN, kind, json); return; } catch {}
+      }
+      console.log('__WADECK_' + kind + '__' + __WADECK_TOKEN + ':' + json);
+    };
     const normalize = (value) => String(value || '').replace(/\\u200e/g, '').replace(/\\s+/g, ' ').trim();
     const looksLikeTime = (value) => /^\\d{1,2}:\\d{2}$/.test(value) || /^\\d{1,2}\\.\\d{1,2}\\.\\d{2,4}$/.test(value);
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -66,7 +77,7 @@ function collectChatsFromSidebarScript(token) {
         const last = Number(window.__waDeckHealthLastCollectChats || 0);
         if (Date.now() - last >= 60000) {
           window.__waDeckHealthLastCollectChats = Date.now();
-          console.log('__WADECK_HEALTH__' + __WADECK_TOKEN + ':' + JSON.stringify({ script: 'collect-chats', ok: false, rounds: rounds, reachedEnd: false }));
+          __waDeckEmit('HEALTH', JSON.stringify({ script: 'collect-chats', ok: false, rounds: rounds, reachedEnd: false }));
         }
       } catch {}
     }
@@ -81,3 +92,5 @@ function collectChatsFromSidebarScript(token) {
     return Array.from(out).sort((a, b) => a.localeCompare(b));
   })();`;
 }
+
+export { collectChatsFromSidebarScript };

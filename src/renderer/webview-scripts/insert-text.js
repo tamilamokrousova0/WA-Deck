@@ -1,4 +1,4 @@
-/* Requires encodeBase64Utf8() from renderer.js (global scope) */
+import { encodeBase64Utf8 } from '../core/state.js';
 function insertTextScript(text) {
   const textB64 = encodeBase64Utf8(String(text || ''));
   return `(async () => {
@@ -64,3 +64,5 @@ function insertTextScript(text) {
     }
   })();`;
 }
+
+export { insertTextScript };

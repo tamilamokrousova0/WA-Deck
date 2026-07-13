@@ -7,3 +7,5 @@ function crmChatBoundaryScript() {
     return Math.max(0, Math.round(rect.left));
   })();`;
 }
+
+export { crmChatBoundaryScript };
