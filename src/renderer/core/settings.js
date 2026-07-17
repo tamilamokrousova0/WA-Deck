@@ -46,7 +46,7 @@ function renderClocksSettings() {
     });
 
     const tzSelect = document.createElement('select');
-    tzSelect.className = 'clock-tz-select';
+    tzSelect.className = 'clock-tz-select settings-select';
     tzSelect.title = c.tz;
     const tzOptions = getTimezoneOptions();
     for (const opt of tzOptions) {

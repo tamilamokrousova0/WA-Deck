@@ -196,11 +196,17 @@
               <div id="hub-greeting" class="hub-greeting"></div>
               <div id="hub-title" class="hub-title">WA Deck</div>
               <div id="hub-clocks" class="hub-clocks"></div>
+              <div id="hub-tabs" class="hub-filters hub-tabs" role="tablist">
+                <button type="button" id="hub-tab-accounts" class="hub-filter-chip active" role="tab" title="Все аккаунты">Аккаунты</button>
+                <button type="button" id="hub-tab-unread" class="hub-filter-chip" role="tab" title="Все чаты с новыми сообщениями">Непрочитанные<span id="hub-unread-total"></span></button>
+                <button type="button" id="hub-tab-favorites" class="hub-filter-chip" role="tab" title="Избранные контакты с новыми сообщениями">Избранные<span id="hub-fav-total"></span></button>
+                <button type="button" id="hub-tab-important" class="hub-filter-chip" role="tab" title="Важные контакты с новыми сообщениями">Важные<span id="hub-imp-total"></span></button>
+              </div>
               <div class="hub-section-head">
                 <h2 class="hub-section-title">Аккаунты <span id="hub-accts-count" class="hub-section-count"></span></h2>
-                <div id="hub-filters" class="hub-filters"></div>
               </div>
               <div id="hub-dashboard" class="hub-dashboard"></div>
+              <div id="hub-unread-feed" class="hub-unread-feed"></div>
               <div id="hub-actions-row" class="hub-actions-row"></div>
             </div>
           </div>
@@ -505,7 +511,7 @@
           <div id="clocks-settings-list" class="clocks-settings-list"></div>
           <div id="clocks-add-form" class="clocks-add-form hidden">
             <input id="clock-new-label" type="text" placeholder="Город" maxlength="30" />
-            <select id="clock-new-tz">
+            <select id="clock-new-tz" class="settings-select">
               <option value="">Пояс</option>
               <option value="Pacific/Auckland">Окленд +12</option>
               <option value="Asia/Tokyo">Токио +9</option>
@@ -541,7 +547,7 @@
           </label>
           <label>
             Единицы
-            <select id="wsettings-unit">
+            <select id="wsettings-unit" class="settings-select">
               <option value="celsius">°C — Цельсий</option>
               <option value="fahrenheit">°F — Фаренгейт</option>
             </select>
@@ -785,7 +791,7 @@
 
     <div id="global-search" class="global-search hidden" role="dialog" aria-label="Глобальный поиск контакта">
       <div class="gs-box">
-        <input id="global-search-input" type="text" placeholder="Поиск контакта по всем аккаунтам…" autocomplete="off" spellcheck="false" />
+        <input id="global-search-input" type="text" placeholder="Имя или номер телефона — по всем аккаунтам…" autocomplete="off" spellcheck="false" />
         <div id="global-search-status" class="gs-status"></div>
         <div id="global-search-list" class="gs-list"></div>
       </div>

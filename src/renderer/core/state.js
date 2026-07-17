@@ -37,6 +37,8 @@ const state = {
   dockBadgeTimer: null,
   autoUpdateUnsubscribe: null,
   hostEscapeUnsubscribe: null,
+  hostNextUnreadUnsubscribe: null,
+  hostHotkeyUnsubscribe: null,
   accountMenuAccountId: '',
   accountMenuDraftIconPath: '',
   accountMenuDraftColor: '',

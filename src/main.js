@@ -36,10 +36,24 @@ app.commandLine.appendSwitch('disable-features', 'IntensiveWakeUpThrottling,Calc
  * renderer (XSS) could otherwise schedule a message with `attachments: [{path:
  * '/Users/.../.ssh/id_rsa'}]` and exfiltrate secrets through the WA upload.
  */
+/* Пути, которые пользователь ЯВНО выбрал через системный диалог — доверенный
+ * жест. Позволяет вложения с диска D:/сетевых шар на Windows (homedir-гейт их
+ * молча отклонял), не ослабляя защиту от XSS: renderer не может добавить сюда
+ * произвольный путь, минуя диалог. Чистится по realpath. */
+const _dialogPickedPaths = new Set();
+async function rememberPickedPath(filePath) {
+  try { _dialogPickedPaths.add(await fs.realpath(path.resolve(String(filePath || '')))); } catch { /* ignore */ }
+}
+
 async function isAttachmentPathAllowed(filePath) {
   try {
     const abs = path.resolve(String(filePath || ''));
     if (!abs) return false;
+    // Явно выбранный через диалог путь — доверяем (после realpath-сверки).
+    try {
+      const rp = await fs.realpath(abs);
+      if (_dialogPickedPaths.has(rp)) return true;
+    } catch { /* не существует — упадёт ниже на общей проверке */ }
     // Resolve symlinks BEFORE the prefix/blocklist check. Otherwise a renderer
     // (post-XSS) could schedule `~/innocent` as a symlink to /etc/... or
     // ~/.ssh/id_rsa and pass a purely lexical "under home" test. realpath
@@ -112,6 +126,8 @@ const DEFAULT_SETTINGS = {
     { label: 'Киев', tz: 'Europe/Kiev' },
     { label: 'Берлин', tz: 'Europe/Berlin' },
   ],
+  // Per-account тумблер «Авто вх. → Русский» (accountId → true).
+  autoTranslateAccounts: {},
 };
 
 const VALID_HIBERNATE_MINUTES = [0, 30, 60, 120, 240];
@@ -449,8 +465,28 @@ function sanitizeStore(raw) {
   const rawLangs = (raw?.contactLangs && typeof raw.contactLangs === 'object' && !Array.isArray(raw.contactLangs))
     ? raw.contactLangs : {};
   for (const [k, v] of Object.entries(rawLangs)) {
+    if (Object.keys(clean.contactLangs).length >= 5000) break; // cap (как в set-contact-lang)
     const code = String(v || '').trim();
     if (k && /^[a-z-]{2,10}$/i.test(code)) clean.contactLangs[String(k)] = code;
+  }
+
+  // Санитайзер загрузки — единый источник правды и для полей, которые раньше
+  // клампались только в save-settings (дрейф load-vs-save = тихая порча).
+  // worldClocks: массив {label, tz}, ≤10.
+  clean.settings.worldClocks = (Array.isArray(clean.settings.worldClocks)
+    ? clean.settings.worldClocks : DEFAULT_SETTINGS.worldClocks)
+    .slice(0, 10)
+    .map((c) => ({ label: String(c?.label || '').trim().slice(0, 30), tz: String(c?.tz || '').trim().slice(0, 64) }))
+    .filter((c) => c.label && c.tz);
+  // autoTranslateAccounts: карта accountId→true, ≤100 ключей, ключ ≤64.
+  {
+    const src = (clean.settings.autoTranslateAccounts && typeof clean.settings.autoTranslateAccounts === 'object'
+      && !Array.isArray(clean.settings.autoTranslateAccounts)) ? clean.settings.autoTranslateAccounts : {};
+    const out = {};
+    for (const key of Object.keys(src).slice(0, 100)) {
+      if (src[key]) out[String(key).slice(0, 64)] = true;
+    }
+    clean.settings.autoTranslateAccounts = out;
   }
 
   /* Favorite contacts — clamp names, drop orphans (deleted accounts), dedupe
@@ -647,7 +683,11 @@ function pruneFinishedScheduled() {
 // WA send, a still-'processing' item almost always means the send never
 // happened, so retrying is safe; the rare double-send window is app death in
 // the few ms between WA send and the persisted 'sent' status.
-const STALE_PROCESSING_MS = 5 * 60 * 1000; // 5 minutes
+// 20 минут (было 5): большое вложение (до 100 МБ) на медленном канале грузится
+// в WhatsApp дольше 5 мин, и сброс processing→pending запускал ВТОРУЮ отправку
+// тому же контакту (видимый дубль). 20 мин заведомо больше любой легитимной
+// отправки, но всё ещё восстанавливает реально зависшие после краха.
+const STALE_PROCESSING_MS = 20 * 60 * 1000; // 20 minutes
 
 /* Recover scheduled messages stuck in 'processing'.
  * maxAgeMs = 0  → reset ALL processing items (use at boot: a restart means
@@ -679,8 +719,73 @@ function recoverStaleProcessingItems(maxAgeMs = 0) {
 /* Write queue prevents concurrent fs.writeFile calls that can corrupt the store */
 let _saveStoreQueue = Promise.resolve();
 
+/* ── Store loss-protection ────────────────────────────────────────────────
+ * .backup is refreshed from the SAME in-memory payload as the primary, so a
+ * logically-poisoned state (accounts suddenly []) clobbers both copies at
+ * once — the one failure class the corrupt-file recovery can't see.
+ *   Wipe-guard: a payload with 0 accounts after a session that loaded N>0 is
+ *   blocked unless the last account was explicitly removed; the rejected
+ *   payload is preserved as .suspect for post-mortem.
+ *   Daily snapshots: the first write of each day first copies the on-disk
+ *   primary to .snap-YYYYMMDD (7 kept) — a time machine against slow rot. */
+const STORE_SNAPSHOT_KEEP = 7;
+/* LRU-кэш переводов: ключ from|to|text (см. handle('translate-text')) */
+const TRANSLATE_CACHE_MAX = 2000;
+const _translateCache = new Map();
+let _lastGoodAccountCount = 0;
+let _allowEmptyAccountsSave = false;
+let _snapshotDay = '';
+
+function markIntentionalLastAccountRemoval() {
+  _allowEmptyAccountsSave = true;
+}
+
+function rotateDailyStoreSnapshot(primary) {
+  const day = new Date().toISOString().slice(0, 10);
+  if (_snapshotDay === day) return;
+  _snapshotDay = day;
+  try {
+    if (!fsSync.existsSync(primary)) return;
+    const snapPath = `${primary}.snap-${day.replace(/-/g, '')}`;
+    if (!fsSync.existsSync(snapPath)) {
+      fsSync.copyFileSync(primary, snapPath);
+    }
+    const dir = path.dirname(primary);
+    const prefix = `${path.basename(primary)}.snap-`;
+    const snaps = fsSync.readdirSync(dir).filter((f) => f.startsWith(prefix)).sort();
+    for (const old of snaps.slice(0, Math.max(0, snaps.length - STORE_SNAPSHOT_KEEP))) {
+      try { fsSync.unlinkSync(path.join(dir, old)); } catch { /* best-effort */ }
+    }
+  } catch (err) {
+    console.warn('[saveStore] daily snapshot failed (non-fatal):', err?.message || err);
+  }
+}
+
+/* Рекурсивное удаление с ретраем: на Windows Chromium/AV держат файлы
+ * партиции (LevelDB, Cookies, Cache) эксклюзивно залоченными сразу после
+ * закрытия сессии → EBUSY/EPERM/ENOTEMPTY. Даём хэндлам освободиться. */
+async function rmWithRetry(target, opts = {}) {
+  let lastErr = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await fs.rm(target, { recursive: true, force: true, ...opts });
+      return true;
+    } catch (err) {
+      lastErr = err;
+      const code = String(err?.code || '');
+      if (process.platform !== 'win32'
+        || (code !== 'EBUSY' && code !== 'EPERM' && code !== 'EACCES' && code !== 'ENOTEMPTY')) break;
+      await new Promise((r) => setTimeout(r, 120 * (attempt + 1)));
+    }
+  }
+  if (lastErr) throw lastErr;
+  return false;
+}
+
 /* Atomic file write: tmp file + fsync + rename. Shared by the store and the
- * CRM contact files so a crash mid-write never leaves a truncated file. */
+ * CRM contact files so a crash mid-write never leaves a truncated file.
+ * На Windows антивирус/индексатор может держать целевой файл открытым в момент
+ * rename → EPERM/EBUSY; ретраим с backoff, чтобы не терять запись. */
 async function writeFileAtomic(filePath, data) {
   const tmpPath = `${filePath}.tmp-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`;
   const handle = await fs.open(tmpPath, 'w');
@@ -690,7 +795,20 @@ async function writeFileAtomic(filePath, data) {
   } finally {
     await handle.close();
   }
-  await fs.rename(tmpPath, filePath);
+  let lastErr = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await fs.rename(tmpPath, filePath);
+      return;
+    } catch (err) {
+      lastErr = err;
+      const code = String(err?.code || '');
+      if (process.platform !== 'win32' || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) break;
+      await new Promise((r) => setTimeout(r, 80 * (attempt + 1)));
+    }
+  }
+  try { await fs.rm(tmpPath, { force: true }); } catch { /* leave tmp for diagnosis */ }
+  throw lastErr;
 }
 
 /* Coalescing: a queued-but-not-started write already covers every mutation
@@ -708,6 +826,17 @@ async function saveStore() {
     const primary = state.paths.storePath;
     const backupPath = primary + '.backup';
 
+    const accountCount = Array.isArray(state.store?.accounts) ? state.store.accounts.length : 0;
+    if (accountCount === 0 && _lastGoodAccountCount > 0 && !_allowEmptyAccountsSave) {
+      try { await writeFileAtomic(`${primary}.suspect`, payload); } catch { /* best-effort */ }
+      const msg = `[saveStore] WIPE-GUARD: session loaded ${_lastGoodAccountCount} account(s), `
+        + 'new payload has 0 without an explicit removal — write blocked, payload saved to .suspect';
+      console.error(msg);
+      throw new Error('store wipe-guard: refusing to persist empty accounts list');
+    }
+
+    rotateDailyStoreSnapshot(primary);
+
     // Atomic write sequence:
     //   1. Write new content to .tmp and fsync it to disk
     //   2. Rename .tmp → primary (atomic on POSIX; close-enough on NTFS)
@@ -724,6 +853,11 @@ async function saveStore() {
     } catch (err) {
       console.warn('[saveStore] backup refresh failed (non-fatal):', err?.message || err);
     }
+    // A write that passed the guard is by definition legitimate — adopt its
+    // count as the new baseline (incl. 0 after an explicit last-account
+    // removal, otherwise every following settings save would be blocked).
+    _lastGoodAccountCount = accountCount;
+    _allowEmptyAccountsSave = false;
   });
   _saveStorePending = run;
   // The caller sees the rejection (so IPC handlers don't report ok:true on
@@ -1249,6 +1383,7 @@ async function removeAccount(accountId) {
 
   const removedType = state.store.accounts[idx].type || 'whatsapp';
   state.store.accounts.splice(idx, 1);
+  if (state.store.accounts.length === 0) markIntentionalLastAccountRemoval();
   normalizeAccountOrder();
   state.store.scheduled = state.store.scheduled.filter((item) => item.accountId !== id);
   // Drop per-contact language prefs of the removed account. Keys are
@@ -1282,7 +1417,7 @@ async function removeAccount(accountId) {
   }
 
   try {
-    await fs.rm(crmAccountDir(id), { recursive: true, force: true });
+    await rmWithRetry(crmAccountDir(id));
   } catch {
     // ignore CRM cleanup failures
   }
@@ -1601,14 +1736,48 @@ function createWindow() {
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (String(input?.type || '').toLowerCase() !== 'keydown') return;
-    if (String(input?.key || '') !== 'Escape') return;
-    event.preventDefault();
-    try {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('host-escape-pressed');
+    const sendToRenderer = (channel) => {
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(channel);
+        }
+      } catch {
+        // ignore channel send errors
       }
-    } catch {
-      // ignore channel send errors
+    };
+    if (String(input?.key || '') === 'Escape') {
+      event.preventDefault();
+      sendToRenderer('host-escape-pressed');
+      return;
+    }
+    // Cmd/Ctrl+U — следующий непрочитанный. Перехват здесь, а не в renderer:
+    // при фокусе внутри webview (обычное состояние — курсор в композере чата)
+    // keydown до host-окна не доходит. Физический код — ради RU-раскладки.
+    if ((input.meta || input.control) && !input.shift && !input.alt
+        && String(input?.code || '') === 'KeyU') {
+      event.preventDefault();
+      sendToRenderer('host-next-unread-pressed');
+      return;
+    }
+    // Сквозные хоткеи: Cmd+1..9 / K / T / R / зум раньше умирали, как только
+    // курсор оказывался в композере WhatsApp (т.е. большую часть дня) — host-
+    // keydown в renderer их не видел. Тот же принцип, что у Esc и Cmd+U:
+    // перехват в main, доставка одним каналом, физические коды ради RU.
+    if ((input.meta || input.control) && !input.alt) {
+      const code = String(input?.code || '');
+      const routable = !input.shift
+        && (/^Digit[0-9]$/.test(code) || code === 'KeyK' || code === 'KeyT'
+            || code === 'KeyR' || code === 'Minus' || code === 'Equal');
+      if (routable) {
+        event.preventDefault();
+        try {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('host-hotkey', { code, shift: Boolean(input.shift) });
+          }
+        } catch {
+          // ignore channel send errors
+        }
+      }
     }
   });
   /* ── Main-window resilience ──
@@ -1927,11 +2096,17 @@ const AUTO_UPDATE_STARTUP_DELAY_MS = 30 * 1000;
 function scheduleBackgroundUpdateChecks() {
   if (!app.isPackaged) return;
   if (process.platform === 'win32' && process.env.PORTABLE_EXECUTABLE_DIR) return;
-  setTimeout(() => {
+  const quietCheck = () => {
+    // Обновление уже скачано и ждёт установки — не проверять поверх
+    if (updateDownloaded) return;
     checkForUpdatesNow('auto').catch((err) => {
       console.warn('[auto-update] background check failed:', err?.message || err);
     });
-  }, AUTO_UPDATE_STARTUP_DELAY_MS);
+  };
+  setTimeout(quietCheck, AUTO_UPDATE_STARTUP_DELAY_MS);
+  // Приложение живёт неделями без рестарта (keep-alive — прямая цель), а
+  // проверка была одна за жизнь процесса: о релизах узнавали случайно.
+  setInterval(quietCheck, 12 * 60 * 60 * 1000);
 }
 
 /* ── Release notes: parsed from the bundled CHANGELOG.md ────────────────────
@@ -2134,11 +2309,14 @@ async function downloadMacUpdateZip(asset, version, source) {
     res.pipe(out);
   });
 
-  // Integrity check: electron-builder publishes base64 sha512 in the manifest
+  // Integrity check: electron-builder publishes base64 sha512 in the manifest.
+  // sha512 — единственный барьер целостности (сборка неподписана), поэтому его
+  // ОТСУТСТВИЕ в манифесте — это отказ, а не «пропустить проверку»: иначе
+  // обрезанный/подменённый ответ прошёл бы в ditto и запуск .app.
   const digest = hash.digest('base64');
-  if (asset.sha512 && digest !== asset.sha512) {
+  if (!asset.sha512 || digest !== asset.sha512) {
     await fs.unlink(zipPath).catch(() => {});
-    throw new Error('sha512_mismatch');
+    throw new Error(asset.sha512 ? 'sha512_mismatch' : 'sha512_missing');
   }
   return zipPath;
 }
@@ -2251,9 +2429,12 @@ async function installMacDownloadedUpdate() {
   const stagingDir = path.join(tempDir, `${tag}-staging`);
   const oldDir = path.join(tempDir, `${tag}-old`);
   const scriptPath = path.join(tempDir, `${tag}.sh`);
+  const logPath = path.join(tempDir, `${tag}.log`);
 
   // The script outlives our process: it waits for the app PID to exit, swaps
   // the bundle, strips quarantine, relaunches, and cleans up after itself.
+  // Перезапуск гарантирован в ЛЮБОМ исходе (иначе при сбое ditto/mv приложение
+  // просто не открылось бы снова — «краш»); ход пишется в лог для диагностики.
   const script = [
     '#!/bin/bash',
     '# WA-Deck self-update: swap the .app bundle after the app process exits.',
@@ -2262,25 +2443,38 @@ async function installMacDownloadedUpdate() {
     `APP_PATH=${shellQuote(appPath)}`,
     `STAGING_DIR=${shellQuote(stagingDir)}`,
     `OLD_DIR=${shellQuote(oldDir)}`,
+    `exec >>${shellQuote(logPath)} 2>&1`,
+    'echo "[wadeck-update] start $(date)"',
     '',
     '# Wait until the running app fully exits',
     'while kill -0 "$APP_PID" 2>/dev/null; do sleep 0.3; done',
     '',
     'rm -rf "$STAGING_DIR" "$OLD_DIR"',
     'mkdir -p "$STAGING_DIR" "$OLD_DIR"',
+    'SWAPPED=0',
     'if /usr/bin/ditto -xk "$ZIP_PATH" "$STAGING_DIR"; then',
     '  NEW_APP=$(/usr/bin/find "$STAGING_DIR" -maxdepth 1 -name "*.app" -print -quit)',
     '  if [ -n "$NEW_APP" ] && mv "$APP_PATH" "$OLD_DIR/"; then',
     '    if mv "$NEW_APP" "$APP_PATH"; then',
     '      /usr/bin/xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null',
-    '      /usr/bin/open -n "$APP_PATH"',
+    '      SWAPPED=1',
     '    else',
-    '      # Swap failed halfway — roll the old bundle back and relaunch it',
+    '      echo "[wadeck-update] final mv failed — rolling back"',
     '      mv "$OLD_DIR"/*.app "$APP_PATH" 2>/dev/null',
-    '      /usr/bin/open -n "$APP_PATH"',
     '    fi',
+    '  else',
+    '    echo "[wadeck-update] no NEW_APP or move-aside failed"',
     '  fi',
+    'else',
+    '  echo "[wadeck-update] ditto extraction failed"',
     'fi',
+    '# Гарантированный перезапуск: открываем бандл, где бы он ни оказался',
+    'if [ -d "$APP_PATH" ]; then',
+    '  /usr/bin/open -n "$APP_PATH" || echo "[wadeck-update] open failed"',
+    'else',
+    '  echo "[wadeck-update] APP_PATH missing after update — cannot relaunch"',
+    'fi',
+    'echo "[wadeck-update] done swapped=$SWAPPED $(date)"',
     'rm -rf "$STAGING_DIR" "$OLD_DIR" "$ZIP_PATH"',
     'rm -f "$0"',
     '',
@@ -2577,6 +2771,18 @@ function registerIpc() {
         payload?.translatorEnabled,
         normalizeBool(current.translatorEnabled, DEFAULT_SETTINGS.translatorEnabled),
       ),
+      // Per-account тумблер «Авто вх. → Русский» (persist: раньше session-only
+      // в webview и сбрасывался каждым рестартом/гибернацией)
+      autoTranslateAccounts: (() => {
+        const src = (payload && typeof payload.autoTranslateAccounts === 'object' && payload.autoTranslateAccounts)
+          ? payload.autoTranslateAccounts
+          : (current.autoTranslateAccounts || {});
+        const out = {};
+        for (const k of Object.keys(src).slice(0, 100)) {
+          if (src[k]) out[String(k).slice(0, 64)] = true;
+        }
+        return out;
+      })(),
       crmHoverEnabled: normalizeBool(
         payload?.crmHoverEnabled,
         normalizeBool(current.crmHoverEnabled, DEFAULT_SETTINGS.crmHoverEnabled),
@@ -2639,6 +2845,7 @@ function registerIpc() {
 
     if (result.canceled || !result.filePaths?.length) return { canceled: true, files: [] };
 
+    for (const filePath of result.filePaths) await rememberPickedPath(filePath);
     return {
       canceled: false,
       files: result.filePaths.map((filePath) => ({
@@ -3120,6 +3327,16 @@ function registerIpc() {
     if (!/^[a-z-]{2,10}$/i.test(from) && from !== 'auto') return { ok: false, error: 'invalid_lang' };
     if (!/^[a-z-]{2,10}$/i.test(to)) return { ok: false, error: 'invalid_lang' };
     if (!text.trim()) return { ok: false, error: 'empty_text' };
+    // LRU: повторные фразы (типовые ответы на 20 аккаунтах) и ре-переводы
+    // видимых входящих после каждой перезагрузки webview — 0 мс вместо
+    // 150-400 мс HTTP. Перевод детерминирован, память копеечная.
+    const cacheKey = `${from}|${to}|${text}`;
+    const cached = _translateCache.get(cacheKey);
+    if (cached !== undefined) {
+      _translateCache.delete(cacheKey);
+      _translateCache.set(cacheKey, cached); // освежить позицию в LRU
+      return { ok: true, translated: cached };
+    }
     try {
       const https = require('https');
       const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(from)}&tl=${encodeURIComponent(to)}&dt=t&q=${encodeURIComponent(text)}`;
@@ -3157,6 +3374,14 @@ function registerIpc() {
         req.setTimeout(10000, () => { req.destroy(new Error('timeout')); });
         req.on('error', reject);
       });
+      // Пустой результат не кэшируем: иначе разовый сбой (обрезанный ответ)
+      // навсегда отдавал бы пустой перевод для этой фразы.
+      if (result) {
+        _translateCache.set(cacheKey, result);
+        if (_translateCache.size > TRANSLATE_CACHE_MAX) {
+          _translateCache.delete(_translateCache.keys().next().value);
+        }
+      }
       return { ok: true, translated: result };
     } catch (e) {
       return { ok: false, error: String(e?.message || 'translate_failed') };
@@ -3277,7 +3502,7 @@ async function cleanupOrphanPartitions() {
           const size = await dirSizeBytes(full);
           totalBytes += size;
         } catch { /* ignore */ }
-        await fs.rm(full, { recursive: true, force: true });
+        await rmWithRetry(full);
         removed++;
       }
     } catch (err) {
@@ -3346,6 +3571,7 @@ async function bootstrap() {
   }
   ensurePaths();
   await loadStore();
+  _lastGoodAccountCount = Array.isArray(state.store?.accounts) ? state.store.accounts.length : 0;
   pruneFinishedScheduled();
   recoverStaleProcessingItems();
   ensureDefaultAccount();

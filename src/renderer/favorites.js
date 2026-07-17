@@ -9,6 +9,7 @@
    #pane-side always catches them — this is why the previous name-matching
    approach (its own bespoke scan) was flaky and this one is not. */
 import { collectUnreadChatsScript } from './webview-scripts/collect-unread-chats.js';
+import { showToast } from './core/helpers.js';
 
   let state, els, setStatus, setActiveAccount, isWebviewReady, safeExecuteInWebview;
 
@@ -162,8 +163,11 @@ import { collectUnreadChatsScript } from './webview-scripts/collect-unread-chats
     try {
       let res = typeof byClick === 'function' ? await byClick(webview, f.name) : { ok: false };
       if (!res?.ok && typeof bySearch === 'function') {
-        await bySearch(webview, f.name);   // fallback: search by name
+        res = await bySearch(webview, f.name);   // fallback: search by name
       }
+      // Оба пути не открыли чат — бейдж уже оптимистично сброшен, поэтому
+      // честный тост обязателен (рескан ниже вернёт бейдж, если что-то есть).
+      if (!res?.ok) showToast(`Чат «${f.name}» не открылся — откройте вручную`, 'error', 4000);
     } catch { /* stay on the account */ }
     rescanSoon(1500);
     rescanSoon(4000);

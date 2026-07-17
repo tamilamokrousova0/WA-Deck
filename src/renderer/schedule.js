@@ -464,6 +464,13 @@ import { collectChatsFromSidebarScript } from './webview-scripts/collect-chats.j
       : nextSendAtLocal(1);
     state.attachmentsDraft = Array.isArray(item.attachments) ? item.attachments.map((a) => ({ ...a })) : [];
     renderAttachmentsDraft();
+    // Повтор/джиттер серии обязаны попасть в форму: createScheduledMessage
+    // читает селекты из DOM, и «Изменить» без этого молча пересохранял
+    // ежедневную серию как разовое сообщение.
+    const repeatSel = document.getElementById('schedule-repeat');
+    const jitterSel = document.getElementById('schedule-jitter');
+    if (repeatSel) repeatSel.value = String(item.repeat || '');
+    if (jitterSel) jitterSel.value = String(item.jitterMinutes || 0);
 
     /* Store old item id — will be cancelled ONLY after new one is saved */
     state._editingScheduleId = item.id;
@@ -543,6 +550,10 @@ import { collectChatsFromSidebarScript } from './webview-scripts/collect-chats.j
 
     els.scheduleText.value = '';
     els.scheduleAt.value = nextSendAtLocal(1);
+    // Селекты повтора/джиттера тоже в дефолт — «липкий» повтор молча делал
+    // следующее разовое сообщение ежедневной серией.
+    if (repeatEl) repeatEl.value = '';
+    if (jitterEl) jitterEl.value = '0';
     clearAttachments();
     await renderScheduled();
     setStatus('Сообщение запланировано');
@@ -592,7 +603,7 @@ import { collectChatsFromSidebarScript } from './webview-scripts/collect-chats.j
         }
         if (ch === '\r') continue;
         await sendWebviewInput(webview, { type: 'char', keyCode: ch });
-        await delay(15);
+        await delay(8);
       }
     };
 
@@ -613,7 +624,7 @@ import { collectChatsFromSidebarScript } from './webview-scripts/collect-chats.j
    * inbox rows — can jump straight into a chat. Returns { ok } or
    * { ok: false, error }.
    */
-  async function openChatInWebview(webview, chatNameRaw) {
+  async function openChatInWebview(webview, chatNameRaw, opts = {}) {
     const chatName = String(chatNameRaw || '').trim();
     if (!chatName) return { ok: false, error: 'no_chat_name' };
 
@@ -655,50 +666,76 @@ import { collectChatsFromSidebarScript } from './webview-scripts/collect-chats.j
     await nativeClick(searchRect.x, searchRect.y);
     await delay(200);
 
-    /* STEP 2: Clear search and type chat name */
-    const selectAllMod = navigator.platform?.includes('Mac') ? 'meta' : 'control';
-    await sendWebviewInput(webview, { type: 'keyDown', keyCode: 'a', modifiers: [selectAllMod] });
-    await sendWebviewInput(webview, { type: 'keyUp', keyCode: 'a', modifiers: [selectAllMod] });
-    await delay(50);
-    await nativeKey('Backspace');
-    await delay(100);
+    /* STEP 2: Clear search and type chat name. Чистка нужна редко (поиск
+       обычно пуст) — пропускаем select-all+Backspace, когда поле пустое. */
+    const searchState = await query(`(() => {
+      const a = document.activeElement;
+      return { text: String(a?.innerText || a?.value || '').trim() };
+    })()`);
+    if (searchState?.text) {
+      const selectAllMod = navigator.platform?.includes('Mac') ? 'meta' : 'control';
+      await sendWebviewInput(webview, { type: 'keyDown', keyCode: 'a', modifiers: [selectAllMod] });
+      await sendWebviewInput(webview, { type: 'keyUp', keyCode: 'a', modifiers: [selectAllMod] });
+      await delay(50);
+      await nativeKey('Backspace');
+      await delay(100);
+    }
 
     await nativeType(chatName);
-    await delay(600);
 
-    /* STEP 3: Find matching search result */
+    /* STEP 3: Find matching search result. Вместо фиксированных 600 мс —
+       опрос появления совпадения каждые 100 мс (потолок ~700 мс): результаты
+       обычно готовы за 100-300 мс, и клик уходит сразу. Ранний матч безопасен:
+       кликаем только строку с совпавшим title. */
     const chatNameLower = chatName.toLowerCase();
-    const matchResult = await query(`(() => {
+    let matchResult = null;
+    for (let attempt = 0; attempt < 7; attempt++) {
+      await delay(100);
+      matchResult = await runSearchMatchQuery();
+      if (matchResult?.x) break;
+    }
+    async function runSearchMatchQuery() {
+      return query(`(() => {
       const normalize = (v) => String(v || '').replace(/\\u200e|\\u200f/g, '').replace(/\\u00a0/g, ' ').replace(/\\s+/g, ' ').trim();
       const query = normalize(${JSON.stringify(chatName)}).toLowerCase();
       const items = Array.from(document.querySelectorAll('#pane-side [role="row"], #side [role="row"]'));
       let exact = null;
       let partial = null;
+      let first = null;
       for (const item of items) {
         const titleEl = item.querySelector('span[title], div[title], [data-testid="cell-frame-title"]');
         const title = normalize(titleEl?.getAttribute('title') || titleEl?.textContent || '');
         if (!title) continue;
+        const r = item.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) continue;
+        const hit = { x: r.left + r.width/2, y: r.top + r.height/2, title, w: r.width, h: r.height };
+        if (!first) first = hit;
         const lower = title.toLowerCase();
-        if (lower === query && !exact) {
-          const r = item.getBoundingClientRect();
-          exact = { x: r.left + r.width/2, y: r.top + r.height/2, title, w: r.width, h: r.height };
-        } else if (lower.includes(query) && !partial) {
-          const r = item.getBoundingClientRect();
-          partial = { x: r.left + r.width/2, y: r.top + r.height/2, title, w: r.width, h: r.height };
-        }
+        if (lower === query && !exact) exact = hit;
+        else if (lower.includes(query) && !partial) partial = hit;
         if (exact) break;
       }
-      return exact || partial || { found: false, itemCount: items.length };
+      return exact || partial || { found: false, itemCount: items.length, first };
     })()`);
+    }
 
-    if (!matchResult?.x) {
+    /* Поиск по номеру телефона: WhatsApp находит сохранённый контакт, но в
+     * заголовке результата стоит ИМЯ — номер в нём не встречается, поэтому
+     * exact/partial пустые. По просьбе вызывающего кликаем первый результат. */
+    const target = matchResult?.x
+      ? matchResult
+      : (opts.pickFirstResult && matchResult?.first?.x ? matchResult.first : null);
+
+    if (!target?.x) {
       await nativeKey('Escape');
       return { ok: false, error: 'chat_not_found', debug: matchResult };
     }
 
-    /* STEP 4: Click the search result */
-    await nativeClick(matchResult.x, matchResult.y);
-    await delay(500);
+    /* STEP 4: Click the search result. 500→250 мс: дальше и так стоит
+       verify-цикл композера (25×150 мс); полностью убирать паузу нельзя —
+       композер прошлого чата подтвердил бы «открылось» до реального переключения. */
+    await nativeClick(target.x, target.y);
+    await delay(250);
 
     /* STEP 5: Verify chat opened */
     let composerReady = false;
@@ -715,7 +752,7 @@ import { collectChatsFromSidebarScript } from './webview-scripts/collect-chats.j
     if (!composerReady) {
       await nativeKey('Escape');
       await delay(100);
-      return { ok: false, error: 'chat_not_confirmed_after_click', clickTarget: matchResult };
+      return { ok: false, error: 'chat_not_confirmed_after_click', clickTarget: target };
     }
 
     return { ok: true };
@@ -767,7 +804,7 @@ import { collectChatsFromSidebarScript } from './webview-scripts/collect-chats.j
     if (!matchResult?.x) return { ok: false, error: 'chat_not_in_list', debug: matchResult };
 
     await nativeClick(matchResult.x, matchResult.y);
-    await delay(400);
+    await delay(150);
 
     /* Verify the chat actually opened (composer present). */
     let composerReady = false;
@@ -885,6 +922,18 @@ import { collectChatsFromSidebarScript } from './webview-scripts/collect-chats.j
 
     await nativeType(text);
     await delay(300);
+
+    // Проба перед Enter: текст реально в композере? Если клик промахнулся
+    // (зум ≠ 100%, WA перерисовал footer) — композер был пуст с самого
+    // начала, и проверка «пуст после Enter» дала бы ложный sent.
+    const wantPrefix = String(text).replace(/\s+/g, ' ').trim().slice(0, 40);
+    const typedProbe = await query(`(() => {
+      const c = document.querySelector('footer div[contenteditable="true"][role="textbox"]') ||
+                document.querySelector('footer div[contenteditable="true"]');
+      const t = (c?.innerText || c?.textContent || '').replace(/\\s+/g, ' ').trim();
+      return { has: t.indexOf(${JSON.stringify(wantPrefix)}) !== -1 };
+    })()`);
+    if (!typedProbe?.has) return { ok: false, error: 'text_not_typed' };
 
     await nativeKey('Enter');
     await delay(500);
@@ -1213,7 +1262,7 @@ import { collectChatsFromSidebarScript } from './webview-scripts/collect-chats.j
      terminal `failed` — a message due right after launch was silently never
      sent. Requeue those via snooze with a short backoff, up to 3 attempts per
      session; everything else stays a real failure. */
-  const TRANSIENT_SEND_ERRORS = new Set(['webview_not_ready', 'webview_not_found', 'search_input_not_found']);
+  const TRANSIENT_SEND_ERRORS = new Set(['webview_not_ready', 'webview_not_found', 'search_input_not_found', 'text_not_typed']);
   const TRANSIENT_RETRY_SNOOZE_MIN = 2;
   const TRANSIENT_RETRY_MAX = 3;
   const _transientRetryCounts = new Map(); // scheduled item id → attempts this session

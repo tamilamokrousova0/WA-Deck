@@ -22,5 +22,7 @@ import './important.js';
 import './notifications.js';
 import './global-search.js';
 import './pin-feed.js';
+import './unread-feed.js';
+import './help.js';
 import './schedule.js';
 import './core/init.js';

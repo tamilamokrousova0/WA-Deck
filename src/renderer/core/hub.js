@@ -49,8 +49,6 @@ function playBrandClickAnimation() {
     'border:1px solid var(--stroke, rgba(255,255,255,0.15))',
     'border-radius:12px',
     'box-shadow:0 16px 40px -12px rgba(0,0,0,0.6)',
-    'backdrop-filter:blur(18px)',
-    '-webkit-backdrop-filter:blur(18px)',
   ].join(';');
   document.body.appendChild(tooltip);
 
@@ -179,28 +177,28 @@ function updateHubClocks() {
    time — a tiny reward for early-birds / night-owls working out of hours.
    Regular 09:00-23:00 keeps the plain "WA Deck" brand. */
 const HUB_MOTIVATION_PHRASES = [
-  'Пока другие спят — ты зарабатываешь 🌙',
-  'Миллион сам себя не сделает 💵',
-  'Каждое сообщение — шаг к богатству 📈',
-  'Работай, пока остальные в кровати 🦉',
-  'Деньги приходят к тем, кто не спит 🦅',
-  'Сегодня трудись — завтра отдыхай 🔥',
-  'Мечты не работают, пока не работаешь ты 💪',
-  'Время — деньги, не теряй ни минуты ⏳',
-  'Твой успех в твоих руках 🎯',
-  'Не жди удачи — создавай её ⚡',
-  'Богатые встают рано ☕',
-  'Лень сегодня — пустой счёт завтра 🏦',
-  'Сильные работают, слабые спят 💯',
-  'Ещё один чат — ещё один рубль в копилке 💼',
-  'Сон переоценён, деньги — нет 💸',
-  'Ты сам проектируешь свой завтрашний доход 🛠️',
-  'Делай больше, чем от тебя ждут 🏆',
-  'Солнце ещё не встало — а ты уже в деле ☀️',
-  'Пока город просыпается — твой доход уже растёт 🏙️',
-  'Пока слабые видят сны — сильные шлют счета 🧾',
-  'Кофе сварен — пора зарабатывать ☕',
-  'Усталость — цена, деньги — награда 🎁',
+  'Пока другие спят — ты зарабатываешь',
+  'Миллион сам себя не сделает',
+  'Каждое сообщение — шаг к богатству',
+  'Работай, пока остальные в кровати',
+  'Деньги приходят к тем, кто не спит',
+  'Сегодня трудись — завтра отдыхай',
+  'Мечты не работают, пока не работаешь ты',
+  'Время — деньги, не теряй ни минуты',
+  'Твой успех в твоих руках',
+  'Не жди удачи — создавай её',
+  'Богатые встают рано',
+  'Лень сегодня — пустой счёт завтра',
+  'Сильные работают, слабые спят',
+  'Ещё один чат — ещё один рубль в копилке',
+  'Сон переоценён, деньги — нет',
+  'Ты сам проектируешь свой завтрашний доход',
+  'Делай больше, чем от тебя ждут',
+  'Солнце ещё не встало — а ты уже в деле',
+  'Пока город просыпается — твой доход уже растёт',
+  'Пока слабые видят сны — сильные шлют счета',
+  'Кофе сварен — пора зарабатывать',
+  'Усталость — цена, деньги — награда',
 ];
 
 // Hour-bucket cache for the motivational hub title (see updateHubGreeting).
@@ -253,49 +251,22 @@ function updateHubGreeting() {
   }
 }
 
+/* Синк active-состояния четырёх вкладок сегмент-контрола (index.html
+   #hub-tabs). Аккаунты — карточки; Непрочитанные/Избранные/Важные — лента
+   непрочитанных в режимах all/fav/imp (unread-feed.js владеет state.hubTab). */
 function updateHubFilters() {
-  const el = document.getElementById('hub-filters');
-  if (!el) return;
-  const filters = [
-    { id: 'all', label: 'Все', hint: 'Все аккаунты' },
-    { id: 'unread', label: 'Непрочитанные', hint: 'Только аккаунты с новыми сообщениями' },
-    { id: 'favorites', label: 'Избранные', hint: 'Только аккаунты с избранными контактами' },
-    { id: 'important', label: 'Важные', hint: 'Только аккаунты с важными контактами' },
-  ];
-  el.innerHTML = '';
-  for (const f of filters) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'hub-filter-chip' + (state.hubFilter === f.id ? ' active' : '');
-    btn.textContent = f.label;
-    btn.title = f.hint;
-    btn.setAttribute('aria-label', f.hint);
-    btn.addEventListener('click', () => {
-      state.hubFilter = f.id;
-      updateHubDashboard();
-    });
-    el.appendChild(btn);
-  }
+  const tab = state.hubTab || 'accounts';
+  const setA = (id, on) => document.getElementById(id)?.classList.toggle('active', on);
+  setA('hub-tab-accounts', tab === 'accounts');
+  setA('hub-tab-unread', tab === 'all');
+  setA('hub-tab-favorites', tab === 'fav');
+  setA('hub-tab-important', tab === 'imp');
 }
 
+/* Вкладка «Аккаунты» показывает все аккаунты; фильтры непрочитанных/
+   избранных/важных теперь живут в ленте (unread-feed), не в списке карточек. */
 function filteredHubAccounts() {
-  const all = state.accounts || [];
-  if (state.hubFilter === 'unread') {
-    return all.filter((a) => Number(state.unreadByAccount.get(a.id) || 0) > 0);
-  }
-  if (state.hubFilter === 'favorites') {
-    const favIds = window.WaDeckFavoritesModule
-      ? window.WaDeckFavoritesModule.favoriteAccountIds()
-      : new Set();
-    return all.filter((a) => favIds.has(a.id));
-  }
-  if (state.hubFilter === 'important') {
-    const impIds = window.WaDeckImportantModule
-      ? window.WaDeckImportantModule.importantAccountIds()
-      : new Set();
-    return all.filter((a) => impIds.has(a.id));
-  }
-  return all;
+  return state.accounts || [];
 }
 
 async function updateHubDashboard() {

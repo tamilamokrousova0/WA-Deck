@@ -8,6 +8,7 @@
    favorites/inbox (collect-unread-chats.js) — reliable because chats with new
    messages bubble to the TOP of WhatsApp's chat list. */
 import { collectUnreadChatsScript } from './webview-scripts/collect-unread-chats.js';
+import { showToast } from './core/helpers.js';
 
   let state, els, setStatus, setActiveAccount, isWebviewReady, safeExecuteInWebview;
 
@@ -154,8 +155,11 @@ import { collectUnreadChatsScript } from './webview-scripts/collect-unread-chats
     try {
       let res = typeof byClick === 'function' ? await byClick(webview, f.name) : { ok: false };
       if (!res?.ok && typeof bySearch === 'function') {
-        await bySearch(webview, f.name);   // fallback: search by name
+        res = await bySearch(webview, f.name);   // fallback: search by name
       }
+      // Бейдж уже сброшен оптимистично — при неоткрытии чата честный тост
+      // (иначе важный контакт молча выпадает; рескан вернёт бейдж, если надо).
+      if (!res?.ok) showToast(`Чат «${f.name}» не открылся — откройте вручную`, 'error', 4000);
     } catch { /* stay on the account */ }
     rescanSoon(1500);
     rescanSoon(4000);

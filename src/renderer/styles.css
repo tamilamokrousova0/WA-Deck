@@ -65,10 +65,7 @@
   --z-popover: 100;
   --z-dropdown: 150;
   --z-modal: 1100;
-  --app-bg:
-    radial-gradient(900px 500px at 12% -15%, #1e2d3f 0%, transparent 55%),
-    radial-gradient(900px 500px at 98% -20%, #2a1f3d 0%, transparent 50%),
-    linear-gradient(180deg, #121820 0%, #0f1319 65%);
+  --app-bg: linear-gradient(180deg, #121820 0%, #0f1319 65%);
   --hub-bg: none;
 }
 
@@ -105,10 +102,7 @@ html[data-theme='light'] {
   --z-popover: 100;
   --z-dropdown: 150;
   --z-modal: 1100;
-  --app-bg:
-    radial-gradient(800px 460px at 10% -25%, #d8efff 0%, transparent 60%),
-    radial-gradient(860px 520px at 100% -30%, #e9ddff 0%, transparent 54%),
-    linear-gradient(180deg, #f6faff 0%, #edf4ff 68%);
+  --app-bg: linear-gradient(180deg, #f6faff 0%, #edf4ff 68%);
   --hub-bg: none;
 }
 
@@ -339,12 +333,11 @@ html[data-theme='light'] .sidebar-resize-handle.active {
   /* No decorative drop shadow (Law 1) — box-shadow is reserved for the
      state rings (active green / reminder amber). */
   overflow: visible;
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.15s ease, box-shadow 0.25s ease;
+  transition: transform 0.2s ease-out, filter 0.15s ease, box-shadow 0.25s ease;
 }
 
 .account-item:hover {
   filter: brightness(1.1);
-  transform: scale(1.08);
 }
 
 .account-item.dragging {
@@ -725,7 +718,7 @@ html[data-theme='light'] .btn-toolbar-icon.is-active {
 
 /* Settings gear — rotate 45° on hover (Lovable style) */
 .btn-settings:hover .icon-gear {
-  animation: gearTurn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: gearTurn 0.3s ease-out forwards;
 }
 
 @keyframes hoverSpin {
@@ -1299,9 +1292,7 @@ html[data-theme='light'] .hub-title {
   border-top-right-radius: 0;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
-  background:
-    radial-gradient(420px 220px at 10% -8%, rgba(61, 214, 140, 0.06), transparent 70%),
-    linear-gradient(180deg, #1b2233 0%, #151a24 100%);
+  background: linear-gradient(180deg, #1b2233 0%, #151a24 100%);
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -1310,7 +1301,7 @@ html[data-theme='light'] .hub-title {
   z-index: 20;
   box-shadow: -12px 0 40px -16px rgba(0, 0, 0, 0.5), -2px 0 8px rgba(0, 0, 0, 0.2);
   padding-bottom: 16px;
-  animation: panelSlideIn 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+  animation: panelSlideIn 0.13s cubic-bezier(0.2, 0.9, 0.3, 1);
 }
 html[data-theme='light'] .panel {
   border-color: rgba(0, 0, 0, 0.08);
@@ -1402,9 +1393,7 @@ html[data-theme='light'] .panel {
 
 .card {
   border: 1px solid #2b313b;
-  background:
-    radial-gradient(120% 120% at -10% 0%, rgba(61, 214, 140, 0.04), transparent 60%),
-    linear-gradient(180deg, #1a2030 0%, #181e2b 100%);
+  background: linear-gradient(180deg, #1a2030 0%, #181e2b 100%);
   border-radius: var(--radius-lg);
   padding: 10px;
   display: grid;
@@ -1473,7 +1462,7 @@ html[data-theme='light'] .panel {
 }
 
 .card-collapsible[open] > :not(summary) {
-  animation: cardReveal 0.25s ease;
+  animation: cardReveal 0.14s ease;
 }
 
 @keyframes cardReveal {
@@ -1777,8 +1766,8 @@ html[data-theme='light'] textarea[readonly] {
   position: absolute;
   inset: 0;
   background: rgba(1, 6, 14, 0.6);
-  backdrop-filter: blur(8px) saturate(1.2);
-  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   display: grid;
   place-items: center;
   z-index: var(--z-modal);
@@ -1809,7 +1798,7 @@ html[data-theme='light'] textarea[readonly] {
   display: grid;
   gap: 10px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
-  animation: modalCardIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: modalCardIn 0.14s ease-out;
 }
 
 @keyframes modalCardIn {
@@ -1961,12 +1950,10 @@ html[data-theme='light'] .picker-account-display.is-empty {
   overflow-x: hidden;
   border: 1px solid rgba(43, 49, 59, 0.8);
   border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, rgba(26, 32, 48, 0.95), rgba(21, 26, 36, 0.97));
+  background: linear-gradient(180deg, #1a2030, #151a24);
   color: #e5eaf0;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
   padding: 12px 14px 14px;
-  backdrop-filter: blur(16px) saturate(120%);
-  -webkit-backdrop-filter: blur(16px) saturate(120%);
   pointer-events: auto;
   animation: crmHoverIn 0.15s ease-out;
   transition: left 0.12s ease, top 0.12s ease;
@@ -2107,9 +2094,7 @@ html[data-theme='light'] .sidebar-scroll-btn:not(.hidden):hover {
 
 
 html[data-theme='light'] .toolbar {
-  background:
-    radial-gradient(460px 100px at 18% 0%, rgba(41, 212, 127, 0.16), transparent 72%),
-    linear-gradient(180deg, #f9fcff 0%, #eef5ff 100%);
+  background: linear-gradient(180deg, #f9fcff 0%, #eef5ff 100%);
 }
 
 html[data-theme='light'] .hub-dashboard {
@@ -2133,9 +2118,7 @@ html[data-theme='light'] .toolbar-clock:hover {
 
 html[data-theme='light'] .active-account-display {
   border-color: rgba(64, 159, 108, 0.42);
-  background:
-    radial-gradient(120% 200% at 50% 0%, rgba(79, 219, 147, 0.18), rgba(235, 245, 255, 0.9)),
-    linear-gradient(180deg, rgba(249, 252, 255, 0.94) 0%, rgba(233, 242, 253, 0.96) 100%);
+  background: linear-gradient(180deg, rgba(249, 252, 255, 0.94) 0%, rgba(233, 242, 253, 0.96) 100%);
   color: #174f38;
 }
 
@@ -2167,9 +2150,7 @@ html[data-theme='light'] .unread-indicator {
 
 
 html[data-theme='light'] .panel {
-  background:
-    radial-gradient(420px 220px at 10% -8%, rgba(49, 213, 132, 0.09), transparent 70%),
-    linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%);
+  background: linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%);
   box-shadow: -12px 0 24px rgba(0, 0, 0, 0.08);
 }
 
@@ -2211,7 +2192,7 @@ html[data-theme='light'] input,
 html[data-theme='light'] select,
 html[data-theme='light'] textarea {
   border-color: #c0d3ea;
-  background: #fcfeff;
+  background-color: #fcfeff;
   color: #10253d;
 }
 
@@ -2343,7 +2324,7 @@ html[data-theme='light'] .account-menu-status {
   padding: 8px 14px;
   max-width: 340px;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-  animation: toastSlideIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: toastSlideIn 0.16s ease-out;
   opacity: 1;
   transition: opacity 0.25s ease;
 }
@@ -2974,8 +2955,6 @@ html[data-theme='light'] .color-dot.active {
   padding: 5px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255, 255, 255, 0.03) inset;
   animation: contextMenuIn 0.12s ease;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
 }
 
 .context-menu-item {
@@ -3187,80 +3166,107 @@ html[data-theme='light'] .color-dot.active {
   flex-shrink: 0;
 }
 
-/* ── Clocks Settings ── */
+/* ── Clocks Settings — те же токены, что у остальных форм настроек ── */
 .clocks-settings-list {
   display: grid;
-  gap: 3px;
+  gap: 4px;
   margin-bottom: 6px;
 }
 .clocks-settings-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  font-size: 11px;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.03);
-  color: #7e8ea0;
+  gap: 6px;
+  padding: 4px;
+  font-size: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--stroke-soft);
+  background: color-mix(in oklab, var(--bg-2) 50%, transparent);
+  color: var(--text-2);
   overflow: hidden;
 }
-.clocks-settings-row .clock-label-input {
-  flex: 0 0 70px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: var(--radius-sm);
-  color: #7e8ea0;
-  font-size: 11px;
-  padding: 2px 4px;
+.clocks-settings-row .clock-label-input,
+.clocks-add-form input {
+  flex: 0 0 88px;
   min-width: 0;
+  min-height: 26px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 12px;
+  padding: 3px 8px;
 }
-.clocks-settings-row .clock-tz-select {
+.clocks-settings-row .clock-tz-select,
+.clocks-add-form .settings-select {
   flex: 1;
   min-width: 0;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
+  min-height: 26px;
+  font-size: 12px;
+  padding: 3px 26px 3px 8px;
   border-radius: var(--radius-sm);
-  color: #7e8ea0;
-  font-size: 10px;
-  padding: 2px 2px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .clocks-settings-row .btn-remove-clock {
-  background: none;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
   border: none;
-  color: #d94040;
+  border-radius: var(--radius-sm);
+  color: var(--text-4);
   cursor: pointer;
-  font-size: 13px;
-  padding: 0 2px;
-  opacity: 0.6;
+  font-size: 12px;
+  line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.clocks-settings-row .btn-remove-clock:hover { opacity: 1; }
+.clocks-settings-row .btn-remove-clock:hover {
+  background: var(--rose-soft);
+  color: var(--rose);
+}
 .clocks-add-form {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   overflow: hidden;
   margin-top: 4px;
 }
 .clocks-add-form.hidden { display: none; }
-.clocks-add-form input { flex: 1; min-width: 0; font-size: 11px; padding: 3px 6px; }
-.clocks-add-form select { flex: 1.2; min-width: 0; font-size: 11px; padding: 3px 2px; }
-.clocks-add-form .btn-small { padding: 3px 8px; font-size: 12px; min-width: 28px; }
+.clocks-add-form input { flex: 1; }
+.clocks-add-form .settings-select { flex: 1.2; }
+.clocks-add-form .btn-small { padding: 3px 10px; font-size: 12px; min-width: 30px; min-height: 26px; }
 .btn-add-clock {
   display: block;
   width: 100%;
   margin-top: 6px;
-  padding: 4px 0;
-  font-size: 11px;
+  padding: 5px 0;
+  font-size: 12px;
   text-align: center;
-  background: rgba(255,255,255,0.04);
-  border: 1px dashed rgba(255,255,255,0.12);
-  border-radius: var(--radius-sm);
-  color: #7e8ea0;
+  background: transparent;
+  border: 1px dashed var(--stroke);
+  border-radius: var(--radius-md);
+  color: var(--text-3);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
-.btn-add-clock:hover { background: rgba(255,255,255,0.08); color: #b6cae5; }
+.btn-add-clock:hover {
+  background: var(--accent-soft);
+  border-color: color-mix(in oklab, var(--accent) 45%, transparent);
+  color: var(--accent);
+}
+html[data-theme='light'] .clocks-settings-row {
+  background: rgba(255, 255, 255, 0.75);
+}
+html[data-theme='light'] .clocks-settings-row:hover {
+  background: #ffffff;
+}
+html[data-theme='light'] .clocks-settings-row .clock-label-input,
+html[data-theme='light'] .clocks-add-form input {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+}
 
 /* ── CRM note header ── */
 .crm-note-header {
@@ -3445,15 +3451,15 @@ html[data-theme='light'] .update-progress {
 
 /* Account items stagger on load */
 .account-item {
-  animation: slideInLeft 0.3s ease-out backwards;
+  animation: slideInLeft 0.18s ease-out backwards;
 }
 .account-item:nth-child(1) { animation-delay: 0s; }
-.account-item:nth-child(2) { animation-delay: 0.08s; }
-.account-item:nth-child(3) { animation-delay: 0.16s; }
-.account-item:nth-child(4) { animation-delay: 0.24s; }
-.account-item:nth-child(5) { animation-delay: 0.32s; }
-.account-item:nth-child(6) { animation-delay: 0.40s; }
-.account-item:nth-child(7) { animation-delay: 0.48s; }
+.account-item:nth-child(2) { animation-delay: 0.04s; }
+.account-item:nth-child(3) { animation-delay: 0.08s; }
+.account-item:nth-child(4) { animation-delay: 0.12s; }
+.account-item:nth-child(5) { animation-delay: 0.16s; }
+.account-item:nth-child(6) { animation-delay: 0.2s; }
+.account-item:nth-child(7) { animation-delay: 0.24s; }
 .account-item:nth-child(8) { animation-delay: 0.56s; }
 
 /* Toolbar entrance */
@@ -3485,7 +3491,7 @@ html[data-theme='light'] .update-progress {
 }
 
 .account-unread {
-  animation: badgePop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), badgePulse 2s ease-in-out 0.5s 4;
+  animation: badgePop 0.4s ease-out, badgePulse 2s ease-in-out 0.5s 4;
 }
 @keyframes badgePulse {
   0%, 100% { transform: scale(1); }
@@ -3494,7 +3500,7 @@ html[data-theme='light'] .update-progress {
 
 /* Unread indicator in toolbar */
 .unread-indicator:not(.hidden) {
-  animation: badgePop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: badgePop 0.4s ease-out;
 }
 
 
@@ -3539,10 +3545,11 @@ html[data-theme='light'] .update-progress {
 
 /* ── Clock Settings Row Hover ── */
 .clocks-settings-row {
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 .clocks-settings-row:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-2);
+  border-color: var(--stroke);
 }
 
 .btn-primary {
@@ -3822,7 +3829,7 @@ html[data-theme='light'] .settings-back-btn:hover {
 
 /* Panel view containers with slide animation on switch */
 .settings-view {
-  animation: settingsViewIn 0.24s cubic-bezier(0.2, 0.9, 0.3, 1);
+  animation: settingsViewIn 0.13s cubic-bezier(0.2, 0.9, 0.3, 1);
 }
 @keyframes settingsViewIn {
   from { opacity: 0; transform: translateX(8px); }
@@ -3872,20 +3879,10 @@ html[data-theme='light'] .settings-back-btn:hover {
   position: relative;
   overflow: hidden;
 }
-.settings-menu-item::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(120deg, transparent 30%, rgba(34, 197, 94, 0.06) 50%, transparent 70%);
-  transform: translateX(-100%);
-  transition: transform 0.5s ease;
-  pointer-events: none;
-}
 .settings-menu-item:hover {
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.12);
 }
-.settings-menu-item:hover::before { transform: translateX(100%); }
 .settings-menu-item:active {
   transform: translateY(0);
   background: rgba(255, 255, 255, 0.035);
@@ -4187,15 +4184,13 @@ html[data-theme='light'] .btn-panel-close:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(27, 33, 48, 0.85);
+  background: #1b2130;
   color: var(--text);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(10px) saturate(140%);
-  -webkit-backdrop-filter: blur(10px) saturate(140%);
   box-shadow: 0 10px 25px -12px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.25);
   cursor: pointer;
   z-index: 150;
-  transition: background 0.18s ease, border-color 0.18s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s ease;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.2s ease-out, color 0.2s ease;
   padding: 0;
 }
 .tweaks-fab:hover {
@@ -4231,14 +4226,11 @@ html[data-theme='light'] .tweaks-fab:hover {
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-lg);
-  background:
-    linear-gradient(180deg, rgba(27, 33, 48, 0.92) 0%, rgba(21, 26, 36, 0.92) 100%);
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  background: linear-gradient(180deg, #1b2130 0%, #151a24 100%);
   box-shadow: 0 20px 55px -18px rgba(0, 0, 0, 0.7), 0 4px 14px rgba(0, 0, 0, 0.35);
   z-index: 149;
   transform-origin: bottom right;
-  animation: tweaksPopIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: tweaksPopIn 0.22s ease-out;
 }
 .tweaks-panel-floating.hidden {
   display: none;
@@ -4249,8 +4241,7 @@ html[data-theme='light'] .tweaks-fab:hover {
 }
 html[data-theme='light'] .tweaks-panel-floating {
   border-color: rgba(0, 0, 0, 0.1);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(245, 247, 251, 0.96) 100%);
+  background: linear-gradient(180deg, #ffffff 0%, #f5f7fb 100%);
   box-shadow: 0 20px 55px -18px rgba(0, 0, 0, 0.2), 0 4px 14px rgba(0, 0, 0, 0.08);
 }
 html[data-theme='light'] .tweaks-head-title,
@@ -4275,8 +4266,6 @@ html[data-theme='light'] .tweaks-collapse-btn:hover {
   border-radius: var(--radius-lg);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0%, rgba(255, 255, 255, 0.015) 100%);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
   box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.6);
 }
 html[data-theme='light'] .tweaks-panel {
@@ -4499,7 +4488,7 @@ html[data-scene='minimal'] #app .panel {
   border-radius: 50%;
   background: #d9dee5;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease;
+  transition: transform 0.22s ease-out, background 0.2s ease;
 }
 .toggle-switch input[type="checkbox"]:checked + .toggle-switch-track {
   background: var(--green);
@@ -4524,8 +4513,6 @@ html[data-theme='light'] .toggle-switch-thumb {
 /* ── Settings: select inside a toggle-row (e.g. hibernation) ── */
 .settings-select {
   flex: 0 0 auto;
-  width: 88px;
-  max-width: 88px;
   background: rgba(255, 255, 255, 0.05);
   color: var(--text);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -4540,13 +4527,21 @@ html[data-theme='light'] .toggle-switch-thumb {
 }
 .settings-select:hover {
   border-color: rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.08);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+/* Ширина — по контексту: компактный в toggle-row, во весь столбец в формах */
+.toggle-row .settings-select {
+  width: 88px;
+  max-width: 88px;
+}
+label > .settings-select {
+  width: 100%;
 }
 .settings-select:focus-visible {
   border-color: var(--green);
 }
 html[data-theme='light'] .settings-select {
-  background: rgba(0, 0, 0, 0.04);
+  background-color: rgba(0, 0, 0, 0.04);
   border-color: rgba(0, 0, 0, 0.1);
   color: var(--text);
 }
@@ -4571,12 +4566,10 @@ html[data-theme='light'] .settings-select {
   min-width: 280px;
   max-width: 360px;
   padding: 12px 14px;
-  background: rgba(28, 32, 42, 0.92);
+  background: #1c202a;
   border: 1px solid rgba(34, 197, 94, 0.35);
   border-radius: var(--radius-lg);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
-  backdrop-filter: saturate(140%) blur(10px);
-  -webkit-backdrop-filter: saturate(140%) blur(10px);
   color: var(--text);
   font-family: inherit;
   animation: update-toast-slide-in 0.25s ease-out;
@@ -4711,9 +4704,7 @@ html[data-theme='light'] .update-toast-progress {
 /* Toolbar — flat working surface (Law 1): no backdrop blur; the toolbar
    doesn't float over content, so blur only costs GPU. */
 .toolbar {
-  background:
-    radial-gradient(520px 120px at 18% 0%, color-mix(in oklab, var(--accent) 8%, transparent), transparent 70%),
-    color-mix(in oklab, var(--bg-1) 70%, transparent);
+  background: color-mix(in oklab, var(--bg-1) 70%, transparent);
   border-bottom: 1px solid var(--stroke-soft);
 }
 
@@ -4820,9 +4811,7 @@ html[data-theme='light'] .update-toast-progress {
    no translucent color-mix (otherwise the blue/green app background bleeds
    through and reduces readability on popovers, panels, etc.) */
 html[data-theme='light'] .toolbar {
-  background:
-    radial-gradient(520px 120px at 18% 0%, color-mix(in oklab, var(--accent) 7%, transparent), transparent 70%),
-    #ffffff;
+  background: #ffffff;
   border-bottom-color: #dbe4f3;
 }
 html[data-theme='light'] .active-account-display {
@@ -4959,11 +4948,9 @@ html[data-theme='light'] .add-account-btn:hover {
   padding: 20px 24px 24px;
   text-align: left;
   overflow-y: auto;
-  background: color-mix(in oklab, var(--bg-1) 75%, transparent);
+  background: var(--bg-1);
   border: 1px solid var(--stroke-soft);
   border-radius: var(--radius-lg);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
   box-shadow: var(--shadow-panel);
 }
 .hub-overlay::-webkit-scrollbar { width: 8px; }
@@ -4980,29 +4967,14 @@ html[data-theme='light'] .add-account-btn:hover {
   text-align: left;
   margin: 0 0 4px;
 }
-/* Out-of-hours motivational phrase (23:00–08:59) — gradient text, subtle
-   breathing glow, oversized emoji tail. Hard to miss, but not obnoxious. */
+/* Out-of-hours motivational phrase (23:00–08:59) — set in the accent green
+   so it reads as a state change, at the same scale as the brand title. */
 .hub-title--motivation {
-  background: linear-gradient(110deg, #3dd68c 0%, #f5a623 55%, #ff4d88 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  font-weight: 800;
+  color: var(--green);
+  font-weight: 700;
   font-size: 26px;
   line-height: 1.2;
   letter-spacing: -0.015em;
-  filter: drop-shadow(0 2px 12px rgba(245, 166, 35, 0.35));
-  animation: hubMotivationGlow 3.2s ease-in-out infinite;
-}
-@keyframes hubMotivationGlow {
-  0%, 100% { filter: drop-shadow(0 2px 10px rgba(245, 166, 35, 0.30)); }
-  50%      { filter: drop-shadow(0 2px 16px rgba(61, 214, 140, 0.55)); }
-}
-html[data-theme='light'] .hub-title--motivation {
-  background: linear-gradient(110deg, #22b46e 0%, #e58a00 55%, #e6286c 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
 }
 /* Greeting line above title */
 .hub-greeting {
@@ -5369,13 +5341,9 @@ html[data-theme='light'] .hub-empty {
    Redesign overrides — Phase 4 (drawers / panels polish)
    ============================================================ */
 
-/* Settings panel — glass panel look */
+/* Settings panel — solid surface */
 .panel {
-  background:
-    radial-gradient(420px 220px at 10% -8%, color-mix(in oklab, var(--accent) 6%, transparent), transparent 70%),
-    color-mix(in oklab, var(--bg-1) 92%, transparent);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  background: var(--bg-1);
   border-left: 1px solid var(--stroke);
   box-shadow: var(--shadow-panel);
 }
@@ -5470,12 +5438,10 @@ html[data-theme='light'] .modal-card-crm .crm-badge {
   max-width: 420px;
   width: min(420px, 92vw);
   padding: 0;
-  background: color-mix(in oklab, var(--bg-1) 95%, transparent);
+  background: var(--bg-1);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
 }
 .modal-card-crm .crm-modal-head {
   padding: 16px 18px 12px;
@@ -6011,7 +5977,44 @@ html[data-theme='light'] .tmpl-lib-lang { color: #7289a7; }
   border-top: 0;
   border-bottom: 0;
   box-shadow: var(--shadow-panel);
-  animation: crmDrawerSlideIn 0.28s cubic-bezier(.2, .8, .2, 1);
+  animation: crmDrawerSlideIn 0.15s cubic-bezier(.2, .8, .2, 1);
+  /* Грид .modal-card на высоте 100vh растягивал ряды — секции разъезжались
+     по всей высоте с дырами. Флекс-колонка: контент сверху, «Моя информация»
+     занимает свободное место, действия и файл прижаты к низу. */
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+#crm-modal .modal-card-crm .crm-modal-head,
+#crm-modal .modal-card-crm .crm-section,
+#crm-modal .modal-card-crm .crm-modal-actions,
+#crm-modal .modal-card-crm .crm-meta {
+  flex: 0 0 auto;
+}
+/* Оба текстовых поля растут под свой текст (field-sizing: content,
+   Chromium 123+); «Моя информация» больше не съедает всю высоту, «О контакте»
+   больше не зажат. Длинные карточки скроллятся внутри драуэра. */
+#crm-modal .modal-card-crm {
+  overflow-y: auto;
+}
+#crm-modal .modal-card-crm .crm-section-accent {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#crm-modal .modal-card-crm .crm-label textarea,
+#crm-modal .modal-card-crm .crm-section textarea,
+#crm-modal .modal-card-crm .crm-section-accent textarea {
+  field-sizing: content;
+  min-height: 56px;
+  max-height: none;
+  overflow-y: hidden;
+  resize: none;
+}
+/* Кнопки и путь к файлу прижаты к низу, пока карточка короче драуэра */
+#crm-modal .modal-card-crm .crm-modal-actions {
+  margin-top: auto;
 }
 @keyframes crmDrawerSlideIn {
   from { transform: translateX(24px); opacity: 0; }
@@ -6268,8 +6271,19 @@ html[data-theme='light'] {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   background: linear-gradient(180deg, #161b26 0%, #141823 100%);
   min-width: 0;
+  /* Плавное появление/сворачивание высоты вместо резкого display-скачка —
+     чат под ним не дёргается на 44px. */
+  transition: height 0.2s ease, opacity 0.2s ease, border-bottom-width 0.2s ease;
 }
-.pin-feed.hidden { display: none; }
+/* overflow:hidden только в свёрнутом состоянии — иначе клипнулся бы поповер
+   «+N тихих» (position:absolute, top:100%). */
+.pin-feed.hidden {
+  height: 0;
+  opacity: 0;
+  border-bottom-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
 
 .pin-feed-head {
   flex: 0 0 auto;
@@ -6480,3 +6494,360 @@ html[data-theme='light'] {
   font-size: 11px;
   color: var(--text-3, #6b7686);
 }
+
+/* ── Unified unread feed (hub tab) ─────────────────────────────────────── */
+.hub-tabs {
+  justify-content: center;
+  margin-bottom: 14px;
+}
+#hub-unread-total,
+#hub-fav-total,
+#hub-imp-total {
+  font-weight: 700;
+  margin-left: 4px;
+  color: var(--accent);
+}
+.hub-filter-chip.active #hub-unread-total,
+.hub-filter-chip.active #hub-fav-total,
+.hub-filter-chip.active #hub-imp-total { color: inherit; }
+
+/* Вкладка «Непрочитанные» скрывает секцию аккаунтов и наоборот —
+   классом на overlay, чтобы пережить любые ре-рендеры хаба */
+#hub-unread-feed { display: none; }
+#hub-overlay.huf-active .hub-section-head,
+#hub-overlay.huf-active #hub-dashboard,
+#hub-overlay.huf-active #hub-actions-row { display: none; }
+#hub-overlay.huf-active #hub-unread-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: min(640px, 92%);
+  margin: 0 auto;
+  padding-bottom: 20px;
+}
+
+/* Компактная однострочная строка: имя · превью · аккаунт · счётчик */
+.huf-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--stroke-soft);
+  background: var(--bg-2);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  min-width: 0;
+  transition: background 0.15s, border-color 0.15s;
+}
+.huf-row:hover {
+  background: var(--bg-3);
+  border-color: var(--accent);
+}
+.huf-row-who {
+  flex-shrink: 0;
+  max-width: 38%;
+  font-weight: 600;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.huf-row-preview {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.huf-row-acct {
+  flex-shrink: 0;
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.huf-row-cnt {
+  flex-shrink: 0;
+  min-width: 18px;
+  text-align: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #22c55e;
+  color: #fff;
+}
+.huf-note {
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--text-3);
+  padding: 8px 0 2px;
+}
+
+html[data-theme='light'] .huf-row {
+  border-color: rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.75);
+}
+html[data-theme='light'] .huf-row:hover {
+  background: #ffffff;
+}
+
+/* ── F1 Help overlay ───────────────────────────────────────────────────── */
+.help-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(8, 12, 22, 0.55);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.help-overlay.hidden { display: none; }
+.help-box {
+  width: min(720px, 92vw);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  border: 1px solid var(--stroke);
+  background: var(--bg-1);
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
+}
+.help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--stroke-soft);
+}
+.help-head h2 { margin: 0; font-size: 16px; }
+.help-close {
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+.help-close:hover { color: inherit; background: rgba(255, 255, 255, 0.06); }
+.help-body {
+  overflow-y: auto;
+  padding: 12px 20px 20px;
+}
+.help-section { margin-bottom: 16px; }
+.help-section h3 {
+  margin: 10px 0 6px;
+  font-size: 13px;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+.help-section p {
+  margin: 5px 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.help-section p b { color: var(--text-strong); font-weight: 600; }
+.help-hotkeys {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.help-hotkeys kbd {
+  justify-self: start;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--stroke-soft);
+  background: rgba(255, 255, 255, 0.05);
+}
+html[data-theme='light'] .help-box {
+  background: #ffffff;
+  border-color: #dbe4f3;
+}
+html[data-theme='light'] .help-close:hover { background: rgba(0, 0, 0, 0.05); }
+html[data-theme='light'] .help-hotkeys kbd {
+  border-color: #d4dcea;
+  background: #f3f6fb;
+}
+
+/* ══ Design pass 0.8.3 — единый стиль панелей и контролов (по аудиту) ══ */
+
+/* P0: нативные виджеты (списки селектов, календарь, скроллбары) рендерились
+   светлыми поверх тёмной темы */
+:root { color-scheme: dark; }
+html[data-theme='light'] { color-scheme: light; }
+
+/* P0: селекты — единый вид с инпутами, свой шеврон вместо OS-стрелки */
+.settings-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2395a0b4' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  padding-right: 26px;
+}
+
+/* P0: быстрые кнопки времени — жёсткая сетка 4-в-ряд ("+20 мин" сиротела) */
+.schedule-quick-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.btn-quick-min { padding: 2px 4px; white-space: nowrap; font-size: 10.5px; }
+
+/* P0: вкладки хаба — сегмент-контрол, визуально отличимый от мелких
+   фильтров аккаунтов (две chip-строки читались как одно и то же) */
+.hub-tabs {
+  display: flex;
+  width: fit-content;
+  gap: 4px;
+  margin: 2px auto 14px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke-soft);
+  background: var(--bg-1);
+}
+.hub-tabs .hub-filter-chip {
+  min-width: 92px;
+  justify-content: center;
+  padding: 6px 16px;
+  font-size: 12px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+}
+.hub-tabs .hub-filter-chip.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* P2: заголовочный блок хаба на одной оси с часами/вкладками */
+.hub-greeting,
+.hub-title { text-align: center; justify-content: center; }
+
+/* P2: панели поиска и справки — те же токены, что у остальных панелей */
+.gs-box,
+.help-box {
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--stroke);
+  background: var(--bg-1);
+  box-shadow: var(--shadow-panel);
+}
+
+/* P1: клавиатурный фокус для новых интерактивов */
+.hub-filter-chip:focus-visible,
+.huf-row:focus-visible,
+.gs-row:focus-visible,
+.help-close:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* P1: чипы тулбара (погода/часы/активный аккаунт) — одна высота */
+.toolbar-clock,
+.active-account-display,
+.weather-toggle {
+  min-height: 28px;
+  box-sizing: border-box;
+}
+
+/* ══ Compact pass 0.8.5 — плотность панели настроек ══════════════════════
+   По фидбэку: секции и контролы панели были «объёмными», эталон плотности —
+   переработанные «Мировые часы» (контролы 26px, шрифт 12, зазоры 4-6px).
+   Всё скоупится на .panel / детали настроек — модалки и тулбар не трогаем. */
+
+/* Контейнер панели */
+.panel { padding: 12px; gap: 10px; }
+.panel-top { padding-bottom: 10px; }
+
+/* Верхнее меню: карточки-ссылки ниже и плотнее */
+.settings-menu-list { gap: 5px; }
+.settings-menu-item { padding: 7px 10px; gap: 10px; }
+.settings-menu-ico { width: 28px; height: 28px; }
+.settings-menu-ico svg { width: 15px; height: 15px; }
+.settings-menu-text { gap: 1px; }
+.settings-menu-title { font-size: 12.5px; }
+.settings-menu-sub { font-size: 10.5px; }
+.settings-group-label { margin: 2px 4px 6px; }
+.settings-menu-list + .settings-group-label { margin-top: 14px; }
+
+/* Карточки-секции: шапка 28px, поля ближе друг к другу */
+.card { padding: 8px; gap: 6px; }
+.card-collapsible { padding: 0; }
+.card-collapsible > summary { min-height: 28px; padding: 5px 28px 5px 10px; }
+.card-collapsible > summary::after { right: 12px; width: 7px; height: 7px; }
+.card-collapsible > :not(summary) { margin: 0 8px 8px; }
+
+/* Поля форм — высота как у контролов часов (~26px) */
+.panel input,
+.panel select,
+.panel textarea { padding: 5px 8px; font-size: 12px; }
+.panel textarea { min-height: 60px; }
+.settings-view-detail label:not(.toggle-row) { gap: 4px; font-size: 10px; }
+.settings-view-detail label > input[type="text"],
+.settings-view-detail label > input[type="datetime-local"],
+.settings-view-detail label > select,
+.settings-view-detail label > textarea { font-size: 12px; }
+
+/* Кнопки в панели — 26px, радиус как у полей */
+.panel .btn {
+  min-height: 26px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  border-radius: var(--radius-md);
+}
+/* «Проверить обновление» / «Папка данных» — по фидбэку остаются крупными,
+   в размер карточек меню над ними */
+.panel .btn.settings-check-update {
+  min-height: 40px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  border-radius: var(--radius-lg);
+}
+.panel .btn-icon { min-width: 26px; padding: 4px 0; }
+.schedule-quick-row { gap: 5px; }
+.attachments-list,
+.scheduled-list { gap: 4px; }
+
+/* Детальные вью: карточка-поверхность — главный источник «объёмности»
+   (было padding 16 / gap 12) */
+.settings-view-detail details.card-collapsible {
+  padding: 10px;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.settings-view-detail details.card-collapsible[open] { padding: 10px; }
+
+/* Тумблерные строки «Интерфейса» */
+.toggle-row { padding: 7px 4px; gap: 10px; }
+.toggle-row-text { gap: 2px; }
+.toggle-row-title { font-size: 12px; }
+.toggle-row-hint { font-size: 10.5px; line-height: 1.35; }
+
+/* CRM-драуэр — той же плотности, что панель */
+.modal-card-crm .crm-modal-head { padding: 12px 14px 10px; }
+.modal-card-crm .crm-section { padding: 10px 14px; gap: 6px; }
+.modal-card-crm .crm-label input,
+.modal-card-crm .crm-label textarea,
+.modal-card-crm .crm-section textarea,
+.modal-card-crm .crm-section-accent textarea { padding: 7px 10px; }
+.modal-card-crm .crm-modal-actions { padding: 10px 14px 12px; }
+.modal-card-crm .crm-modal-actions .btn.btn-primary,
+.modal-card-crm .crm-modal-actions .btn:not(.btn-primary) { height: 28px; padding: 0 12px; }
+.modal-card-crm .crm-meta { padding: 6px 14px 10px; }

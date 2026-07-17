@@ -12,6 +12,7 @@
    anchored to a toolbar pill, which removes the old off-screen-panel class of
    bugs entirely. */
 import { collectUnreadChatsScript } from './webview-scripts/collect-unread-chats.js';
+import { state } from './core/state.js';
 
   const ICON = {
     fav: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8 6.8 19.5l1-5.8-4.2-4.1 5.8-.8z"/></svg>',
@@ -37,13 +38,27 @@ import { collectUnreadChatsScript } from './webview-scripts/collect-unread-chats
      period so every cycle still gets fresh data. */
   const _scanCache = new Map(); // accountId -> { t, rows }
   const SCAN_TTL_MS = 4500;
+  /* Title-гейт: счётчик из заголовка вкладки (page-title-updated) бесплатный
+     и событийный. При 0 непрочитанных инъекция скана — впустую сожжённый
+     layout в 20 webview (~7 executeJavaScript/сек суммарно). Muted-чаты в
+     title-счётчик не попадают — раз в ~30 с сканируем по-настоящему. */
+  const ZERO_RECON_MS = 30000;
+  const _lastFullScanAt = new Map();
+
   async function scanAccountUnread(accountId, webview, exec) {
     const key = String(accountId || '');
     const cached = _scanCache.get(key);
     if (cached && (Date.now() - cached.t) < SCAN_TTL_MS) return cached.rows;
+    const titleCount = Number(state?.unreadByAccount?.get?.(key));
+    if (titleCount === 0 && (Date.now() - (_lastFullScanAt.get(key) || 0)) < ZERO_RECON_MS) {
+      return [];
+    }
     let rows = null;
     try { rows = await exec(webview, collectUnreadChatsScript(), true); } catch { rows = null; }
-    if (Array.isArray(rows)) _scanCache.set(key, { t: Date.now(), rows });
+    if (Array.isArray(rows)) {
+      _scanCache.set(key, { t: Date.now(), rows });
+      _lastFullScanAt.set(key, Date.now());
+    }
     return rows;
   }
 

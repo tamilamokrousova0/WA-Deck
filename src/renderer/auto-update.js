@@ -146,62 +146,9 @@ import { closeModalAnimated } from './core/helpers.js';
   }
 
   /* ── Update Available Popup ── */
-
-  function showUpdateModal(version) {
-    if (!els.updateAvailableModal) return;
-    if (els.updateVersionText) {
-      els.updateVersionText.textContent = version ? `Версия ${version}` : 'Новая версия';
-    }
-    if (els.updateStatusText) {
-      els.updateStatusText.textContent = 'Загрузка обновления...';
-    }
-    if (els.updateProgressBar) {
-      els.updateProgressBar.classList.remove('hidden');
-    }
-    if (els.updateProgressFill) {
-      els.updateProgressFill.style.width = '0%';
-    }
-    if (els.updateInstallBtn) {
-      els.updateInstallBtn.classList.add('hidden');
-    }
-    els.updateAvailableModal.classList.remove('hidden');
-  }
-
-  function updateDownloadProgress(percent) {
-    const safePct = Math.max(0, Math.min(100, percent));
-    if (els.updateProgressFill) {
-      els.updateProgressFill.style.width = `${safePct}%`;
-    }
-    if (els.updateStatusText) {
-      els.updateStatusText.textContent = `Загрузка: ${safePct}%`;
-    }
-  }
-
-  function showUpdateReady(version) {
-    if (els.updateStatusText) {
-      els.updateStatusText.textContent = version
-        ? `Версия ${version} готова к установке`
-        : 'Обновление готово к установке';
-    }
-    if (els.updateProgressBar) {
-      els.updateProgressBar.classList.add('hidden');
-    }
-    if (els.updateInstallBtn) {
-      els.updateInstallBtn.classList.remove('hidden');
-    }
-    if (els.updateAvailableModal) {
-      els.updateAvailableModal.classList.remove('hidden');
-    }
-  }
-
-  function updateError(message) {
-    if (els.updateStatusText) {
-      els.updateStatusText.textContent = message || 'Ошибка обновления';
-    }
-    if (els.updateProgressBar) {
-      els.updateProgressBar.classList.add('hidden');
-    }
-  }
+  // Модальный флоу обновления заменён компактным тостом (handleAutoUpdateStatus
+  // → toast). showUpdateModal/updateDownloadProgress/showUpdateReady/updateError
+  // удалены как мёртвый код; закрытие модалки оставлено для совместимости.
 
   function closeUpdateModal() {
     if (els.updateAvailableModal) {

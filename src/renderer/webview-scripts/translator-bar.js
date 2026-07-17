@@ -120,11 +120,14 @@ function translatorBarScript(token) {
     function createBar() {
       bar = document.createElement('div');
       bar.id = '__wadeck-translator-bar';
+      // Стартует свёрнутым (max-height:0) и плавно раскрывается — без резкого
+      // скачка поля ввода при появлении. min-height НЕ ставим (конфликтует с
+      // max-height:0), высоту держат контент+padding.
       bar.style.cssText = [
-        'display:none',
+        'display:flex',
         'align-items:center',
         'gap:10px',
-        'padding:7px 14px',
+        'padding:0 14px',
         'background:#eff6e4',
         'border-bottom:1px solid #d8e4c6',
         'font-family:Avenir Next,Segoe UI,system-ui,sans-serif',
@@ -132,9 +135,11 @@ function translatorBarScript(token) {
         'color:#1a2030',
         'position:relative',
         'z-index:50',
-        'min-height:40px',
+        'max-height:0',
+        'opacity:0',
+        'overflow:hidden',
         'box-sizing:border-box',
-        'transition:opacity 0.2s ease',
+        'transition:max-height 0.22s ease, opacity 0.2s ease, padding-top 0.22s ease, padding-bottom 0.22s ease',
       ].join(';');
 
       const globe = document.createElement('span');
@@ -309,6 +314,8 @@ function translatorBarScript(token) {
         e.stopPropagation();
         autoTranslate = !autoTranslate;
         paint();
+        // Персист per-account: переживает рестарт/reload/гибернацию
+        try { __waDeckEmit('SET_AUTO_TR', JSON.stringify({ on: autoTranslate })); } catch (err) {}
         if (autoTranslate) {
           translatedCache = new WeakMap();
           processAllVisibleIncoming();
@@ -430,21 +437,60 @@ function translatorBarScript(token) {
       return sel.toString().trim();
     }
 
-    function doTranslate() {
-      const text = getSelectedText();
-      if (!text) return;
-      const payload = JSON.stringify({ text: text, from: outgoingFrom, to: outgoingTo });
-      __waDeckEmit('TRANSLATE', payload);
+    function getComposerText() {
+      const composer = getComposer();
+      if (!composer) return '';
+      return String(composer.innerText || composer.textContent || '').trim();
     }
 
-    window.__waDeckInsertTranslation = function (translated) {
-      if (!translated) return;
+    /* wholeComposer=true — режим Cmd+Enter: перевести ВЕСЬ композер и заменить
+       текст (без отправки). Кнопка бара: перевести выделение, иначе — весь
+       композер, тоже с заменой. Отправку оператор делает вручную. */
+    function doTranslate(wholeComposer) {
+      const text = wholeComposer ? getComposerText() : (getSelectedText() || getComposerText());
+      if (!text) return;
+      __waDeckEmit('TRANSLATE', JSON.stringify({
+        text: text,
+        from: outgoingFrom,
+        to: outgoingTo,
+        // Замена всего текста, если переводим весь композер или ничего не выделено
+        replaceAll: Boolean(wholeComposer) || !getSelectedText(),
+      }));
+    }
+
+    // Cmd/Ctrl+Enter в композере = «перевести» (без отправки). На window, не на
+    // document: window-capture срабатывает раньше document-capture Lexical'а.
+    // Строго с модификатором и без Shift/Alt — обычный Enter не трогаем.
+    window.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      const composer = getComposer();
+      // contains(self) === true, так что это покрывает и фокус на самом композере
+      if (!composer || !composer.contains(document.activeElement)) return;
+      if (!getComposerText()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      doTranslate(true);
+    }, true);
+
+    window.__waDeckInsertTranslation = function (translated, replaceAll) {
+      if (!translated) return false;
       const composer = getComposer();
       if (!composer) {
         emitHealth({ script: 'translator-bar', ok: false, detail: 'insert_no_composer' });
-        return;
+        return false;
       }
       composer.focus();
+      if (replaceAll) {
+        // Выделяем весь текст композера — insertText заменит его переводом,
+        // а не допишет рядом с исходником.
+        try {
+          const range = document.createRange();
+          range.selectNodeContents(composer);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } catch { /* вставка без замены хуже, но не фатальна */ }
+      }
 
       const normWs = (v) => String(v || '').replace(/\\s+/g, ' ').trim();
       const wantProbe = normWs(translated).slice(0, 64);
@@ -470,28 +516,33 @@ function translatorBarScript(token) {
       }
       if (!claimed && !isInserted()) {
         emitHealth({ script: 'translator-bar', ok: false, detail: 'insert_translation_failed' });
+        return false;
       }
+      // Хост в режиме «перевести и отправить» жмёт Enter только при true.
+      return isInserted();
     };
 
     // ========== Bar visibility ==========
+    // Плавное раскрытие/сворачивание по высоте (max-height + padding + opacity),
+    // а не мгновенный display-скачок — поле ввода не дёргается.
+    let barShown = false;
 
     function showBar() {
       if (!bar || !bar.isConnected) return;
-      if (bar.style.display === 'none') {
-        bar.style.display = 'flex';
-        bar.style.opacity = '0';
-        requestAnimationFrame(() => { bar.style.opacity = '1'; });
-      } else {
-        bar.style.opacity = '1';
-      }
+      barShown = true;
+      bar.style.maxHeight = '80px';
+      bar.style.opacity = '1';
+      bar.style.paddingTop = '7px';
+      bar.style.paddingBottom = '7px';
     }
 
     function hideBar() {
       if (!bar || !bar.isConnected) return;
-      if (bar.style.display !== 'none') {
-        bar.style.opacity = '0';
-        setTimeout(() => { if (bar && bar.isConnected) bar.style.display = 'none'; }, 150);
-      }
+      barShown = false;
+      bar.style.maxHeight = '0';
+      bar.style.opacity = '0';
+      bar.style.paddingTop = '0';
+      bar.style.paddingBottom = '0';
     }
 
     document.addEventListener('click', () => {
@@ -925,6 +976,9 @@ function translatorBarScript(token) {
       if (!footer || !footer.parentElement) return false;
       createBar();
       footer.parentElement.insertBefore(bar, footer);
+      // Зафиксировать свёрнутое состояние (max-height:0) отдельным layout'ом,
+      // чтобы следующий showBar анимировал раскрытие, а не схлопнул его в кадр.
+      void bar.offsetHeight;
       return true;
     }
 
@@ -984,7 +1038,7 @@ function translatorBarScript(token) {
       if (!next) {
         if (chatEmptyTicks >= 5) {
           currentChatId = '';
-          if (bar && bar.isConnected && bar.style.display !== 'none') hideBar();
+          if (bar && bar.isConnected && barShown) hideBar();
         }
         return;
       }
@@ -1024,15 +1078,39 @@ function translatorBarScript(token) {
           bar = null;
           currentChatId = '';
         } catch {}
-        setTimeout(loopTick, 1000);
+        setTimeout(loopTick, 2000);
         return;
       }
       try { tick(); } catch (e) { console.warn('[WA-Deck translator] tick error:', e); }
-      setTimeout(loopTick, 1000);
+      // Idle-backoff: неактивный (фоновый) webview тикает реже — новые входящие
+      // ловит MutationObserver в реальном времени, loop лишь поддерживает бар и
+      // подчищает. Дефолт (флаг не выставлен) = активный режим 1с (безопасно).
+      const active = window.__waDeckWebviewActive !== false;
+      setTimeout(loopTick, active ? 1000 : 3000);
     }
 
     // Init
     loopTick();
+
+    // Восстановление persisted-тумблера «Авто вх.»: раньше состояние жило
+    // только в JS-контексте страницы и сбрасывалось каждым рестартом,
+    // перезагрузкой webview и пробуждением из гибернации. Pull-модель:
+    // спрашиваем хост при каждом инжекте (SET_AUTO_TR пишется по клику).
+    (function restoreAutoTranslate() {
+      try {
+        const reqId = 'a' + Math.random().toString(36).slice(2, 10);
+        window['__waDeckAutoTrCb_' + reqId] = function (on) {
+          try { delete window['__waDeckAutoTrCb_' + reqId]; } catch (e) {}
+          if (!on || autoTranslate) return;
+          autoTranslate = true;
+          const t = document.querySelector('.__wadeck-auto-toggle');
+          if (t && t.__paint) t.__paint();
+          translatedCache = new WeakMap();
+          processAllVisibleIncoming();
+        };
+        __waDeckEmit('GET_AUTO_TR', JSON.stringify({ reqId: reqId }));
+      } catch (e) { /* переводчик работает и без персиста */ }
+    })();
 
     return true;
   })();`;

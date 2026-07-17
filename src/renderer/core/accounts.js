@@ -9,6 +9,8 @@ import {
   refreshWebviewVisibility,
   syncZoomSlider,
   markAccountHibernated,
+  isWebviewReady,
+  safeExecuteInWebview,
 } from './webviews.js';
 import { updateHubDashboard } from './hub.js';
 import {
@@ -43,7 +45,9 @@ function updateToolbarState() {
   const account = activeAccount();
   const hasActive = Boolean(account);
   const isWa = hasActive && account.type !== 'telegram';
-  if (els.refreshActive) els.refreshActive.disabled = !hasActive;
+  // Кнопка обновления активна и в хабе (нет активного аккаунта) — там она
+  // обновляет ВСЕ аккаунты; дизейблим только когда аккаунтов нет вовсе.
+  if (els.refreshActive) els.refreshActive.disabled = !(state.accounts && state.accounts.length);
   if (els.freezeActive) { els.freezeActive.disabled = !isWa; els.freezeActive.style.display = isWa || !hasActive ? '' : 'none'; }
   if (els.openCrmModal) { els.openCrmModal.disabled = !isWa; els.openCrmModal.style.display = isWa || !hasActive ? '' : 'none'; }
   if (els.sendVoiceMsg) { els.sendVoiceMsg.disabled = !isWa; els.sendVoiceMsg.style.display = isWa || !hasActive ? '' : 'none'; }
@@ -556,6 +560,17 @@ function _setActiveAccountInner(accountId) {
     state._scheduledInitialized = true;
     WaDeckScheduleModule.renderScheduled().catch(console.error);
   }
+  // Автофокус композера: после Cmd+N печатать можно сразу, без клика мышью.
+  // Тихий no-op, если чат не открыт или webview ещё не готов (гибернация).
+  const activeWv = state.webviews.get(state.activeAccountId);
+  if (activeWv && isWebviewReady(activeWv)) {
+    try { activeWv.focus(); } catch { /* ignore */ }
+    safeExecuteInWebview(activeWv, `(() => {
+      const c = document.querySelector('footer div[contenteditable="true"][role="textbox"]')
+        || document.querySelector('footer div[contenteditable="true"][data-tab]');
+      if (c) c.focus();
+    })()`);
+  }
 }
 
 async function addAccount(type) {
@@ -629,7 +644,8 @@ function refreshActiveWebview() {
   const webview = selectedWebview();
   const account = activeAccount();
   if (!account) {
-    setStatus('Нет активного аккаунта');
+    // Хаб открыт (активного аккаунта нет) — кнопка обновляет все аккаунты.
+    refreshAllWebviews();
     return;
   }
   if (account.frozen) {

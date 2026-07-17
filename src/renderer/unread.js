@@ -170,7 +170,9 @@ import { collectUnreadCountScript } from './webview-scripts/unread-count.js';
     }
   }
 
-  const POLL_ACTIVE_MS = 5000;
+  // 5000 → 10000: title-события доставляют изменения счётчика мгновенно,
+  // поллинг — только страховка (см. title-гейт в pin-feed).
+  const POLL_ACTIVE_MS = 10000;
   const POLL_BACKGROUND_MS = 15000;
   let _pollIntervalMs = POLL_ACTIVE_MS;
 

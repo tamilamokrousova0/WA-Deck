@@ -54,6 +54,18 @@ contextBridge.exposeInMainWorld('waDeck', {
     ipcRenderer.on('host-escape-pressed', listener);
     return () => ipcRenderer.removeListener('host-escape-pressed', listener);
   },
+  onHostNextUnread: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = () => callback();
+    ipcRenderer.on('host-next-unread-pressed', listener);
+    return () => ipcRenderer.removeListener('host-next-unread-pressed', listener);
+  },
+  onHostHotkey: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, payload) => callback(payload || {});
+    ipcRenderer.on('host-hotkey', listener);
+    return () => ipcRenderer.removeListener('host-hotkey', listener);
+  },
   onWebviewCrashed: (callback) => {
     if (typeof callback !== 'function') return () => {};
     const listener = (_event, payload) => callback(payload || {});

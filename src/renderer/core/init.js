@@ -17,6 +17,7 @@ import {
   selectedWebview,
   setActiveAccount,
   accountById,
+  refreshActiveWebview,
 } from './accounts.js';
 import {
   ensureWebview,
@@ -25,6 +26,7 @@ import {
   sendWebviewInput,
   insertTextIntoActiveChat,
   applyHibernationSetting,
+  applyZoom,
 } from './webviews.js';
 import { updateHubDashboard, updateToolbarClock, updateHubClocks } from './hub.js';
 import {
@@ -87,6 +89,7 @@ async function init() {
   WaDeckCrmModule.init({ ...moduleCtx, activeAccount, selectedWebview });
   WaDeckFavoritesModule.init({ ...moduleCtx, setActiveAccount, isWebviewReady, safeExecuteInWebview });
   WaDeckImportantModule.init({ ...moduleCtx, setActiveAccount, isWebviewReady, safeExecuteInWebview });
+  window.WaDeckUnreadFeed?.init?.({ ...moduleCtx, setActiveAccount, isWebviewReady, safeExecuteInWebview });
   WaDeckScheduleModule.init({ ...moduleCtx, trimMapSize, runWithBusyButton, accountById, ensureWebview, isWebviewReady, sendWebviewInput, delay, formatDateTime, nextSendAtLocal, showConfirm, applyTemplateVariables });
   if (typeof window.waDeck.onAutoUpdateStatus === 'function' && !state.autoUpdateUnsubscribe) {
     state.autoUpdateUnsubscribe = window.waDeck.onAutoUpdateStatus((payload) => {
@@ -101,7 +104,53 @@ async function init() {
         window.WaDeckGlobalSearch.close();
         return;
       }
-      handleEscapeUiReset();
+      const closedSomething = handleEscapeUiReset();
+      if (!closedSomething) {
+        // Ни один слой дека не был открыт — Esc принадлежит WhatsApp (снять
+        // reply-цитату, закрыть поиск чатов). Пробрасываем в активный webview
+        // нативным вводом, иначе перехват в main его просто съедает.
+        const wv = selectedWebview();
+        if (wv && isWebviewReady(wv)) {
+          sendWebviewInput(wv, { type: 'keyDown', keyCode: 'Escape' })
+            .then(() => sendWebviewInput(wv, { type: 'keyUp', keyCode: 'Escape' }))
+            .catch(() => {});
+        }
+      }
+    });
+  }
+  if (typeof window.waDeck.onHostNextUnread === 'function' && !state.hostNextUnreadUnsubscribe) {
+    state.hostNextUnreadUnsubscribe = window.waDeck.onHostNextUnread(() => {
+      window.WaDeckUnreadFeed?.jumpToNext?.().catch(() => {});
+    });
+  }
+  if (typeof window.waDeck.onHostHotkey === 'function' && !state.hostHotkeyUnsubscribe) {
+    // Сквозные хоткеи: main перехватывает Cmd+1..9/K/T/R/зум (иначе они мертвы
+    // при фокусе в композере WhatsApp) и доставляет сюда одним каналом.
+    state.hostHotkeyUnsubscribe = window.waDeck.onHostHotkey(({ code }) => {
+      const c = String(code || '');
+      const hostInputFocused = (() => {
+        const a = document.activeElement;
+        return Boolean(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable));
+      })();
+      const digit = /^Digit([0-9])$/.exec(c);
+      if (digit) {
+        const n = Number(digit[1]);
+        if (n === 0) { applyZoom(100); return; }
+        const account = state.accounts[n - 1];
+        if (account) setActiveAccount(account.id);
+        return;
+      }
+      if (c === 'KeyK') { window.WaDeckGlobalSearch?.toggle?.(); return; }
+      if (c === 'KeyT') {
+        if (!hostInputFocused) window.__waDeckOpenTemplatesDrawer?.();
+        return;
+      }
+      if (c === 'KeyR') {
+        if (!hostInputFocused) refreshActiveWebview();
+        return;
+      }
+      if (c === 'Equal') { applyZoom((Number(els.zoomSlider?.value) || 100) + 10); return; }
+      if (c === 'Minus') { applyZoom((Number(els.zoomSlider?.value) || 100) - 10); }
     });
   }
 
@@ -255,10 +304,7 @@ async function init() {
   // users to re-click every account to reload WhatsApp Web, which in turn
   // missed incoming messages while suspended. Keeping all webviews alive for
   // the lifetime of the app is the correct trade-off for the 10–20 account
-  // use case. The original memory optimisation target (30+ accounts on
-  // low-RAM machines) can be re-introduced behind a settings toggle if
-  // needed — see startIdleWebviewSweeper() which remains as dead code.
-  // startIdleWebviewSweeper();
+  // use case. The opt-in hibernation setting covers low-RAM/30+ account needs.
   renderClocksSettings();
   // Toolbar clock — update immediately and every 15s
   updateToolbarClock();

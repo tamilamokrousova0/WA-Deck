@@ -12,7 +12,7 @@ import {
 } from './helpers.js';
 import { accountById, selectedWebview, activeAccount, updateAccountCardStatus } from './accounts.js';
 import { setHubVisibility, updateHubDashboard } from './hub.js';
-import { isTranslatorEnabled, isCrmHoverEnabled, refreshTweaksFabVisibility } from './settings.js';
+import { isTranslatorEnabled, isCrmHoverEnabled, refreshTweaksFabVisibility, saveSettings } from './settings.js';
 import { handleCrmHover, hideCrmHoverPopover } from './crm-hover.js';
 import { WaDeckUnreadModule } from '../unread.js';
 import { WaDeckScheduleModule } from '../schedule.js';
@@ -20,6 +20,7 @@ import { keepAliveScript } from '../webview-scripts/keep-alive.js';
 import { bridgeScript } from '../webview-scripts/bridge.js';
 import { crmHoverBridgeScript } from '../webview-scripts/crm-hover-bridge.js';
 import { translatorBarScript } from '../webview-scripts/translator-bar.js';
+import { slashTemplatesScript } from '../webview-scripts/slash-templates.js';
 import { insertTextScript } from '../webview-scripts/insert-text.js';
 import { activeChatContactScript } from '../webview-scripts/active-chat-contact.js';
 import {
@@ -29,6 +30,21 @@ import {
 } from '../webview-scripts/voice-message.js';
 
 /* ── Zoom Control ── */
+
+/* Автоперевод входящих умирает молча: пузырь без оверлея неотличим от
+   «перевод не нужен», а сломанный API убивает переводы во всех webview разом.
+   5 фейлов подряд — один тост, троттл 5 минут. */
+let _autoTrFailStreak = 0;
+let _autoTrLastToastAt = 0;
+function noteAutoTranslateResult(ok) {
+  if (ok) { _autoTrFailStreak = 0; return; }
+  _autoTrFailStreak += 1;
+  const now = Date.now();
+  if (_autoTrFailStreak >= 5 && now - _autoTrLastToastAt > 5 * 60 * 1000) {
+    _autoTrLastToastAt = now;
+    showToast('Переводчик: входящие не переводятся (сеть или лимит API)', 'error', 6000);
+  }
+}
 
 function applyZoom(percent) {
   const clamped = Math.max(50, Math.min(150, Math.round(percent / 5) * 5));
@@ -215,6 +231,10 @@ function ensureWebview(account) {
       webview.executeJavaScript(translatorBarScript(WADECK_WV_TOKEN), true)
         .catch((e) => console.warn('[translator-reload]', e));
     }
+    if (isWhatsApp && typeof slashTemplatesScript === 'function') {
+      webview.executeJavaScript(slashTemplatesScript(WADECK_WV_TOKEN), true)
+        .catch((e) => console.warn('[slash-templates-reload]', e));
+    }
   };
 
   const onFailLoad = () => {
@@ -279,6 +299,9 @@ function ensureWebview(account) {
       if (isTranslatorEnabled() && typeof translatorBarScript === 'function') {
         webview.executeJavaScript(translatorBarScript(WADECK_WV_TOKEN), true).catch((e) => console.warn('[translator]', e));
       }
+      if (typeof slashTemplatesScript === 'function') {
+        webview.executeJavaScript(slashTemplatesScript(WADECK_WV_TOKEN), true).catch((e) => console.warn('[slash-templates]', e));
+      }
     }
 
     // Debounced status update on initial load (no full sidebar rebuild)
@@ -310,6 +333,9 @@ function ensureWebview(account) {
     }
     if (isTranslatorEnabled() && typeof translatorBarScript === 'function') {
       webview.executeJavaScript(translatorBarScript(WADECK_WV_TOKEN), true).catch((e) => console.warn('[translator]', e));
+    }
+    if (typeof slashTemplatesScript === 'function') {
+      webview.executeJavaScript(slashTemplatesScript(WADECK_WV_TOKEN), true).catch((e) => console.warn('[slash-templates]', e));
     }
 
     // Debounced status update — prevents excessive re-renders on SPA navigation
@@ -359,6 +385,20 @@ function ensureWebview(account) {
         window.waDeck.setContactLang({ accountId: acc.id, chatName, lang }).catch(() => {});
         return;
       }
+      if (kind === 'GET_AUTO_TR') {
+        const reqId = String(payload.reqId || '').replace(/[^a-zA-Z0-9_]/g, '');
+        if (!reqId) return;
+        const on = Boolean(state.settings?.autoTranslateAccounts?.[acc.id]);
+        safeExecuteInWebview(webview, `if (window.__waDeckAutoTrCb_${reqId}) window.__waDeckAutoTrCb_${reqId}(${on ? 'true' : 'false'});`);
+        return;
+      }
+      if (kind === 'SET_AUTO_TR') {
+        if (!state.settings) return;
+        const map = state.settings.autoTranslateAccounts || (state.settings.autoTranslateAccounts = {});
+        if (payload.on) map[acc.id] = true; else delete map[acc.id];
+        saveSettings().catch(() => {});
+        return;
+      }
       if (kind === 'TRANSLATE_MSG') {
         // Gate on the live setting: a guest script that survived the toggle-off
         // (or a compromised page) must not keep burning paid translate calls.
@@ -373,6 +413,7 @@ function ensureWebview(account) {
             ? `if (window.${cbName}) window.${cbName}({ ok: true, translated: '${escaped}' });`
             : `if (window.${cbName}) window.${cbName}({ ok: false });`;
           safeExecuteInWebview(webview, script);
+          noteAutoTranslateResult(ok);
         };
         window.waDeck.translateText({
           text: String(payload.text || ''),
@@ -382,15 +423,39 @@ function ensureWebview(account) {
         return;
       }
       if (kind === 'TRANSLATE') {
+        // Только перевод — без автоотправки. Cmd/Ctrl+Enter переводит текст
+        // композера и ЗАМЕНЯЕТ его; отправку оператор делает вручную (Enter).
+        const replaceAll = Boolean(payload.replaceAll);
         window.waDeck.translateText(payload).then((result) => {
-          if (result?.ok && result.translated) {
-            const escaped = escapeForJsSingleQuoted(result.translated);
-            safeExecuteInWebview(
-              webview,
-              `window.__waDeckInsertTranslation('${escaped}');`
-            );
+          if (!(result?.ok && result.translated)) {
+            showToast('Перевод не удался — текст не изменён', 'error', 4000);
+            console.warn('[translate] failed:', result?.error || 'no_result');
+            return;
           }
-        }).catch(() => {});
+          const escaped = escapeForJsSingleQuoted(result.translated);
+          safeExecuteInWebview(
+            webview,
+            `window.__waDeckInsertTranslation('${escaped}', ${replaceAll ? 'true' : 'false'});`
+          );
+        }).catch((err) => {
+          showToast('Перевод не удался — текст не изменён', 'error', 4000);
+          console.warn('[translate] failed:', err?.message || 'exception');
+        });
+        return;
+      }
+      if (kind === 'INSERT_TEMPLATE') {
+        nativeReplaceComposer(webview, String(payload.text || '')).catch(() => {});
+        return;
+      }
+      if (kind === 'GET_TEMPLATES') {
+        const reqId = String(payload.reqId || '').replace(/[^a-zA-Z0-9_]/g, '');
+        if (!reqId) return;
+        const list = (state.templates || []).map((tpl) => ({
+          title: String(tpl.title || ''),
+          text: String(tpl.text || ''),
+        }));
+        const escaped = escapeForJsSingleQuoted(JSON.stringify(list));
+        safeExecuteInWebview(webview, `if (window.__waDeckTplCb_${reqId}) window.__waDeckTplCb_${reqId}(JSON.parse('${escaped}'));`);
         return;
       }
       if (kind === 'HEALTH') {
@@ -412,7 +477,7 @@ function ensureWebview(account) {
     // Fallback transport: console markers (__WADECK_X__<token>:<json>), used
     // by guest scripts when the session preload didn't run for this load.
     // Messages with a missing or foreign token are silently ignored.
-    const GUEST_KINDS = ['CRM_HOVER', 'GET_LANG', 'SET_LANG', 'TRANSLATE_MSG', 'TRANSLATE', 'HEALTH'];
+    const GUEST_KINDS = ['CRM_HOVER', 'GET_LANG', 'SET_LANG', 'GET_AUTO_TR', 'SET_AUTO_TR', 'TRANSLATE_MSG', 'TRANSLATE', 'GET_TEMPLATES', 'INSERT_TEMPLATE', 'HEALTH'];
     const GUEST_PREFIXES = GUEST_KINDS.map((kind) => [kind, `__WADECK_${kind}__${WADECK_WV_TOKEN}:`]);
     onConsoleMessage = (event) => {
       const message = String(event?.message || '');
@@ -541,47 +606,14 @@ function markAccountHibernated(accountId, hibernated) {
   card.classList.toggle('is-hibernated', !!hibernated);
 }
 
-/* Old interval-based dead code retained below for reference only — replaced
- * by applyHibernationSetting() + runHibernationTick() above. Kept to avoid
- * losing the original docstring context for future maintainers.
- */
-const WEBVIEW_IDLE_MS = 15 * 60 * 1000;  // legacy constant — unused
-function startIdleWebviewSweeper() {
-  if (state._idleWebviewTimer) clearInterval(state._idleWebviewTimer);
-  state._idleWebviewTimer = setInterval(() => {
-    const now = Date.now();
-    for (const [accountId, webview] of Array.from(state.webviews.entries())) {
-      // Never suspend the currently active account
-      if (accountId === state.activeAccountId) {
-        if (webview) webview._lastActive = now;
-        continue;
-      }
-      const lastActive = Number(webview?._lastActive || 0);
-      if (!lastActive) {
-        // Initialize on first sweep so freshly created webviews get one full
-        // cycle before being considered for suspension.
-        if (webview) webview._lastActive = now;
-        continue;
-      }
-      if (now - lastActive > WEBVIEW_IDLE_MS) {
-        try {
-          cleanupWebview(webview);
-          state.webviews.delete(accountId);
-          WaDeckUnreadModule.setUnreadCount(accountId, 0);
-        } catch (err) {
-          console.warn('[idle-sweeper]', err?.message || err);
-        }
-      }
-    }
-  }, 60 * 1000); // check every minute
-}
 
 function refreshWebviewVisibility() {
   const showHub = state.startupHubVisible || !state.activeAccountId || !selectedWebview();
   setHubVisibility(showHub);
   let activeLoading = false;
   for (const [accountId, webview] of state.webviews.entries()) {
-    if (accountId === state.activeAccountId) {
+    const isActive = accountId === state.activeAccountId;
+    if (isActive) {
       webview.classList.add('active');
       try {
         if (webview.dataset.waReady !== '1' && typeof webview.isLoading === 'function' && webview.isLoading()) {
@@ -590,6 +622,15 @@ function refreshWebviewVisibility() {
       } catch { /* webview not yet attached to DOM — ignore */ }
     } else {
       webview.classList.remove('active');
+    }
+    // Флаг активности для idle-backoff переводчика: фоновые webview тикают
+    // реже. Пушим только при смене значения (dataset) → ≤2 инъекции на switch.
+    const flag = isActive ? '1' : '0';
+    if (webview.dataset.wadeckActiveFlag !== flag && webview.dataset.waReady === '1') {
+      webview.dataset.wadeckActiveFlag = flag;
+      try {
+        webview.executeJavaScript(`(()=>{try{window.__waDeckWebviewActive=${isActive};}catch(e){}return 1;})()`, true).catch(() => {});
+      } catch { /* not attached — flag re-pushed next switch */ }
     }
   }
   showWebviewLoading(!showHub && activeLoading);
@@ -669,6 +710,41 @@ async function sendWebviewInput(webview, event) {
     return true;
   } catch {
     return false;
+  }
+}
+
+/* Замена текста композера WhatsApp: очистка — нативным вводом (click +
+   Cmd/Ctrl+A + Backspace), т.к. только реальный ввод надёжно чистит
+   Lexical-редактор; вставка — проверенным insertTextScript в уже пустое поле.
+   Используется слэш-шаблонами (guest шлёт INSERT_TEMPLATE с готовым текстом). */
+async function nativeReplaceComposer(webview, text) {
+  const safeText = String(text || '');
+  if (!webview || !safeText || !isWebviewReady(webview)) return;
+  try {
+    const rect = await safeExecuteInWebview(webview, `(() => {
+      const c = document.querySelector('footer div[contenteditable="true"][role="textbox"]')
+        || document.querySelector('footer div[contenteditable="true"][data-tab]');
+      if (!c) return null;
+      c.focus();
+      const r = c.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), ok: r.width > 0 && r.height > 0 };
+    })()`);
+    if (rect && rect.ok) {
+      await sendWebviewInput(webview, { type: 'mouseDown', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
+      await sendWebviewInput(webview, { type: 'mouseUp', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
+      await delay(20);
+    }
+    const mod = (navigator.platform || '').includes('Mac') ? 'meta' : 'control';
+    await sendWebviewInput(webview, { type: 'keyDown', keyCode: 'a', modifiers: [mod] });
+    await sendWebviewInput(webview, { type: 'keyUp', keyCode: 'a', modifiers: [mod] });
+    await delay(20);
+    await sendWebviewInput(webview, { type: 'keyDown', keyCode: 'Backspace' });
+    await sendWebviewInput(webview, { type: 'keyUp', keyCode: 'Backspace' });
+    await delay(30);
+    // Поле теперь пустое — вставляем проверенным путём (execCommand insertText)
+    await safeExecuteInWebview(webview, insertTextScript(safeText));
+  } catch (e) {
+    console.warn('[insert-template]', e);
   }
 }
 
@@ -873,7 +949,6 @@ export {
   applyHibernationSetting,
   runHibernationTick,
   markAccountHibernated,
-  startIdleWebviewSweeper,
   refreshWebviewVisibility,
   applyTranslatorToggleToAllWebviews,
   applyCrmHoverToggle,

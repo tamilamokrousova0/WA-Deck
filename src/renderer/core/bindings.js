@@ -443,6 +443,13 @@ function bindActions() {
       refreshActiveWebview();
       return;
     }
+    if (event.code === 'KeyU' && !event.shiftKey && !event.altKey) {
+      // Следующий непрочитанный: прыжок в чат с наибольшим счётчиком по всем
+      // аккаунтам; повторные нажатия разгребают инбокс дальше без мыши.
+      event.preventDefault();
+      window.WaDeckUnreadFeed?.jumpToNext?.().catch(() => {});
+      return;
+    }
 
     // Zoom: Cmd/Ctrl + = / + / -
     if (event.key === '=' || event.key === '+') {

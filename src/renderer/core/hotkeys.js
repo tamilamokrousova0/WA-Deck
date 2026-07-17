@@ -31,63 +31,68 @@ document.addEventListener('keydown', (e) => {
 
 function handleEscapeUiReset() {
   // Escape closes ONLY the topmost UI layer per press (stack order below).
+  // Возвращает true, если какой-то слой закрыт; false — «слоёв нет», и тогда
+  // вызывающий пробрасывает Esc в активный webview (родные Esc-жесты WA:
+  // снять reply-цитату, закрыть поиск чатов — раньше проглатывались декой).
   const isOpen = (el) => Boolean(el && !el.classList.contains('hidden') && !el.classList.contains('is-closing'));
 
   // 1. Floating Tweaks popover — the most shallow UI
   const tweaksPanel = document.getElementById('tweaks-panel');
   if (isOpen(tweaksPanel)) {
     toggleTweaksPopover(false);
-    return;
+    return true;
   }
   // 2. Open context menus (account / refresh)
   if (document.getElementById('account-context-menu')) {
     closeAccountContextMenu();
-    return;
+    return true;
   }
   // 3. Confirm modal — cancels the pending action
   if (isOpen(els.confirmModal)) {
     closeConfirm(false);
-    return;
+    return true;
   }
   // 4. Chat picker
   if (isOpen(els.chatPickerModal)) {
     WaDeckScheduleModule.closeChatPicker();
-    return;
+    return true;
   }
   // 5. Account management modal
   if (isOpen(els.accountMenuModal)) {
     closeAccountMenu();
-    return;
+    return true;
   }
   // 6. Release notes / update modals
   if (isOpen(els.releaseNotesModal)) {
     WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(console.error);
-    return;
+    return true;
   }
   if (isOpen(els.updateAvailableModal)) {
     WaDeckAutoUpdateModule.closeUpdateModal();
-    return;
+    return true;
   }
   // 7. Inline template edit form (lives inside the settings panel)
   const tmplEditWrap = document.getElementById('tmpl-edit-wrap');
   if (!state.panelHidden && isOpen(tmplEditWrap)) {
     if (typeof window._hideTemplateEditForm === 'function') window._hideTemplateEditForm();
-    return;
+    return true;
   }
   // 8. CRM modal
   if (isOpen(els.crmModal)) {
     WaDeckCrmModule.closeCrmModal();
-    return;
+    return true;
   }
   // 9. Settings: open section goes back to the menu first…
   if (!state.panelHidden && state._openSettingsSection) {
     showSettingsMenu();
-    return;
+    return true;
   }
   // 10. …and only then the panel itself closes
   if (!state.panelHidden) {
     closeSettingsPanel();
+    return true;
   }
+  return false;
 }
 
 /* ── Toolbar "Шаблоны" button → open the settings drawer on the Templates
@@ -109,6 +114,10 @@ function handleEscapeUiReset() {
       }
     });
   }
+
+  // Для сквозного маршрутизатора host-hotkey (main → renderer): Cmd+T из
+  // композера WhatsApp доставляется каналом, минуя DOM-события.
+  window.__waDeckOpenTemplatesDrawer = openTemplatesDrawer;
 
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyK' && !e.shiftKey && !e.altKey) {
