@@ -112,11 +112,24 @@ function translatorBarScript(token) {
         '#main header ._amig span',
         '#main header [data-testid="conversation-info-header"] span',
       ];
+      // Все совпадения каждого селектора + чистка невидимых меток: первый
+      // span шапки бывает статусом («В сети»), и он становился бы КЛЮЧОМ
+      // хранения языка контакта.
+      const clean = (v) => String(v || '').replace(/[\\u200e\\u200f\\u2066-\\u2069]/g, '').replace(/\\u00a0/g, ' ').replace(/\\s+/g, ' ').trim();
+      const isStatus = (t) => {
+        const v = clean(t).toLowerCase();
+        if (!v || v.length < 2) return true;
+        if (/^(online|в сети|typing|печатает|recording|записывает|last seen|seen |был|была|нажмите|tap here|click here|select |выберите)/i.test(v)) return true;
+        // Короткая строка со временем = presence («был(-а) сегодня в 20:24»)
+        if (/\\d{1,2}:\\d{2}/.test(v) && v.length <= 60) return true;
+        return false;
+      };
       for (let i = 0; i < selectors.length; i++) {
-        const el = document.querySelector(selectors[i]);
-        if (!el) continue;
-        const val = String(el.getAttribute('title') || el.textContent || '').trim();
-        if (val && val.length > 1 && !/^(online|last seen|typing|в сети|печатает|был)/i.test(val)) return val;
+        const els = document.querySelectorAll(selectors[i]);
+        for (let j = 0; j < els.length; j++) {
+          const val = clean(els[j].getAttribute('title') || els[j].textContent || '');
+          if (!isStatus(val)) return val;
+        }
       }
       // Fallback: a chat is open (even if we cannot read its name) when #main
       // holds a composer or message rows. Kept broad so header-class renames in
