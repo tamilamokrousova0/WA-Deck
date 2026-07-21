@@ -128,6 +128,8 @@ const DEFAULT_SETTINGS = {
   ],
   // Per-account тумблер «Авто вх. → Русский» (accountId → true).
   autoTranslateAccounts: {},
+  // Батчинг автоперевода входящих: пачка сообщений одним запросом.
+  translateBatchEnabled: true,
 };
 
 const VALID_HIBERNATE_MINUTES = [0, 30, 60, 120, 240];
@@ -378,6 +380,7 @@ function sanitizeStore(raw) {
   clean.settings.translatorEnabled = normalizeBool(clean.settings.translatorEnabled, DEFAULT_SETTINGS.translatorEnabled);
   clean.settings.notificationsEnabled = normalizeBool(clean.settings.notificationsEnabled, DEFAULT_SETTINGS.notificationsEnabled);
   clean.settings.crmHoverEnabled = normalizeBool(clean.settings.crmHoverEnabled, DEFAULT_SETTINGS.crmHoverEnabled);
+  clean.settings.translateBatchEnabled = normalizeBool(clean.settings.translateBatchEnabled, DEFAULT_SETTINGS.translateBatchEnabled);
   clean.settings.hibernateAfterMinutes = normalizeHibernateMinutes(
     clean.settings.hibernateAfterMinutes,
     DEFAULT_SETTINGS.hibernateAfterMinutes,
@@ -468,6 +471,17 @@ function sanitizeStore(raw) {
     if (Object.keys(clean.contactLangs).length >= 5000) break; // cap (как в set-contact-lang)
     const code = String(v || '').trim();
     if (k && /^[a-z-]{2,10}$/i.test(code)) clean.contactLangs[String(k)] = code;
+  }
+
+  // Учёт использования шаблонов (умный порядок слэш-списка): title → {c,t}.
+  clean.templateUsage = {};
+  const rawUsage = (raw?.templateUsage && typeof raw.templateUsage === 'object' && !Array.isArray(raw.templateUsage))
+    ? raw.templateUsage : {};
+  for (const [k, v] of Object.entries(rawUsage)) {
+    if (Object.keys(clean.templateUsage).length >= 500) break;
+    const c = Number(v?.c) || 0;
+    const t = Number(v?.t) || 0;
+    if (k && c > 0) clean.templateUsage[String(k).slice(0, 120)] = { c, t };
   }
 
   // Санитайзер загрузки — единый источник правды и для полей, которые раньше
@@ -732,6 +746,133 @@ const STORE_SNAPSHOT_KEEP = 7;
 /* LRU-кэш переводов: ключ from|to|text (см. handle('translate-text')) */
 const TRANSLATE_CACHE_MAX = 2000;
 const _translateCache = new Map();
+/* Keep-alive агент: переиспользует TCP+TLS-соединение к переводчику вместо
+ * нового рукопожатия (~150-300 мс) на каждый запрос — критично при
+ * автопереводе пачки входящих. maxSockets ограничивает параллелизм. */
+const _translateAgent = new (require('https').Agent)({
+  keepAlive: true,
+  keepAliveMsecs: 15000,
+  maxSockets: 8,
+});
+
+/* ── Батчинг автоперевода входящих (opt-out в настройках) ─────────────────
+ * Пачка видимых сообщений при открытии чата раньше уходила 10-15 отдельными
+ * HTTP-запросами. Запросы с batch:true копятся 120 мс и уезжают одним вызовом
+ * с разделителем; при рассинхроне частей — прозрачный фолбэк по одному. */
+const TRANSLATE_BATCH_SEP = '\n@@@@@\n';
+const TRANSLATE_BATCH_SPLIT_RE = /\s*@{3,}\s*/;
+const TRANSLATE_BATCH_WAIT_MS = 120;
+const TRANSLATE_BATCH_MAX_ITEMS = 10;
+const TRANSLATE_BATCH_MAX_CHARS = 3000;
+const _trBatchQueues = new Map(); // `${from}|${to}` → {items:[{text,cacheKey,resolve}],chars,timer}
+
+function _translateCacheSet(cacheKey, value) {
+  if (!value) return;
+  _translateCache.set(cacheKey, value);
+  if (_translateCache.size > TRANSLATE_CACHE_MAX) {
+    _translateCache.delete(_translateCache.keys().next().value);
+  }
+}
+
+const _trIsTransient = (e) => /timeout|ECONN|EAI_AGAIN|socket|http_(5\d\d|429)/i.test(String(e?.message || ''));
+const _trWithDeadline = (p, ms) => Promise.race([
+  p,
+  new Promise((_, rej) => setTimeout(() => rej(new Error('timeout_queue')), ms)),
+]);
+
+/* Один HTTP-запрос к переводчику. Возвращает { translated, detected } —
+ * detected (определённый язык источника) раньше выбрасывался, теперь питает
+ * автоопределение языка контакта в translator-bar. */
+function _translateFetchRaw(q, from, to) {
+  const https = require('https');
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(from)}&tl=${encodeURIComponent(to)}&dt=t&q=${encodeURIComponent(q)}`;
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, {
+      agent: _translateAgent,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        reject(new Error(`http_${res.statusCode}`));
+        return;
+      }
+      let data = '';
+      let bytes = 0;
+      res.on('data', (chunk) => {
+        bytes += chunk.length;
+        if (bytes > 5 * 1024 * 1024) { req.destroy(new Error('response_too_large')); return; }
+        data += chunk;
+      });
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          const translated = (parsed[0] || []).map((s) => s[0]).filter(Boolean).join('');
+          const detected = String(parsed[2] || '').toLowerCase().slice(0, 10);
+          resolve({ translated, detected });
+        } catch (e) {
+          reject(new Error('parse_failed'));
+        }
+      });
+    });
+    req.setTimeout(10000, () => { req.destroy(new Error('timeout')); });
+    req.on('error', reject);
+  });
+}
+
+/* Дедлайн поверх очереди агента + один быстрый ретрай на транзиентном сбое. */
+async function _translateFetchRetry(q, from, to) {
+  try {
+    return await _trWithDeadline(_translateFetchRaw(q, from, to), 15000);
+  } catch (e1) {
+    if (!_trIsTransient(e1)) throw e1;
+    await new Promise((r) => setTimeout(r, 250));
+    return _trWithDeadline(_translateFetchRaw(q, from, to), 15000);
+  }
+}
+
+async function _flushTranslateBatch(key) {
+  const q = _trBatchQueues.get(key);
+  if (!q) return;
+  _trBatchQueues.delete(key);
+  if (q.timer) clearTimeout(q.timer);
+  const items = q.items;
+  const sep = key.indexOf('|');
+  const from = key.slice(0, sep);
+  const to = key.slice(sep + 1);
+
+  if (items.length > 1) {
+    try {
+      const joined = items.map((it) => it.text).join(TRANSLATE_BATCH_SEP);
+      const { translated, detected } = await _translateFetchRetry(joined, from, to);
+      const parts = translated.split(TRANSLATE_BATCH_SPLIT_RE);
+      if (parts.length === items.length) {
+        items.forEach((it, i) => {
+          const t = String(parts[i] || '').trim();
+          _translateCacheSet(it.cacheKey, t);
+          it.resolve({ ok: Boolean(t), translated: t, detected });
+        });
+        return;
+      }
+      console.warn(`[translate-batch] split mismatch ${parts.length}/${items.length} — falling back per-item`);
+    } catch (e) {
+      console.warn('[translate-batch] batch failed — falling back per-item:', e?.message || e);
+    }
+  }
+  // Один элемент или фолбэк — по одному
+  for (const it of items) {
+    try {
+      const r = await _translateFetchRetry(it.text, from, to);
+      _translateCacheSet(it.cacheKey, r.translated);
+      it.resolve({ ok: Boolean(r.translated), translated: r.translated, detected: r.detected });
+    } catch (e) {
+      it.resolve({ ok: false, error: String(e?.message || 'translate_failed') });
+    }
+  }
+}
 let _lastGoodAccountCount = 0;
 let _allowEmptyAccountsSave = false;
 let _snapshotDay = '';
@@ -1436,6 +1577,7 @@ function buildBootstrap() {
     accounts: state.store.accounts.map((acc) => accountToRuntimePayload(acc)),
     settings: { ...state.store.settings },
     templates: state.store.templates.map((tpl) => ({ ...tpl })),
+    templateUsage: { ...(state.store.templateUsage || {}) },
     favorites: (state.store.favorites || []).map((f) => ({ ...f })),
     important: (state.store.important || []).map((f) => ({ ...f })),
     appVersion: app.getVersion(),
@@ -1757,6 +1899,17 @@ function createWindow() {
         && String(input?.code || '') === 'KeyU') {
       event.preventDefault();
       sendToRenderer('host-next-unread-pressed');
+      return;
+    }
+    // F1 — справка. Без модификаторов; при фокусе в webview keydown до
+    // host-окна не доходит (на mac справки «не было» именно поэтому).
+    if (String(input?.key || '') === 'F1' && !input.meta && !input.control && !input.alt && !input.shift) {
+      event.preventDefault();
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('host-hotkey', { code: 'F1', shift: false });
+        }
+      } catch { /* ignore */ }
       return;
     }
     // Сквозные хоткеи: Cmd+1..9 / K / T / R / зум раньше умирали, как только
@@ -2475,7 +2628,14 @@ async function installMacDownloadedUpdate() {
     '  echo "[wadeck-update] APP_PATH missing after update — cannot relaunch"',
     'fi',
     'echo "[wadeck-update] done swapped=$SWAPPED $(date)"',
-    'rm -rf "$STAGING_DIR" "$OLD_DIR" "$ZIP_PATH"',
+    '# OLD_DIR стираем ТОЛЬКО если приложение на месте: при двойном сбое mv',
+    '# (rollback тоже не прошёл) там лежит единственная копия .app.',
+    'if [ -d "$APP_PATH" ]; then',
+    '  rm -rf "$OLD_DIR"',
+    'else',
+    '  echo "[wadeck-update] keeping $OLD_DIR — last app copy lives there"',
+    'fi',
+    'rm -rf "$STAGING_DIR" "$ZIP_PATH"',
     'rm -f "$0"',
     '',
   ].join('\n');
@@ -2790,6 +2950,10 @@ function registerIpc() {
       notificationsEnabled: normalizeBool(
         payload?.notificationsEnabled,
         normalizeBool(current.notificationsEnabled, DEFAULT_SETTINGS.notificationsEnabled),
+      ),
+      translateBatchEnabled: normalizeBool(
+        payload?.translateBatchEnabled,
+        normalizeBool(current.translateBatchEnabled, DEFAULT_SETTINGS.translateBatchEnabled),
       ),
       uiScene: (() => {
         const valid = ['night', 'day', 'rain', 'space', 'minimal'];
@@ -3327,65 +3491,67 @@ function registerIpc() {
     if (!/^[a-z-]{2,10}$/i.test(from) && from !== 'auto') return { ok: false, error: 'invalid_lang' };
     if (!/^[a-z-]{2,10}$/i.test(to)) return { ok: false, error: 'invalid_lang' };
     if (!text.trim()) return { ok: false, error: 'empty_text' };
-    // LRU: повторные фразы (типовые ответы на 20 аккаунтах) и ре-переводы
-    // видимых входящих после каждой перезагрузки webview — 0 мс вместо
-    // 150-400 мс HTTP. Перевод детерминирован, память копеечная.
+    // LRU: повторные фразы и ре-переводы после перезагрузки webview — 0 мс.
     const cacheKey = `${from}|${to}|${text}`;
     const cached = _translateCache.get(cacheKey);
     if (cached !== undefined) {
       _translateCache.delete(cacheKey);
       _translateCache.set(cacheKey, cached); // освежить позицию в LRU
-      return { ok: true, translated: cached };
+      return { ok: true, translated: cached, detected: '' };
     }
-    try {
-      const https = require('https');
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(from)}&tl=${encodeURIComponent(to)}&dt=t&q=${encodeURIComponent(text)}`;
-      const result = await new Promise((resolve, reject) => {
-        const req = https.get(url, (res) => {
-          if (res.statusCode !== 200) {
-            res.resume(); // drain so the socket can be freed
-            reject(new Error(`http_${res.statusCode}`));
-            return;
-          }
-          let data = '';
-          let bytes = 0;
-          res.on('data', (chunk) => {
-            bytes += chunk.length;
-            // Cap the buffered body so a hostile/hung endpoint can't grow
-            // main-process memory without bound.
-            if (bytes > 5 * 1024 * 1024) {
-              req.destroy(new Error('response_too_large'));
-              return;
-            }
-            data += chunk;
-          });
-          res.on('end', () => {
-            try {
-              const parsed = JSON.parse(data);
-              const translated = (parsed[0] || []).map((s) => s[0]).filter(Boolean).join('');
-              resolve(translated);
-            } catch (e) {
-              reject(new Error('parse_failed'));
-            }
-          });
-        });
-        // Without a timeout a stalled response leaves this IPC invoke pending
-        // forever (the renderer await never resolves).
-        req.setTimeout(10000, () => { req.destroy(new Error('timeout')); });
-        req.on('error', reject);
-      });
-      // Пустой результат не кэшируем: иначе разовый сбой (обрезанный ответ)
-      // навсегда отдавал бы пустой перевод для этой фразы.
-      if (result) {
-        _translateCache.set(cacheKey, result);
-        if (_translateCache.size > TRANSLATE_CACHE_MAX) {
-          _translateCache.delete(_translateCache.keys().next().value);
+
+    // Батч-путь: только автоперевод входящих (batch:true) и только при
+    // включённой настройке. Кнопка «Перевести» всегда идёт одиночным запросом
+    // без 120 мс ожидания.
+    const batchOk = payload?.batch === true
+      && state.store?.settings?.translateBatchEnabled !== false
+      && text.length <= 1500;
+    if (batchOk) {
+      return await new Promise((resolve) => {
+        const key = `${from}|${to}`;
+        let q = _trBatchQueues.get(key);
+        if (!q) {
+          q = { items: [], chars: 0, timer: null };
+          q.timer = setTimeout(() => { _flushTranslateBatch(key).catch(() => {}); }, TRANSLATE_BATCH_WAIT_MS);
+          _trBatchQueues.set(key, q);
         }
-      }
-      return { ok: true, translated: result };
+        q.items.push({ text, cacheKey, resolve });
+        q.chars += text.length;
+        if (q.items.length >= TRANSLATE_BATCH_MAX_ITEMS || q.chars > TRANSLATE_BATCH_MAX_CHARS) {
+          _flushTranslateBatch(key).catch(() => {});
+        }
+      });
+    }
+
+    try {
+      const r = await _translateFetchRetry(text, from, to);
+      // Пустой результат не кэшируем: иначе разовый сбой навсегда отдавал бы
+      // пустой перевод для этой фразы.
+      _translateCacheSet(cacheKey, r.translated);
+      return { ok: true, translated: r.translated, detected: r.detected };
     } catch (e) {
       return { ok: false, error: String(e?.message || 'translate_failed') };
     }
+  });
+
+  handle('template-used', async (_event, payload) => {
+    const title = String(payload?.title || '').trim().toLowerCase().slice(0, 120);
+    if (!title) return { ok: false };
+    if (!state.store.templateUsage || typeof state.store.templateUsage !== 'object') {
+      state.store.templateUsage = {};
+    }
+    const u = state.store.templateUsage;
+    const rec = u[title] || { c: 0, t: 0 };
+    rec.c = (Number(rec.c) || 0) + 1;
+    rec.t = Date.now();
+    u[title] = rec;
+    const keys = Object.keys(u);
+    if (keys.length > 500) {
+      keys.sort((a, b) => (u[a].t || 0) - (u[b].t || 0));
+      for (const k of keys.slice(0, keys.length - 500)) delete u[k];
+    }
+    saveStore().catch(() => {});
+    return { ok: true };
   });
 
   handle('cleanup-cache', async () => cleanupHttpCachesForAllAccounts());
@@ -3565,6 +3731,37 @@ function startPeriodicCacheCleanup() {
   }, CACHE_CLEANUP_INTERVAL_MS);
 }
 
+/* Уборка папки данных: аварийные копии store (.corrupt-*, .suspect) и
+ * хвосты атомарных записей (.tmp-*) старше 30 дней; остатки апдейтера в temp
+ * (wadeck-update-*) старше 3 дней. Живые файлы (.backup, .snap-* с ротацией 7)
+ * не трогаем. Best-effort, раз в запуск. */
+async function cleanupJunkFiles() {
+  const DAY = 24 * 3600 * 1000;
+  const now = Date.now();
+  try {
+    const dir = app.getPath('userData');
+    for (const f of await fs.readdir(dir)) {
+      if (!/\.corrupt-|\.suspect$|\.tmp-/.test(f)) continue;
+      const full = path.join(dir, f);
+      try {
+        const st = await fs.stat(full);
+        if (st.isFile() && now - st.mtimeMs > 30 * DAY) await fs.rm(full, { force: true });
+      } catch { /* ignore */ }
+    }
+  } catch (e) { console.warn('[junk-cleanup] userData:', e?.message || e); }
+  try {
+    const tmp = app.getPath('temp');
+    for (const f of await fs.readdir(tmp)) {
+      if (!/^wadeck-update-/.test(f)) continue;
+      const full = path.join(tmp, f);
+      try {
+        const st = await fs.stat(full);
+        if (now - st.mtimeMs > 3 * DAY) await fs.rm(full, { recursive: true, force: true });
+      } catch { /* ignore */ }
+    }
+  } catch (e) { console.warn('[junk-cleanup] temp:', e?.message || e); }
+}
+
 async function bootstrap() {
   if (process.platform === 'win32') {
     app.setAppUserModelId(APP_ID);
@@ -3602,6 +3799,7 @@ async function bootstrap() {
   startPeriodicCacheCleanup();
   setupPowerMonitor();
   cleanupOrphanPartitions().catch((err) => console.warn('[orphan-cleanup]', err?.message || err));
+  setTimeout(() => { cleanupJunkFiles().catch(() => {}); }, 60 * 1000);
 }
 
 // Keep-alive strategy lives at the top of this file (commandLine switches) and

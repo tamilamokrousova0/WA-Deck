@@ -23,7 +23,12 @@ function collectChatsFromSidebarScript(token) {
       const takeTitles = () => {
         const set = new Set();
         const items = Array.from(
-          document.querySelectorAll('#pane-side [role="listitem"], #pane-side [data-testid="cell-frame-container"], #pane-side [aria-selected]')
+          (function () {
+            let r = document.querySelectorAll('#pane-side [role="listitem"], #pane-side [data-testid="cell-frame-container"], #pane-side [aria-selected]');
+            if (!r.length) r = document.querySelectorAll('#pane-side [role="row"]');
+            if (!r.length) r = document.querySelectorAll('#pane-side [role="gridcell"], #pane-side [role="option"]');
+            return r;
+          })()
         );
         for (const item of items) {
           const byTitle = Array.from(

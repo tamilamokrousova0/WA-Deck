@@ -1,4 +1,3 @@
-import { crmChatBoundaryScript } from './webview-scripts/crm-chat-boundary.js';
 import { activeChatContactScript } from './webview-scripts/active-chat-contact.js';
 
   let state, els, setStatus, activeAccount, selectedWebview;
@@ -67,23 +66,6 @@ import { activeChatContactScript } from './webview-scripts/active-chat-contact.j
       payload.myInfo,
       '',
     ].join('\n');
-  }
-
-  async function updateCrmModalPosition() {
-    const webview = selectedWebview();
-    if (!webview || !els.crmModal || !els.appRoot) return;
-
-    let chatLeftInside = 0;
-    try {
-      chatLeftInside = Number(await webview.executeJavaScript(crmChatBoundaryScript(), true) || 0) || 0;
-    } catch {
-      chatLeftInside = 0;
-    }
-
-    const appRect = els.appRoot.getBoundingClientRect();
-    const webviewRect = webview.getBoundingClientRect();
-    const left = Math.max(12, Math.round(webviewRect.left - appRect.left + chatLeftInside + 10));
-    els.crmModal.style.setProperty('--crm-modal-left', `${left}px`);
   }
 
   async function getActiveChatContactName() {
@@ -169,12 +151,10 @@ import { activeChatContactScript } from './webview-scripts/active-chat-contact.j
     setCrmEditable(true);
     if (window.WaDeckFavoritesModule) window.WaDeckFavoritesModule.syncCrmToggle();
     if (window.WaDeckImportantModule) window.WaDeckImportantModule.syncCrmToggle();
-    await updateCrmModalPosition();
     els.crmModal.classList.remove('hidden');
     requestAnimationFrame(() => {
       autoResizeCrmTextarea(els.crmAbout);
       autoResizeCrmTextarea(els.crmMyInfo);
-      updateCrmModalPosition().catch(() => {});
     });
     if (response?.migrated) {
       setStatus('CRM: старый файл перенесён на правильный контакт');
@@ -190,6 +170,19 @@ import { activeChatContactScript } from './webview-scripts/active-chat-contact.j
   }
 
   function closeCrmModal() {
+    // Автосохранение: закрытие драуэра (крестик/Esc/тоггл) с несохранённой
+    // правкой тихо сохраняет её — набранная заметка больше не теряется.
+    // «Отмена» не задета: cancelCrmEdit сначала откатывает поля к снапшоту,
+    // так что diff здесь пустой и сохранения не происходит.
+    try {
+      if (state.crmEditable && _crmEditSnapshot) {
+        const curAbout = String(els.crmAbout?.value || '');
+        const curInfo = String(els.crmMyInfo?.value || '');
+        if (curAbout !== _crmEditSnapshot.about || curInfo !== _crmEditSnapshot.myInfo) {
+          saveCrmCard().catch(() => {});
+        }
+      }
+    } catch { /* закрытие важнее */ }
     setCrmEditable(false);
     // Synchronous hide — skip the `closeModalAnimated` path. The CRM drawer
     // has its own slide-in-only animation on the card; there's no matching
@@ -197,7 +190,6 @@ import { activeChatContactScript } from './webview-scripts/active-chat-contact.j
     // during which the toolbar toggle misread the state.
     els.crmModal.classList.remove('is-closing');
     els.crmModal.classList.add('hidden');
-    els.crmModal.style.removeProperty('--crm-modal-left');
   }
 
   function toggleCrmEdit() {
@@ -293,6 +285,5 @@ import { activeChatContactScript } from './webview-scripts/active-chat-contact.j
     copyCrmCard,
     addCrmNote,
     bindCrmAutoResize,
-    updateCrmModalPosition,
   };
   window.WaDeckCrmModule = WaDeckCrmModule;

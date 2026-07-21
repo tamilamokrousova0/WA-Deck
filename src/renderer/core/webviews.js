@@ -46,6 +46,42 @@ function noteAutoTranslateResult(ok) {
   }
 }
 
+/* ── Умный порядок слэш-шаблонов ─────────────────────────────────────────
+ * Учёт использования (title → {c: счётчик, t: последний раз}) живёт в store
+ * (persist через IPC template-used) и зеркалится в state.templateUsage. */
+function recordTemplateUsage(titleRaw) {
+  const title = String(titleRaw || '').trim();
+  if (!title) return;
+  state._lastTemplateTitle = title;
+  const key = title.toLowerCase();
+  if (!state.templateUsage || typeof state.templateUsage !== 'object') state.templateUsage = {};
+  const rec = state.templateUsage[key] || { c: 0, t: 0 };
+  rec.c = (Number(rec.c) || 0) + 1;
+  rec.t = Date.now();
+  state.templateUsage[key] = rec;
+  window.waDeck.templateUsed?.({ title }).catch(() => {});
+}
+
+/* Порядок «/»-списка: сначала шаблоны языка контакта (код в названии или
+ * категории: «1de», «NL_morning»), затем по частоте, затем по свежести,
+ * хвост — исходный порядок. */
+function sortTemplatesForChat(list, lang) {
+  const usage = state.templateUsage || {};
+  let langRe = null;
+  if (lang && /^[a-z]{2}/.test(lang)) {
+    const code = lang.slice(0, 2);
+    try { langRe = new RegExp('(^|[^a-z])' + code + '([^a-z]|$)', 'i'); } catch { langRe = null; }
+  }
+  return list
+    .map((tpl, i) => {
+      const u = usage[String(tpl.title || '').trim().toLowerCase()] || {};
+      const langHit = langRe && (langRe.test(tpl.title || '') || langRe.test(tpl.category || '')) ? 1 : 0;
+      return { tpl, i, langHit, c: Number(u.c) || 0, t: Number(u.t) || 0 };
+    })
+    .sort((a, b) => (b.langHit - a.langHit) || (b.c - a.c) || (b.t - a.t) || (a.i - b.i))
+    .map((x) => x.tpl);
+}
+
 function applyZoom(percent) {
   const clamped = Math.max(50, Math.min(150, Math.round(percent / 5) * 5));
   const wv = selectedWebview();
@@ -409,8 +445,11 @@ function ensureWebview(account) {
         const finish = (result) => {
           const ok = Boolean(result?.ok && result.translated);
           const escaped = ok ? escapeForJsSingleQuoted(result.translated) : '';
+          // detected — определённый язык источника: питает автоопределение
+          // языка контакта на guest-стороне (translator-bar).
+          const det = ok ? String(result.detected || '').replace(/[^a-z-]/gi, '').slice(0, 10) : '';
           const script = ok
-            ? `if (window.${cbName}) window.${cbName}({ ok: true, translated: '${escaped}' });`
+            ? `if (window.${cbName}) window.${cbName}({ ok: true, translated: '${escaped}', detected: '${det}' });`
             : `if (window.${cbName}) window.${cbName}({ ok: false });`;
           safeExecuteInWebview(webview, script);
           noteAutoTranslateResult(ok);
@@ -419,12 +458,12 @@ function ensureWebview(account) {
           text: String(payload.text || ''),
           from: String(payload.from || 'auto'),
           to: String(payload.to || 'ru'),
+          batch: true, // автоперевод входящих — батчится в main (если включено)
         }).then(finish).catch(() => finish({ ok: false }));
         return;
       }
       if (kind === 'TRANSLATE') {
-        // Только перевод — без автоотправки. Cmd/Ctrl+Enter переводит текст
-        // композера и ЗАМЕНЯЕТ его; отправку оператор делает вручную (Enter).
+        // Кнопка «Перевести»: перевод текста композера с заменой; отправка ручная.
         const replaceAll = Boolean(payload.replaceAll);
         window.waDeck.translateText(payload).then((result) => {
           if (!(result?.ok && result.translated)) {
@@ -444,18 +483,55 @@ function ensureWebview(account) {
         return;
       }
       if (kind === 'INSERT_TEMPLATE') {
+        recordTemplateUsage(String(payload.title || ''));
         nativeReplaceComposer(webview, String(payload.text || '')).catch(() => {});
+        return;
+      }
+      if (kind === 'REPEAT_LAST_TEMPLATE') {
+        // «//» в композере — повторить последний вставленный шаблон с
+        // подстановкой под текущий чат. Нет последнего — чистим «//» и тост.
+        (async () => {
+          const title = String(state._lastTemplateTitle || '');
+          const tpl = title
+            ? (state.templates || []).find((t) => String(t.title || '').trim() === title)
+            : null;
+          if (!tpl) {
+            await nativeReplaceComposer(webview, '');
+            showToast('Нет последнего шаблона — выберите через «/»', 'warn', 2500);
+            return;
+          }
+          let chatName = '';
+          try {
+            chatName = String(await webview.executeJavaScript(activeChatContactScript(), true) || '').trim();
+          } catch { /* {имя} останется как есть */ }
+          recordTemplateUsage(title);
+          await nativeReplaceComposer(webview, applyTemplateVariables(String(tpl.text || ''), chatName));
+        })().catch(() => {});
         return;
       }
       if (kind === 'GET_TEMPLATES') {
         const reqId = String(payload.reqId || '').replace(/[^a-zA-Z0-9_]/g, '');
         if (!reqId) return;
-        const list = (state.templates || []).map((tpl) => ({
-          title: String(tpl.title || ''),
-          text: String(tpl.text || ''),
-        }));
-        const escaped = escapeForJsSingleQuoted(JSON.stringify(list));
-        safeExecuteInWebview(webview, `if (window.__waDeckTplCb_${reqId}) window.__waDeckTplCb_${reqId}(JSON.parse('${escaped}'));`);
+        const chatName = String(payload.chatId || '');
+        (async () => {
+          // Умный порядок: шаблоны языка контакта первыми, затем по частоте
+          // использования; хвост — исходный порядок. Ноль нового UI.
+          let lang = '';
+          if (chatName) {
+            try {
+              const res = await window.waDeck.getContactLang({ accountId: acc.id, chatName });
+              if (res?.ok) lang = String(res.lang || '').replace(/[^a-z-]/gi, '').toLowerCase();
+            } catch { /* без языка — только частота */ }
+          }
+          const base = (state.templates || []).map((tpl) => ({
+            title: String(tpl.title || ''),
+            text: String(tpl.text || ''),
+            category: String(tpl.category || ''),
+          }));
+          const list = sortTemplatesForChat(base, lang);
+          const escaped = escapeForJsSingleQuoted(JSON.stringify(list));
+          safeExecuteInWebview(webview, `if (window.__waDeckTplCb_${reqId}) window.__waDeckTplCb_${reqId}(JSON.parse('${escaped}'));`);
+        })().catch(() => {});
         return;
       }
       if (kind === 'HEALTH') {
@@ -477,7 +553,7 @@ function ensureWebview(account) {
     // Fallback transport: console markers (__WADECK_X__<token>:<json>), used
     // by guest scripts when the session preload didn't run for this load.
     // Messages with a missing or foreign token are silently ignored.
-    const GUEST_KINDS = ['CRM_HOVER', 'GET_LANG', 'SET_LANG', 'GET_AUTO_TR', 'SET_AUTO_TR', 'TRANSLATE_MSG', 'TRANSLATE', 'GET_TEMPLATES', 'INSERT_TEMPLATE', 'HEALTH'];
+    const GUEST_KINDS = ['CRM_HOVER', 'GET_LANG', 'SET_LANG', 'GET_AUTO_TR', 'SET_AUTO_TR', 'TRANSLATE_MSG', 'TRANSLATE', 'GET_TEMPLATES', 'INSERT_TEMPLATE', 'REPEAT_LAST_TEMPLATE', 'HEALTH'];
     const GUEST_PREFIXES = GUEST_KINDS.map((kind) => [kind, `__WADECK_${kind}__${WADECK_WV_TOKEN}:`]);
     onConsoleMessage = (event) => {
       const message = String(event?.message || '');
@@ -719,7 +795,8 @@ async function sendWebviewInput(webview, event) {
    Используется слэш-шаблонами (guest шлёт INSERT_TEMPLATE с готовым текстом). */
 async function nativeReplaceComposer(webview, text) {
   const safeText = String(text || '');
-  if (!webview || !safeText || !isWebviewReady(webview)) return;
+  // Пустой text = только очистить композер (например, стереть «//»).
+  if (!webview || !isWebviewReady(webview)) return;
   try {
     const rect = await safeExecuteInWebview(webview, `(() => {
       const c = document.querySelector('footer div[contenteditable="true"][role="textbox"]')
@@ -729,11 +806,15 @@ async function nativeReplaceComposer(webview, text) {
       const r = c.getBoundingClientRect();
       return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), ok: r.width > 0 && r.height > 0 };
     })()`);
-    if (rect && rect.ok) {
-      await sendWebviewInput(webview, { type: 'mouseDown', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
-      await sendWebviewInput(webview, { type: 'mouseUp', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
-      await delay(20);
+    if (!rect || !rect.ok) {
+      // Композер не найден/невидим — НЕ шлём Cmd+A/Backspace вслепую: фокус
+      // может стоять в поиске чатов, и мы бы стёрли его содержимое.
+      console.warn('[insert-template] composer rect not found — insert skipped');
+      return;
     }
+    await sendWebviewInput(webview, { type: 'mouseDown', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
+    await sendWebviewInput(webview, { type: 'mouseUp', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
+    await delay(20);
     const mod = (navigator.platform || '').includes('Mac') ? 'meta' : 'control';
     await sendWebviewInput(webview, { type: 'keyDown', keyCode: 'a', modifiers: [mod] });
     await sendWebviewInput(webview, { type: 'keyUp', keyCode: 'a', modifiers: [mod] });
@@ -742,7 +823,7 @@ async function nativeReplaceComposer(webview, text) {
     await sendWebviewInput(webview, { type: 'keyUp', keyCode: 'Backspace' });
     await delay(30);
     // Поле теперь пустое — вставляем проверенным путём (execCommand insertText)
-    await safeExecuteInWebview(webview, insertTextScript(safeText));
+    if (safeText) await safeExecuteInWebview(webview, insertTextScript(safeText));
   } catch (e) {
     console.warn('[insert-template]', e);
   }

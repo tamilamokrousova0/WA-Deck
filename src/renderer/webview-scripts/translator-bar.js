@@ -54,6 +54,26 @@ function translatorBarScript(token) {
     let autoTranslate = false;
     let outgoingFrom = 'auto';
     let outgoingTo = 'en';
+    // Автоопределение языка контакта: host теперь возвращает detected из
+    // ответа переводчика. Копим по чату; 2 совпадения подряд при ОТСУТСТВИИ
+    // сохранённого языка — выставляем направление исходящих и персистим.
+    let contactLangKnown = false;      // у чата есть явно сохранённый язык
+    let langGuess = { chat: '', counts: {} };
+
+    function noteDetectedLang(det) {
+      const code = String(det || '').toLowerCase().slice(0, 5);
+      if (!code || code === 'ru' || code === INCOMING_TARGET) return;
+      if (!TARGET_LANGS.some((l) => l.code === code)) return;
+      const chat = currentChatId;
+      if (!chat || chat === '__unknown_chat__' || contactLangKnown) return;
+      if (langGuess.chat !== chat) langGuess = { chat: chat, counts: {} };
+      langGuess.counts[code] = (langGuess.counts[code] || 0) + 1;
+      if (langGuess.counts[code] >= 2 && outgoingTo !== code) {
+        applyOutgoingTo(code);
+        saveContactLang(chat, code);
+        contactLangKnown = true;
+      }
+    }
     let dropdownOpen = null;
     let currentChatId = '';
     let barHiddenByUser = false;
@@ -120,14 +140,11 @@ function translatorBarScript(token) {
     function createBar() {
       bar = document.createElement('div');
       bar.id = '__wadeck-translator-bar';
-      // Стартует свёрнутым (max-height:0) и плавно раскрывается — без резкого
-      // скачка поля ввода при появлении. min-height НЕ ставим (конфликтует с
-      // max-height:0), высоту держат контент+padding.
       bar.style.cssText = [
-        'display:flex',
+        'display:none',
         'align-items:center',
         'gap:10px',
-        'padding:0 14px',
+        'padding:7px 14px',
         'background:#eff6e4',
         'border-bottom:1px solid #d8e4c6',
         'font-family:Avenir Next,Segoe UI,system-ui,sans-serif',
@@ -135,11 +152,9 @@ function translatorBarScript(token) {
         'color:#1a2030',
         'position:relative',
         'z-index:50',
-        'max-height:0',
-        'opacity:0',
-        'overflow:hidden',
+        'min-height:40px',
         'box-sizing:border-box',
-        'transition:max-height 0.22s ease, opacity 0.2s ease, padding-top 0.22s ease, padding-bottom 0.22s ease',
+        'transition:opacity 0.2s ease',
       ].join(';');
 
       const globe = document.createElement('span');
@@ -400,7 +415,7 @@ function translatorBarScript(token) {
         item.addEventListener('click', (e) => {
           e.stopPropagation();
           if (isFrom) outgoingFrom = lang.code;
-          else { outgoingTo = lang.code; saveContactLang(currentChatId, lang.code); }
+          else { outgoingTo = lang.code; contactLangKnown = true; saveContactLang(currentChatId, lang.code); }
           btn.textContent = lang.label;
           closeDropdowns();
           // Outgoing dropdowns do NOT affect incoming overlays — they are
@@ -443,34 +458,19 @@ function translatorBarScript(token) {
       return String(composer.innerText || composer.textContent || '').trim();
     }
 
-    /* wholeComposer=true — режим Cmd+Enter: перевести ВЕСЬ композер и заменить
-       текст (без отправки). Кнопка бара: перевести выделение, иначе — весь
-       композер, тоже с заменой. Отправку оператор делает вручную. */
-    function doTranslate(wholeComposer) {
-      const text = wholeComposer ? getComposerText() : (getSelectedText() || getComposerText());
+    /* Кнопка «Перевести»: переводит выделение, а если ничего не выделено — весь
+       композер, с заменой текста. Отправку оператор делает вручную. */
+    function doTranslate() {
+      const text = getSelectedText() || getComposerText();
       if (!text) return;
       __waDeckEmit('TRANSLATE', JSON.stringify({
         text: text,
         from: outgoingFrom,
         to: outgoingTo,
-        // Замена всего текста, если переводим весь композер или ничего не выделено
-        replaceAll: Boolean(wholeComposer) || !getSelectedText(),
+        // Замена всего текста, если ничего не выделено (переводим весь композер)
+        replaceAll: !getSelectedText(),
       }));
     }
-
-    // Cmd/Ctrl+Enter в композере = «перевести» (без отправки). На window, не на
-    // document: window-capture срабатывает раньше document-capture Lexical'а.
-    // Строго с модификатором и без Shift/Alt — обычный Enter не трогаем.
-    window.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
-      const composer = getComposer();
-      // contains(self) === true, так что это покрывает и фокус на самом композере
-      if (!composer || !composer.contains(document.activeElement)) return;
-      if (!getComposerText()) return;
-      e.preventDefault();
-      e.stopPropagation();
-      doTranslate(true);
-    }, true);
 
     window.__waDeckInsertTranslation = function (translated, replaceAll) {
       if (!translated) return false;
@@ -516,33 +516,36 @@ function translatorBarScript(token) {
       }
       if (!claimed && !isInserted()) {
         emitHealth({ script: 'translator-bar', ok: false, detail: 'insert_translation_failed' });
-        return false;
       }
-      // Хост в режиме «перевести и отправить» жмёт Enter только при true.
-      return isInserted();
     };
 
     // ========== Bar visibility ==========
-    // Плавное раскрытие/сворачивание по высоте (max-height + padding + opacity),
-    // а не мгновенный display-скачок — поле ввода не дёргается.
-    let barShown = false;
+    let hideBarTimer = null;
 
     function showBar() {
       if (!bar || !bar.isConnected) return;
-      barShown = true;
-      bar.style.maxHeight = '80px';
-      bar.style.opacity = '1';
-      bar.style.paddingTop = '7px';
-      bar.style.paddingBottom = '7px';
+      // Отменяем отложенное скрытие: showBar в 150мс-окне после hideBar
+      // (клик ✕ + мгновенная смена чата) иначе давал фликер.
+      if (hideBarTimer) { clearTimeout(hideBarTimer); hideBarTimer = null; }
+      if (bar.style.display === 'none') {
+        bar.style.display = 'flex';
+        bar.style.opacity = '0';
+        requestAnimationFrame(() => { bar.style.opacity = '1'; });
+      } else {
+        bar.style.opacity = '1';
+      }
     }
 
     function hideBar() {
       if (!bar || !bar.isConnected) return;
-      barShown = false;
-      bar.style.maxHeight = '0';
-      bar.style.opacity = '0';
-      bar.style.paddingTop = '0';
-      bar.style.paddingBottom = '0';
+      if (bar.style.display !== 'none') {
+        bar.style.opacity = '0';
+        if (hideBarTimer) clearTimeout(hideBarTimer);
+        hideBarTimer = setTimeout(() => {
+          hideBarTimer = null;
+          if (bar && bar.isConnected) bar.style.display = 'none';
+        }, 150);
+      }
     }
 
     document.addEventListener('click', () => {
@@ -828,6 +831,7 @@ function translatorBarScript(token) {
         // drop the response if the user already moved to another chat, or
         // B would inherit (and on next save persist) A's target language.
         if (currentChatId === chatId) {
+          contactLangKnown = Boolean(String(lang || '').trim());
           try { applyOutgoingTo(String(lang || '')); } catch {}
         }
         try { delete window[cbName]; } catch {}
@@ -886,6 +890,7 @@ function translatorBarScript(token) {
         // Populate the text cache even if the row got recycled meanwhile —
         // the next sweep finds the recreated node and reuses the result.
         textCacheSet(cacheKey, result.translated);
+        try { noteDetectedLang(result.detected); } catch {}
         if (!row.isConnected) return;
         translatedCache.set(row, { state: 'done', translated: result.translated });
         renderOverlay(row, result.translated);
@@ -976,9 +981,6 @@ function translatorBarScript(token) {
       if (!footer || !footer.parentElement) return false;
       createBar();
       footer.parentElement.insertBefore(bar, footer);
-      // Зафиксировать свёрнутое состояние (max-height:0) отдельным layout'ом,
-      // чтобы следующий showBar анимировал раскрытие, а не схлопнул его в кадр.
-      void bar.offsetHeight;
       return true;
     }
 
@@ -1017,6 +1019,8 @@ function translatorBarScript(token) {
       if (chatChanged) {
         currentChatId = next;
         barHiddenByUser = false;
+        contactLangKnown = false;
+        langGuess = { chat: next, counts: {} };
         // Clear translation cache and overlays when switching chats
         translatedCache = new WeakMap();
         clearAllOverlays();
@@ -1038,7 +1042,7 @@ function translatorBarScript(token) {
       if (!next) {
         if (chatEmptyTicks >= 5) {
           currentChatId = '';
-          if (bar && bar.isConnected && barShown) hideBar();
+          if (bar && bar.isConnected && bar.style.display !== 'none') hideBar();
         }
         return;
       }

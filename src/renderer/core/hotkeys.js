@@ -67,10 +67,6 @@ function handleEscapeUiReset() {
     WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(console.error);
     return true;
   }
-  if (isOpen(els.updateAvailableModal)) {
-    WaDeckAutoUpdateModule.closeUpdateModal();
-    return true;
-  }
   // 7. Inline template edit form (lives inside the settings panel)
   const tmplEditWrap = document.getElementById('tmpl-edit-wrap');
   if (!state.panelHidden && isOpen(tmplEditWrap)) {

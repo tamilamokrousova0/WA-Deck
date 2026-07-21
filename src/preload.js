@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('waDeck', {
   installDownloadedUpdate: () => ipcRenderer.invoke('install-downloaded-update'),
   openReleasesPage: () => ipcRenderer.invoke('open-releases-page'),
   translateText: (payload) => ipcRenderer.invoke('translate-text', payload),
+  templateUsed: (payload) => ipcRenderer.invoke('template-used', payload),
   cleanupCache: () => ipcRenderer.invoke('cleanup-cache'),
   onAutoUpdateStatus: (callback) => {
     if (typeof callback !== 'function') return () => {};

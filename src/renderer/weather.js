@@ -57,34 +57,7 @@
     els.weatherCity.textContent = safeCity;
     els.weatherIcon.textContent = icon || '🌙';
     els.weatherTemp.textContent = Number.isFinite(temperature) ? `${Math.round(temperature)}${weatherUnitSuffix(safeUnit)}` : `--${weatherUnitSuffix(safeUnit)}`;
-    if (els.weatherUnit) els.weatherUnit.textContent = safeUnit === 'fahrenheit' ? '°F' : '°C';
     els.weatherToggle?.classList.toggle('is-loading', Boolean(loading));
-  }
-
-  function setWeatherMeta(text) {
-    if (!els.weatherMeta) return;
-    els.weatherMeta.textContent = String(text || '').trim() || 'Погода не загружена';
-    els.weatherMeta.title = els.weatherMeta.textContent;
-  }
-
-  function closeWeatherPopover() {
-    if (!els.weatherPopover) return;
-    els.weatherPopover.classList.add('hidden');
-  }
-
-  function toggleWeatherPopover() {
-    if (!els.weatherPopover || !els.weatherCityInput) return;
-    const hidden = els.weatherPopover.classList.contains('hidden');
-    if (hidden) {
-      els.weatherCityInput.value = normalizeWeatherCity(state.settings?.weatherCity);
-      els.weatherPopover.classList.remove('hidden');
-      setTimeout(() => {
-        els.weatherCityInput?.focus();
-        els.weatherCityInput?.select();
-      }, 0);
-      return;
-    }
-    closeWeatherPopover();
   }
 
   async function fetchJsonWithTimeout(url, timeoutMs = 9000) {
@@ -143,7 +116,6 @@
     const city = normalizeWeatherCity(forceCity || state.settings?.weatherCity);
     const unit = normalizeWeatherUnit(state.settings?.weatherUnit);
     renderWeatherSummary({ city, unit, loading: true });
-    setWeatherMeta('Обновляю погоду...');
 
     try {
       const coords = await resolveWeatherCoords(city);
@@ -170,55 +142,13 @@
         loading: false,
       });
       const hhmm = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-      setWeatherMeta(`${weatherText} • обновлено ${hhmm}`);
     } catch (error) {
       if (gen !== _weatherGen) return; // a newer refresh owns the UI now
       renderWeatherSummary({ city, unit, loading: false });
       if (String(error?.message || '').includes('city_not_found')) {
-        setWeatherMeta('Город не найден');
       } else {
-        setWeatherMeta('Не удалось получить погоду');
       }
     }
-  }
-
-  async function saveWeatherSettings() {
-    const draftCity = normalizeWeatherCity(els.weatherCityInput?.value || state.settings?.weatherCity);
-    const draftUnit = normalizeWeatherUnit(state.settings?.weatherUnit);
-    const nextSettings = await window.waDeck.saveSettings({
-      weatherCity: draftCity,
-      weatherUnit: draftUnit,
-    });
-    state.settings = {
-      ...(state.settings || {}),
-      ...(nextSettings || {}),
-    };
-    renderWeatherSummary({
-      city: state.settings.weatherCity,
-      unit: state.settings.weatherUnit,
-      loading: false,
-    });
-    closeWeatherPopover();
-    await refreshWeather(state.settings.weatherCity);
-  }
-
-  async function toggleWeatherUnit() {
-    const nextUnit = normalizeWeatherUnit(state.settings?.weatherUnit) === 'celsius' ? 'fahrenheit' : 'celsius';
-    state.settings.weatherUnit = nextUnit;
-    renderWeatherSummary({
-      city: state.settings.weatherCity,
-      unit: nextUnit,
-      loading: false,
-    });
-    const nextSettings = await window.waDeck.saveSettings({
-      weatherUnit: nextUnit,
-      weatherCity: normalizeWeatherCity(state.settings?.weatherCity),
-    });
-    state.settings = {
-      ...(state.settings || {}),
-      ...(nextSettings || {}),
-    };
-    await refreshWeather(state.settings.weatherCity);
   }
 
   function startWeatherRefreshLoop() {
@@ -237,10 +167,6 @@
     normalizeWeatherCity,
     renderWeatherSummary,
     refreshWeather,
-    saveWeatherSettings,
-    toggleWeatherUnit,
     startWeatherRefreshLoop,
-    toggleWeatherPopover,
-    closeWeatherPopover,
   };
   window.WaDeckWeatherModule = WaDeckWeatherModule;

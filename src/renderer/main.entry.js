@@ -8,7 +8,6 @@ import './webview-scripts/collect-chats.js';
 import './webview-scripts/unread-count.js';
 import './webview-scripts/collect-unread-chats.js';
 import './webview-scripts/active-chat-contact.js';
-import './webview-scripts/crm-chat-boundary.js';
 import './webview-scripts/crm-hover-bridge.js';
 import './webview-scripts/insert-text.js';
 import './webview-scripts/voice-message.js';

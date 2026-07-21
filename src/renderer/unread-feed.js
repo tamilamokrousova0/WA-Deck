@@ -128,16 +128,16 @@ import { updateHubDashboard, updateHubFilters } from './core/hub.js';
     for (const [key, until] of _suppressed) {
       if (until <= now) _suppressed.delete(key);
     }
+    // Порядок = порядок аккаунтов в левой панели (по фидбэку); внутри
+    // аккаунта — по счётчику. state.accounts уже в порядке сайдбара.
+    const orderIdx = new Map((state?.accounts || []).map((a, i) => [a.id, i]));
     _rows = settled.flat()
       .filter((r) => !_suppressed.has(r.accountId + '::' + r.name.toLowerCase()))
       .map((r) => ({
         ...r,
-        // Важные/избранные выше болталок — та же формула приоритета, что у
-        // pin-feed, чтобы две поверхности не спорили о порядке.
-        _prio: (window.WaDeckImportantModule?.isImportant?.(r.accountId, r.name) ? 2 : 0)
-          + (window.WaDeckFavoritesModule?.isFavorite?.(r.accountId, r.name) ? 1 : 0),
+        _ord: orderIdx.has(r.accountId) ? orderIdx.get(r.accountId) : 999,
       }))
-      .sort((a, b) => (b._prio - a._prio) || (b.count - a.count));
+      .sort((a, b) => (a._ord - b._ord) || (b.count - a.count));
     _sleeping = sleeping;
     _lastScanAt = Date.now();
   }
@@ -258,7 +258,7 @@ import { updateHubDashboard, updateHubFilters } from './core/hub.js';
       _suppressed.delete(key);
       if (!_rows.some((r) => r.accountId === row.accountId && r.name === row.name)) {
         _rows.push(row);
-        _rows.sort((a, b) => ((b._prio || 0) - (a._prio || 0)) || (b.count - a.count));
+        _rows.sort((a, b) => ((a._ord ?? 999) - (b._ord ?? 999)) || (b.count - a.count));
       }
       render();
       showToast(`Чат «${row.name}» не открылся — откройте вручную`, 'error', 4000);

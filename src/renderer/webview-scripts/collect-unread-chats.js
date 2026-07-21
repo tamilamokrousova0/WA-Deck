@@ -13,7 +13,12 @@ function collectUnreadChatsScript() {
     const UNREAD_RE = /(непрочит|unread|non lus|nicht gelesen|ongelezen|non lett|no le[ií]d)/i;
     const pane = document.querySelector('#pane-side');
     if (!pane) return [];
-    const rows = Array.from(pane.querySelectorAll('[role="listitem"], [data-testid="cell-frame-container"]'));
+    // Каскад фолбэков: mid-2026 редизайн WA уже выкидывал стабильные хуки
+    // ([role], data-testid) — без запасных селекторов лента/избранные/важные
+    // умерли бы молча все разом.
+    let rows = Array.from(pane.querySelectorAll('[role="listitem"], [data-testid="cell-frame-container"]'));
+    if (!rows.length) rows = Array.from(pane.querySelectorAll('[role="row"]'));
+    if (!rows.length) rows = Array.from(pane.querySelectorAll('[role="gridcell"], [role="option"]'));
     const out = [];
     for (const item of rows) {
       /* unread badge: localized aria-label first, bare numeric badge fallback */

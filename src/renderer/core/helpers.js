@@ -219,6 +219,15 @@ function templateGreeting(date = new Date()) {
   return 'Доброй ночи';
 }
 
+/* Чистое имя для {имя}: контакты названы с кодами («Jan NL55», «Gerhard AT75»),
+ * а в сообщении нужен только «Jan». Срезаем хвостовой токен «буквы+цифры»;
+ * если после среза пусто — оставляем как было. */
+function cleanContactName(name) {
+  const n = String(name || '').trim();
+  const stripped = n.replace(/\s+[A-Za-zА-Яа-яЁё]{0,4}\d{1,4}$/u, '').trim();
+  return stripped || n;
+}
+
 function applyTemplateVariables(text, chatName) {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, '0');
@@ -227,7 +236,7 @@ function applyTemplateVariables(text, chatName) {
   out = out.replace(/\{приветствие\}/gi, templateGreeting(now));
   out = out.replace(/\{дата\}/gi, `${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()}`);
   out = out.replace(/\{время\}/gi, `${pad(now.getHours())}:${pad(now.getMinutes())}`);
-  const name = String(chatName || '').trim();
+  const name = cleanContactName(chatName);
   if (name) out = out.replace(/\{имя\}/gi, name);
   return out;
 }

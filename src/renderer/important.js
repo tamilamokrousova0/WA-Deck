@@ -42,12 +42,6 @@ import { showToast } from './core/helpers.js';
     return (state.important || []).some((f) => impKey(f.accountId, f.name) === key);
   }
 
-  function importantAccountIds() {
-    const set = new Set();
-    for (const f of state.important || []) set.add(f.accountId);
-    return set;
-  }
-
   /* Important contacts that currently have unread messages, in store order. */
   function unreadImportant() {
     return (state?.important || [])
@@ -242,7 +236,6 @@ import { showToast } from './core/helpers.js';
     renderImpStrip: render, // renderer calls this after renderAccounts — refresh the feed
     syncCrmToggle,
     isImportant,
-    importantAccountIds,
     onAccountRemoved,
     rescanSoon,
     listUnread,

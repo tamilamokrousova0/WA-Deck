@@ -263,16 +263,6 @@ function bindActions() {
     });
   }
 
-  /* Scroll-fade for panel body */
-  const panelBody = document.querySelector('.panel-body');
-  const scrollFade = document.querySelector('.panel-scroll-fade');
-  if (panelBody && scrollFade) {
-    panelBody.addEventListener('scroll', () => {
-      const atBottom = panelBody.scrollTop + panelBody.clientHeight >= panelBody.scrollHeight - 10;
-      scrollFade.classList.toggle('is-bottom', atBottom);
-    });
-  }
-
   /* Zoom controls */
   els.zoomSlider?.addEventListener('input', () => {
     applyZoom(Number(els.zoomSlider.value) || 100);
@@ -344,16 +334,6 @@ function bindActions() {
     if (state.panelHidden) openSettingsPanel();
     showSettingsSection('weather');
   });
-  els.weatherClose?.addEventListener('click', () => WaDeckWeatherModule.closeWeatherPopover());
-  els.weatherRefresh?.addEventListener('click', () => WaDeckWeatherModule.refreshWeather().catch(console.error));
-  els.weatherSave?.addEventListener('click', () => WaDeckWeatherModule.saveWeatherSettings().catch(console.error));
-  els.weatherUnit?.addEventListener('click', () => WaDeckWeatherModule.toggleWeatherUnit().catch(console.error));
-  els.weatherCityInput?.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      WaDeckWeatherModule.saveWeatherSettings().catch(console.error);
-    }
-  });
 
   els.settingTranslatorEnabled?.addEventListener('change', async (event) => {
     const enabled = !!event.target.checked;
@@ -382,6 +362,16 @@ function bindActions() {
     }
   });
 
+  els.settingBatchTranslate?.addEventListener('change', async (event) => {
+    const enabled = !!event.target.checked;
+    state.settings = { ...(state.settings || {}), translateBatchEnabled: enabled };
+    try {
+      await saveSettings();
+      setStatus(enabled ? 'Батч-перевод включён' : 'Батч-перевод отключён');
+    } catch {
+      setStatus('Не удалось сохранить настройку');
+    }
+  });
   els.settingNotificationsEnabled?.addEventListener('change', async (event) => {
     const enabled = !!event.target.checked;
     state.settings = { ...(state.settings || {}), notificationsEnabled: enabled };
@@ -468,20 +458,11 @@ function bindActions() {
       return;
     }
   });
-  document.addEventListener('click', (event) => {
-    if (!els.weatherWidget || !els.weatherPopover) return;
-    if (els.weatherPopover.classList.contains('hidden')) return;
-    if (els.weatherWidget.contains(event.target)) return;
-    WaDeckWeatherModule.closeWeatherPopover();
-  });
 
   els.saveSettings?.addEventListener('click', () => saveSettings().catch(console.error));
   els.closeReleaseNotes?.addEventListener('click', () => WaDeckAutoUpdateModule.closeReleaseNotesModal().catch(console.error));
 
   /* Update available modal buttons */
-  els.closeUpdateModal?.addEventListener('click', () => WaDeckAutoUpdateModule.closeUpdateModal());
-  els.updateDismissBtn?.addEventListener('click', () => WaDeckAutoUpdateModule.closeUpdateModal());
-  els.updateInstallBtn?.addEventListener('click', () => WaDeckAutoUpdateModule.installUpdate().catch(console.error));
   els.updateToastClose?.addEventListener('click', () => WaDeckAutoUpdateModule.closeUpdateToast());
   els.updateToastAction?.addEventListener('click', () => WaDeckAutoUpdateModule.installUpdate().catch(console.error));
 
@@ -499,9 +480,6 @@ function bindActions() {
   if (els.confirmClose) els.confirmClose.addEventListener('click', () => closeConfirm(false));
   els.confirmModal?.addEventListener('click', (e) => { if (e.target === els.confirmModal) closeConfirm(false); });
   window.addEventListener('resize', () => {
-    if (!els.crmModal.classList.contains('hidden')) {
-      WaDeckCrmModule.updateCrmModalPosition().catch(() => {});
-    }
     updateSidebarScrollControls();
   });
   els.pickAttachments?.addEventListener('click', () => WaDeckScheduleModule.pickAttachments().catch(console.error));

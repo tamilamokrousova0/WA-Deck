@@ -139,9 +139,6 @@ function applySettingsToForm(options = {}) {
   state.settings.weatherUnit = WaDeckWeatherModule.normalizeWeatherUnit(state.settings.weatherUnit);
   applyTheme(state.settings.uiTheme);
   applyTileMode(state.settings.uiTiles);
-  if (els.weatherCityInput) {
-    els.weatherCityInput.value = state.settings.weatherCity;
-  }
   if (els.settingTranslatorEnabled) {
     els.settingTranslatorEnabled.checked = isTranslatorEnabled();
   }
@@ -150,6 +147,9 @@ function applySettingsToForm(options = {}) {
   }
   if (els.settingNotificationsEnabled) {
     els.settingNotificationsEnabled.checked = state.settings?.notificationsEnabled !== false;
+  }
+  if (els.settingBatchTranslate) {
+    els.settingBatchTranslate.checked = state.settings?.translateBatchEnabled !== false;
   }
   if (els.settingHibernateMinutes) {
     els.settingHibernateMinutes.value = String(getHibernateMinutes());
@@ -187,11 +187,6 @@ function openSettingsPanel() {
   showSettingsMenu();
   refreshSettingsMenuSubtitles();
   refreshTweaksFabVisibility();
-  if (!els.crmModal.classList.contains('hidden')) {
-    setTimeout(() => {
-      WaDeckCrmModule.updateCrmModalPosition().catch(() => {});
-    }, 40);
-  }
 }
 
 function closeSettingsPanel() {
@@ -201,11 +196,6 @@ function closeSettingsPanel() {
   updatePanelVisibility();
   els.togglePanel?.classList.remove('is-active');
   refreshTweaksFabVisibility();
-  if (!els.crmModal.classList.contains('hidden')) {
-    setTimeout(() => {
-      WaDeckCrmModule.updateCrmModalPosition().catch(() => {});
-    }, 40);
-  }
 }
 
 /* ── Floating Tweaks widget: toggle / outside-click close ─────── */
@@ -590,12 +580,16 @@ async function saveSettings() {
     translatorEnabled: state.settings?.translatorEnabled !== false,
     crmHoverEnabled: state.settings?.crmHoverEnabled !== false,
     notificationsEnabled: state.settings?.notificationsEnabled !== false,
+    translateBatchEnabled: state.settings?.translateBatchEnabled !== false,
     uiTiles: normalizeTileMode(state.settings?.uiTiles),
     // Scene/density UI removed — stored values pass through unchanged.
     uiScene: String(state.settings?.uiScene || 'night'),
     uiDensity: String(state.settings?.uiDensity || 'cozy'),
     tweaksCollapsed: !!state.settings?.tweaksCollapsed,
     hibernateAfterMinutes: getHibernateMinutes(),
+    // Без этого поля per-account тумблер «Авто вх.» затирался каждым
+    // сохранением настроек (main берёт fallback current и пишет старое).
+    autoTranslateAccounts: state.settings?.autoTranslateAccounts || {},
   };
 
   try {

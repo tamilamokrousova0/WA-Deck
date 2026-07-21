@@ -72,7 +72,13 @@ function slashTemplatesScript(token) {
       out = out.replace(/\\{приветствие\\}/gi, greeting);
       out = out.replace(/\\{дата\\}/gi, pad(now.getDate()) + '.' + pad(now.getMonth() + 1) + '.' + now.getFullYear());
       out = out.replace(/\\{время\\}/gi, pad(now.getHours()) + ':' + pad(now.getMinutes()));
-      const name = getChatName();
+      // Чистое имя: срезаем хвостовой код контакта («Jan NL55» → «Jan»)
+      let name = getChatName();
+      name = (function (n) {
+        n = String(n || '').trim();
+        const st = n.replace(/\\s+[A-Za-zА-Яа-яЁё]{0,4}\\d{1,4}$/u, '').trim();
+        return st || n;
+      })(name);
       if (name) out = out.replace(/\\{имя\\}/gi, name);
       return out;
     }
@@ -95,7 +101,7 @@ function slashTemplatesScript(token) {
         templatesCacheAt = Date.now();
         onReady(templatesCache);
       };
-      __waDeckEmit('GET_TEMPLATES', JSON.stringify({ reqId: reqId }));
+      __waDeckEmit('GET_TEMPLATES', JSON.stringify({ reqId: reqId, chatId: getChatName() }));
     }
 
     function closePopup() {
@@ -119,7 +125,7 @@ function slashTemplatesScript(token) {
       // guest-execCommand('delete') его не чистит, и остаток команды («/de»)
       // прилипал к шаблону, а фолбэки плодили дубли. {имя}/{дата} уже
       // подставлены здесь (getChatName доступен только в странице).
-      __waDeckEmit('INSERT_TEMPLATE', JSON.stringify({ text: substituteVars(item.text) }));
+      __waDeckEmit('INSERT_TEMPLATE', JSON.stringify({ text: substituteVars(item.text), title: String(item.title || '') }));
     }
 
     function buildPopup() {
@@ -231,6 +237,8 @@ function slashTemplatesScript(token) {
       if (!composer || !(composer === e.target || composer.contains(e.target))) return;
       const q = composerSlashQuery();
       if (q === null) { closePopup(); return; }
+      // «//» — повторить последний вставленный шаблон (замену делает хост)
+      if (q === '/') { closePopup(); __waDeckEmit('REPEAT_LAST_TEMPLATE', '{}'); return; }
       openOrUpdate(q);
     }, true);
 
@@ -250,8 +258,7 @@ function slashTemplatesScript(token) {
         selIndex = Math.max(0, selIndex - 1);
         renderList();
       } else if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        // Только чистый Enter: Cmd/Ctrl+Enter принадлежит переводчику, иначе
-        // при открытом попапе он бы и переводил, и вставлял шаблон разом.
+        // Только чистый Enter — модификаторные комбо не наши.
         e.preventDefault(); e.stopImmediatePropagation();
         insertSelected();
       } else if (e.key === 'Escape') {

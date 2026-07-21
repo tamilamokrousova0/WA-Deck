@@ -43,12 +43,6 @@ import { showToast } from './core/helpers.js';
     return (state.favorites || []).some((f) => favKey(f.accountId, f.name) === key);
   }
 
-  function favoriteAccountIds() {
-    const set = new Set();
-    for (const f of state.favorites || []) set.add(f.accountId);
-    return set;
-  }
-
   /* Favorites that currently have unread messages, in store order. */
   function unreadFavorites() {
     return (state?.favorites || [])
@@ -255,7 +249,6 @@ import { showToast } from './core/helpers.js';
     renderFavStrip: render, // renderer calls this after renderAccounts — refresh the feed
     syncCrmToggle,
     isFavorite,
-    favoriteAccountIds,
     onAccountRemoved,
     rescanSoon,
     listUnread,

@@ -145,21 +145,6 @@ import { closeModalAnimated } from './core/helpers.js';
     hideUpdateToast();
   }
 
-  /* ── Update Available Popup ── */
-  // Модальный флоу обновления заменён компактным тостом (handleAutoUpdateStatus
-  // → toast). showUpdateModal/updateDownloadProgress/showUpdateReady/updateError
-  // удалены как мёртвый код; закрытие модалки оставлено для совместимости.
-
-  function closeUpdateModal() {
-    if (els.updateAvailableModal) {
-      if (typeof closeModalAnimated === 'function') {
-        closeModalAnimated(els.updateAvailableModal);
-      } else {
-        els.updateAvailableModal.classList.add('hidden');
-      }
-    }
-  }
-
   // Set when main returns 'mac_manual_required' (app runs from a DMG or a
   // translocated path and can't self-swap). The install buttons then turn
   // into "open GitHub Releases" actions.
@@ -174,7 +159,7 @@ import { closeModalAnimated } from './core/helpers.js';
       setStatus('Установка обновления недоступна');
       return;
     }
-    const buttons = [els.updateInstallBtn, els.updateToastAction].filter(Boolean);
+    const buttons = [els.updateToastAction].filter(Boolean);
     for (const b of buttons) { b.classList.add('is-busy'); b.disabled = true; }
     const result = await window.waDeck.installDownloadedUpdate().catch(() => null);
     if (!result?.ok) {
@@ -189,9 +174,6 @@ import { closeModalAnimated } from './core/helpers.js';
         }
         if (els.updateToastSub) {
           els.updateToastSub.textContent = 'Запустите приложение из папки Программы для автообновления';
-        }
-        if (els.updateStatusText) {
-          els.updateStatusText.textContent = 'Запустите приложение из папки Программы для автообновления';
         }
         return;
       }
@@ -325,7 +307,6 @@ import { closeModalAnimated } from './core/helpers.js';
     maybeShowReleaseNotes,
     closeReleaseNotesModal,
     requestManualUpdate,
-    closeUpdateModal,
     closeUpdateToast,
     installUpdate,
   };

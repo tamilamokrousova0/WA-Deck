@@ -128,6 +128,7 @@ async function init() {
     // при фокусе в композере WhatsApp) и доставляет сюда одним каналом.
     state.hostHotkeyUnsubscribe = window.waDeck.onHostHotkey(({ code }) => {
       const c = String(code || '');
+      if (c === 'F1') { window.WaDeckHelp?.toggle?.(); return; }
       const hostInputFocused = (() => {
         const a = document.activeElement;
         return Boolean(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable));
@@ -209,9 +210,18 @@ async function init() {
     translatorEnabled: boot.settings?.translatorEnabled !== false,
     crmHoverEnabled: boot.settings?.crmHoverEnabled !== false,
     notificationsEnabled: boot.settings?.notificationsEnabled !== false,
+    translateBatchEnabled: boot.settings?.translateBatchEnabled !== false,
     uiScene: String(boot.settings?.uiScene || 'night'),
     uiDensity: String(boot.settings?.uiDensity || 'cozy'),
     tweaksCollapsed: !!boot.settings?.tweaksCollapsed,
+    // Эти три поля НЕ переносились из boot → сбрасывались каждым запуском и
+    // первым же saveSettings затирались в store (гибернация «выключалась сама»,
+    // uiTiles слетал в raw, персист автоперевода был мёртв).
+    uiTiles: String(boot.settings?.uiTiles || 'raw'),
+    hibernateAfterMinutes: Number(boot.settings?.hibernateAfterMinutes) || 0,
+    autoTranslateAccounts: (boot.settings?.autoTranslateAccounts && typeof boot.settings.autoTranslateAccounts === 'object')
+      ? { ...boot.settings.autoTranslateAccounts }
+      : {},
     worldClocks: Array.isArray(boot.settings?.worldClocks) ? boot.settings.worldClocks : [
       { label: 'Москва', tz: 'Europe/Moscow' },
       { label: 'Киев', tz: 'Europe/Kiev' },
@@ -219,6 +229,7 @@ async function init() {
     ],
   };
   state.templates = Array.isArray(boot.templates) ? boot.templates.map((tpl) => ({ ...tpl })) : [];
+  state.templateUsage = (boot.templateUsage && typeof boot.templateUsage === 'object') ? { ...boot.templateUsage } : {};
   state.favorites = Array.isArray(boot.favorites) ? boot.favorites.map((f) => ({ ...f })) : [];
   state.important = Array.isArray(boot.important) ? boot.important.map((f) => ({ ...f })) : [];
   state.runtime = boot.runtime || {};

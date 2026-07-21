@@ -177,22 +177,6 @@
         <section id="webviews" class="webviews">
           <div id="hub-screen" class="hub-screen hidden" aria-hidden="true">
             <div id="hub-overlay" class="hub-overlay">
-              <div class="hub-icon-animated" aria-hidden="true">
-                <svg viewBox="0 0 80 80" width="56" height="56">
-                  <line class="hub-link hub-link-1" x1="40" y1="40" x2="18" y2="16" stroke="#5b9bd5" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
-                  <line class="hub-link hub-link-2" x1="40" y1="40" x2="64" y2="14" stroke="#5b9bd5" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
-                  <line class="hub-link hub-link-3" x1="40" y1="40" x2="12" y2="56" stroke="#5b9bd5" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
-                  <line class="hub-link hub-link-4" x1="40" y1="40" x2="68" y2="58" stroke="#5b9bd5" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
-                  <line class="hub-link hub-link-5" x1="40" y1="40" x2="40" y2="72" stroke="#5b9bd5" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
-                  <circle class="hub-node hub-node-center" cx="40" cy="40" r="10" fill="#2a6ef5"/>
-                  <circle class="hub-node hub-node-1" cx="18" cy="16" r="6" fill="#48b8d0"/>
-                  <circle class="hub-node hub-node-2" cx="64" cy="14" r="6" fill="#48b8d0"/>
-                  <circle class="hub-node hub-node-3" cx="12" cy="56" r="6" fill="#48b8d0"/>
-                  <circle class="hub-node hub-node-4" cx="68" cy="58" r="6" fill="#48b8d0"/>
-                  <circle class="hub-node hub-node-5" cx="40" cy="72" r="6" fill="#48b8d0"/>
-                  <circle class="hub-pulse" cx="40" cy="40" r="10" fill="none" stroke="#5ba8ff" stroke-width="1.5"/>
-                </svg>
-              </div>
               <div id="hub-greeting" class="hub-greeting"></div>
               <div id="hub-title" class="hub-title">WA Deck</div>
               <div id="hub-clocks" class="hub-clocks"></div>
@@ -358,6 +342,16 @@
             </span>
             <span class="toggle-switch">
               <input id="setting-translator-enabled" type="checkbox" />
+              <span class="toggle-switch-track"><span class="toggle-switch-thumb"></span></span>
+            </span>
+          </label>
+          <label class="toggle-row">
+            <span class="toggle-row-text">
+              <span class="toggle-row-title">Батч-перевод входящих</span>
+              <span class="toggle-row-hint">Переводить пачку видимых сообщений одним запросом — быстрее и экономит лимит. Отключите, если переводы стали путаться между сообщениями.</span>
+            </span>
+            <span class="toggle-switch">
+              <input id="setting-batch-translate" type="checkbox" />
               <span class="toggle-switch-track"><span class="toggle-switch-thumb"></span></span>
             </span>
           </label>
@@ -560,7 +554,6 @@
         </div>
         </div>
 
-        <div class="panel-scroll-fade"></div>
       </aside>
 
     </div>
@@ -675,32 +668,6 @@
       <button type="button" id="update-toast-close" class="update-toast-close" title="Скрыть" aria-label="Скрыть">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
       </button>
-    </div>
-
-    <div id="update-available-modal" class="modal hidden">
-      <div class="modal-card modal-card-update">
-        <button type="button" id="close-update-modal" class="btn-close-round" title="Закрыть">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-        </button>
-        <div class="update-hero">
-          <div class="update-icon-circle">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2L12 16M12 16L7 11M12 16L17 11"/>
-              <path d="M4 20h16"/>
-            </svg>
-          </div>
-          <h3 class="update-title">Доступно обновление</h3>
-          <div id="update-version-text" class="update-version"></div>
-        </div>
-        <div id="update-progress-bar" class="update-progress hidden">
-          <div id="update-progress-fill" class="update-progress-fill"></div>
-        </div>
-        <div id="update-status-text" class="update-status"></div>
-        <div class="update-modal-actions">
-          <button type="button" id="update-install-btn" class="btn btn-primary full hidden">Установить и перезапустить</button>
-          <button type="button" id="update-dismiss-btn" class="btn full">Позже</button>
-        </div>
-      </div>
     </div>
 
     <div id="release-notes-modal" class="modal hidden">

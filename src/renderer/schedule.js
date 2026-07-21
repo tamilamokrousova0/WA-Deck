@@ -1310,19 +1310,13 @@ import { collectChatsFromSidebarScript } from './webview-scripts/collect-chats.j
     setTimeout(() => processDueSchedules().catch((e) => console.warn('[schedule]', e)), 5000);
   }
 
-  function getScheduleTarget() {
-    return { ...state.scheduleTarget };
-  }
-
   export const WaDeckScheduleModule = {
     init,
     cancelScheduleEditMode,
     renderScheduleTarget,
     refreshPickerChats,
-    fetchChatsForAccount,
     openChatPicker,
     closeChatPicker,
-    getScheduleTarget,
     renderAttachmentsDraft,
     renderScheduled,
     pickAttachments,
